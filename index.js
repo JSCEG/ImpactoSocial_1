@@ -25,12 +25,28 @@ function showAlert(message, type = 'info', timeoutMs = 4000) {
     }, timeoutMs);
 }
 
+// Utilidad: ocultar el preloader de forma robusta con transición
+function hidePreloader() {
+    const pre = document.getElementById('preloader');
+    if (!pre) return;
+    if (pre.style.display === 'none') return;
+    pre.classList.add('preloader-hide');
+    // tras la transición, elimínalo del flujo
+    setTimeout(() => {
+        pre.style.display = 'none';
+        if (typeof map !== 'undefined' && map) setTimeout(() => map.invalidateSize(), 100);
+    }, 350);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     map = L.map("map").setView([24.1, -102], 6);
 
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    const base = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-    }).addTo(map);
+    })
+        // Cuando cargan los primeros mosaicos, ocultamos el preloader
+        .on('load', hidePreloader)
+        .addTo(map);
 
     const localitiesUrl = 'https://cdn.sassoapps.com/Gabvy/localidades_4326.geojson';
 
@@ -91,7 +107,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function processKmlFile(file) {
         const reader = new FileReader();
-        reader.onload = function(e) {
+        reader.onload = function (e) {
             try {
                 const kmlText = e.target.result;
                 const kmlDom = new DOMParser().parseFromString(kmlText, 'text/xml');
@@ -162,7 +178,7 @@ document.addEventListener('DOMContentLoaded', () => {
         for (const loc of localitiesData.features) {
             if (turf.booleanIntersects(loc.geometry, clipArea.geometry)) {
                 clipped.push(loc);
-    }
+            }
         }
 
         if (clipped.length > 0) {
@@ -201,7 +217,7 @@ document.addEventListener('DOMContentLoaded', () => {
     uploadKmlBtn.addEventListener('click', () => {
         const file = kmlFileInput.files[0];
         if (file) processKmlFile(file);
-        else alert('Selecciona un archivo KML.');
+        else showAlert('Selecciona un archivo KML.', 'info');
     });
 
     performClipBtn.addEventListener('click', performClipping);
@@ -210,10 +226,8 @@ document.addEventListener('DOMContentLoaded', () => {
         showAlert('Mapa limpiado.', 'info');
     });
 
-    // Ocultar preloader cuando la app esté lista (una vez mapa y primer fetch iniciados)
-    window.addEventListener('load', () => {
-        const pre = document.getElementById('preloader');
-        if (pre) pre.style.display = 'none';
-        setTimeout(() => map.invalidateSize(), 100);
-    });
+    // Ocultar preloader cuando la ventana termina de cargar (y fallback por si algo tarda)
+    window.addEventListener('load', hidePreloader);
+    // Fallback adicional por si algún recurso externo retrasa 'load'
+    setTimeout(hidePreloader, 3500);
 });

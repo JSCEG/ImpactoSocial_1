@@ -16,30 +16,86 @@
 }
 
 /* Ajustes de Bootstrap por paleta */
-.bg-primary { background-color: var(--primary) !important; }
-.navbar-dark .navbar-brand, .navbar-dark .navbar-nav .nav-link { color: #fff; }
-.btn-primary { background-color: var(--primary); border-color: var(--primary-600); }
-.btn-primary:hover { background-color: var(--primary-600); border-color: var(--primary-600); }
-.btn-success { background-color: var(--secondary); border-color: var(--secondary); }
-.btn-outline-danger { border-color: #dc3545; color: #dc3545; }
-.btn-outline-danger:hover { background: #dc3545; color: #fff; }
+.bg-primary {
+    background-color: var(--primary) !important;
+}
 
-.bg-body { background-color: var(--muted); }
+.navbar-dark .navbar-brand,
+.navbar-dark .navbar-nav .nav-link {
+    color: #fff;
+}
+
+.btn-primary {
+    background-color: var(--primary);
+    border-color: var(--primary-600);
+}
+
+.btn-primary:hover {
+    background-color: var(--primary-600);
+    border-color: var(--primary-600);
+}
+
+.btn-success {
+    background-color: var(--secondary);
+    border-color: var(--secondary);
+}
+
+.btn-outline-danger {
+    border-color: #dc3545;
+    color: #dc3545;
+}
+
+.btn-outline-danger:hover {
+    background: #dc3545;
+    color: #fff;
+}
+
+.bg-body {
+    background-color: var(--muted);
+}
 
 /* Mapa responsive: ocupa alto adecuado en móvil y crece en escritorio */
 #map {
     width: 100%;
-    height: 60vh;         /* Móvil: 60% de la ventana */
-    min-height: 360px;    /* Alto mínimo razonable */
+    height: 60vh;
+    /* Móvil: 60% de la ventana */
+    min-height: 360px;
+    /* Alto mínimo razonable */
     border-radius: .5rem;
 }
 
 @media (min-width: 992px) {
-    #map { height: calc(100vh - 220px); }
+    #map {
+        height: calc(100vh - 220px);
+    }
 }
 
 /* Panel de lista CVEGEO */
-#cvegeoList { max-height: 240px; overflow-y: auto; }
-#cvegeoList ul { list-style: none; padding-left: 1rem; }
-#cvegeoList li { padding: .25rem 0; border-bottom: 1px dashed #ddd; }
-#cvegeoList li:last-child { border-bottom: none; }
+#cvegeoList {
+    max-height: 240px;
+    overflow-y: auto;
+}
+
+#cvegeoList ul {
+    list-style: none;
+    padding-left: 1rem;
+}
+
+#cvegeoList li {
+    padding: .25rem 0;
+    border-bottom: 1px dashed #ddd;
+}
+
+#cvegeoList li:last-child {
+    border-bottom: none;
+}
+
+/* Transición para ocultar preloader de forma suave */
+#preloader {
+    opacity: 1;
+    transition: opacity .3s ease;
+}
+
+.preloader-hide {
+    opacity: 0;
+}
