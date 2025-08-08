@@ -112,11 +112,23 @@ function updateProgress(percent, message) {
 
 // Nota: el preloader está oculto por defecto; se muestra sólo en procesos largos (p.ej. recorte)
 
-document.addEventListener('DOMContentLoaded', () => {
+function initApp() {
     try {
         // Garantizar que el preloader no bloquee la vista al iniciar
         hidePreloader();
         map = L.map("map").setView([24.1, -102], 6);
+
+        // Asegurar que el mapa calcule tamaño tras cargar CSS (loader asíncrono)
+        (function ensureMapSized(attempt = 0) {
+            if (!map) return;
+            const el = document.getElementById('map');
+            const ready = el && el.clientHeight > 40;
+            map.invalidateSize();
+            if (!ready && attempt < 10) {
+                setTimeout(() => ensureMapSized(attempt + 1), 150);
+            }
+        })();
+        window.addEventListener('load', () => setTimeout(() => map && map.invalidateSize(), 100));
 
         const base = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -184,6 +196,18 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
+        function goToFeatureRef(ref) {
+            if (!ref) return;
+            if (ref.bounds && ref.bounds.isValid()) {
+                const center = ref.bounds.getCenter();
+                const targetZoom = Math.min(map.getBoundsZoom(ref.bounds, true), 15);
+                map.setView(center, targetZoom, { animate: true, duration: 0.6 });
+            } else if (ref.latlng) {
+                const z = Math.max(map.getZoom(), 13);
+                map.setView(ref.latlng, z, { animate: true, duration: 0.6 });
+            }
+        }
+
         function displayCvegeoList(features, colorsById) {
             if (features.length === 0) {
                 cvegeoListDiv.innerHTML = '<p>No se encontraron localidades dentro del área.</p>';
@@ -215,11 +239,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const ref = featureLayersById.get(id);
                     if (!ref) return;
                     setActiveListItem(id);
-                    if (ref.bounds && ref.bounds.isValid()) {
-                        map.fitBounds(ref.bounds.pad(0.25), { animate: true, duration: 0.5, maxZoom: 14 });
-                    } else if (ref.latlng) {
-                        map.panTo(ref.latlng, { animate: true, duration: 0.5 });
-                    }
+                    goToFeatureRef(ref);
                     if (ref.layer && ref.layer.openPopup) {
                         ref.layer.openPopup();
                     }
@@ -396,16 +416,10 @@ document.addEventListener('DOMContentLoaded', () => {
                             layer.on('click', () => {
                                 const id = feature.properties?.CVEGEO;
                                 if (id) setActiveListItem(id);
-                                if (layer.getBounds) {
-                                    const b = layer.getBounds();
-                                    if (b && b.isValid()) {
-                                        map.fitBounds(b.pad(0.25), { animate: true, duration: 0.5, maxZoom: 14 });
-                                        return;
-                                    }
-                                }
-                                if (layer.getLatLng) {
-                                    map.panTo(layer.getLatLng(), { animate: true, duration: 0.5 });
-                                }
+                                const ref = featureLayersById.get(id) || (layer.getBounds
+                                    ? { bounds: layer.getBounds(), layer }
+                                    : layer.getLatLng ? { latlng: layer.getLatLng(), layer } : null);
+                                goToFeatureRef(ref);
                                 if (layer.openPopup) layer.openPopup();
                             });
                         }
@@ -516,7 +530,14 @@ document.addEventListener('DOMContentLoaded', () => {
         showAlert('Ocurrió un error inicializando la aplicación.', 'danger', 7000);
         hidePreloader();
     }
-});
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initApp);
+} else {
+    // DOM ya listo
+    initApp();
+}
 
 // Failsafes adicionales: si por alguna razón sigue visible, ocultarlo cuando termine de cargar todo
 window.addEventListener('load', () => {
