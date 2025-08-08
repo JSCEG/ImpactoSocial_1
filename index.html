@@ -105,14 +105,19 @@
                                     aria-labelledby="headingKml" data-bs-parent="#controlsAccordion">
                                     <div class="accordion-body">
                                         <label for="kmlFile" class="form-label">Selecciona archivo KML</label>
-                                        <input type="file" id="kmlFile" accept=".kml,.kmz" class="form-control mb-2" 
-                                               aria-describedby="kmlHelp">
+                                        <input type="file" id="kmlFile" accept=".kml,.kmz" class="form-control mb-2"
+                                            aria-describedby="kmlHelp">
                                         <div id="kmlHelp" class="form-text mb-2">
-                                            <small>El archivo debe contener un polígono válido que defina el área de interés.</small>
+                                            <small>El archivo debe contener un polígono válido que defina el área de
+                                                interés.</small>
                                         </div>
                                         <button id="uploadKmlBtn" class="btn btn-primary w-100" disabled
-                                                title="Cargar y visualizar el archivo KML seleccionado">
+                                            title="Cargar y visualizar el archivo KML seleccionado">
                                             <i class="bi bi-upload me-1"></i>Subir KML
+                                        </button>
+                                        <button id="centerKmlBtn" class="btn btn-outline-secondary w-100 mt-2" disabled
+                                            title="Centrar el mapa en el área del KML cargado">
+                                            <i class="bi bi-crosshair me-1"></i>Centrar en KML
                                         </button>
                                     </div>
                                 </div>
@@ -135,14 +140,15 @@
                                             <option value="indirecta">Área de influencia indirecta</option>
                                         </select>
                                         <div id="areaHelp" class="form-text mb-2">
-                                            <small>El área núcleo incluye un buffer adicional de 500 metros alrededor del polígono.</small>
+                                            <small>El área núcleo incluye un buffer adicional de 500 metros alrededor
+                                                del polígono.</small>
                                         </div>
                                         <button id="performClipBtn" class="btn btn-success w-100" disabled
-                                                title="Iniciar el análisis geoespacial con el área seleccionada">
+                                            title="Iniciar el análisis geoespacial con el área seleccionada">
                                             <i class="bi bi-scissors me-1"></i>Realizar Recorte
                                         </button>
                                         <button id="resetViewBtn" class="btn btn-outline-secondary w-100 mt-2" disabled
-                                                title="Volver a la vista del área de resultados">
+                                            title="Volver a la vista del área de resultados">
                                             <i class="bi bi-arrow-clockwise me-1"></i>Restaurar vista del área
                                         </button>
                                     </div>
@@ -187,11 +193,12 @@
                                     aria-labelledby="headingClear" data-bs-parent="#controlsAccordion">
                                     <div class="accordion-body">
                                         <button id="clearMap" class="btn btn-outline-danger w-100"
-                                                title="Eliminar todas las capas del mapa y reiniciar la aplicación">
+                                            title="Eliminar todas las capas del mapa y reiniciar la aplicación">
                                             <i class="bi bi-trash me-1"></i>Limpiar Todo
                                         </button>
                                         <div class="form-text mt-2">
-                                            <small>Esta acción eliminará todas las capas del mapa y permitirá comenzar con un nuevo análisis.</small>
+                                            <small>Esta acción eliminará todas las capas del mapa y permitirá comenzar
+                                                con un nuevo análisis.</small>
                                         </div>
                                     </div>
                                 </div>
@@ -263,6 +270,25 @@
     <!-- Bootstrap JS (componentes como navbar/accordion) -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <!-- Lógica de la app se inyecta vía loader con versión (ver APP_VERSION en <head>) -->
+
+    <!-- Modal genérico para avisos (usado en recorte) -->
+    <div class="modal fade" id="appModal" tabindex="-1" aria-labelledby="appModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="appModalLabel">Aviso</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body" id="appModalBody">Mensaje</div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" id="appModalCancelBtn" data-bs-dismiss="modal"
+                        style="display:none">Cancelar</button>
+                    <button type="button" class="btn btn-primary" id="appModalOkBtn"
+                        data-bs-dismiss="modal">Aceptar</button>
+                </div>
+            </div>
+        </div>
+    </div>
 </body>
 
 </html>
