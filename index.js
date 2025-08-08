@@ -5,6 +5,35 @@ let kmlLayer = null;
 let bufferLayer = null;
 let clippedLocalitiesLayer = null;
 let kmlGeoJson = null;
+let labelLayer = null;
+
+// Garantizar disponibilidad de Turf en tiempo de ejecución (fallback si CDN falla)
+function loadScript(url) {
+    return new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = url;
+        s.async = true;
+        s.onload = () => resolve();
+        s.onerror = () => reject(new Error('No se pudo cargar ' + url));
+        document.head.appendChild(s);
+    });
+}
+
+async function ensureTurf() {
+    // Si ya existe, úsalo
+    if (window.turf) return window.turf;
+    const cdns = [
+        'https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js',
+        'https://unpkg.com/@turf/turf@6/turf.min.js'
+    ];
+    for (const url of cdns) {
+        try {
+            await loadScript(url);
+            if (window.turf) return window.turf;
+        } catch (_) { /* probar siguiente */ }
+    }
+    throw new Error('Turf no disponible');
+}
 
 // Utilidad: mostrar alertas Bootstrap de forma centralizada
 function showAlert(message, type = 'info', timeoutMs = 4000) {
@@ -104,16 +133,24 @@ document.addEventListener('DOMContentLoaded', () => {
             if (kmlLayer) map.removeLayer(kmlLayer);
             if (bufferLayer) map.removeLayer(bufferLayer);
             if (clippedLocalitiesLayer) map.removeLayer(clippedLocalitiesLayer);
+            if (labelLayer) map.removeLayer(labelLayer);
             kmlLayer = null;
             bufferLayer = null;
             clippedLocalitiesLayer = null;
+            labelLayer = null;
             kmlGeoJson = null;
             cvegeoListDiv.innerHTML = '<p class="mb-0 text-muted">Sube un KML y realiza el recorte para ver la lista.</p>';
             uploadKmlBtn.disabled = true;
             performClipBtn.disabled = true;
+            const badge = document.getElementById('foundCountBadge');
+            if (badge) badge.textContent = '0';
+            const totalFound = document.getElementById('totalFound');
+            if (totalFound) totalFound.textContent = '0';
+            const currentCriteria = document.getElementById('currentCriteria');
+            if (currentCriteria) currentCriteria.textContent = '—';
         }
 
-        function displayCvegeoList(features) {
+        function displayCvegeoList(features, colorsById) {
             if (features.length === 0) {
                 cvegeoListDiv.innerHTML = '<p>No se encontraron localidades dentro del área.</p>';
                 return;
@@ -122,12 +159,19 @@ document.addEventListener('DOMContentLoaded', () => {
             features.forEach(f => {
                 if (f.properties.CVEGEO) {
                     const li = document.createElement('li');
-                    li.textContent = f.properties.CVEGEO;
+                    const color = colorsById.get(f.properties.CVEGEO) || '#008000';
+                    li.innerHTML = `<span class="color-dot" style="background:${color}"></span>${f.properties.CVEGEO}`;
                     ul.appendChild(li);
                 }
             });
             cvegeoListDiv.innerHTML = '';
             cvegeoListDiv.appendChild(ul);
+            const badge = document.getElementById('foundCountBadge');
+            if (badge) badge.textContent = String(features.length);
+            const totalFound = document.getElementById('totalFound');
+            if (totalFound) totalFound.textContent = String(features.length);
+            const currentCriteria = document.getElementById('currentCriteria');
+            if (currentCriteria) currentCriteria.textContent = areaTypeSelect.options[areaTypeSelect.selectedIndex].text;
         }
 
         function processKmlFile(file) {
@@ -179,6 +223,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Cargar localidades bajo demanda si aún no están en memoria
             try {
+                // Asegurar Turf
+                const T = await ensureTurf();
                 if (!localitiesData) {
                     await loadLocalitiesData();
                     if (!localitiesData) return; // si falló la carga, abortar
@@ -186,6 +232,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 if (bufferLayer) map.removeLayer(bufferLayer);
                 if (clippedLocalitiesLayer) map.removeLayer(clippedLocalitiesLayer);
+                if (labelLayer) map.removeLayer(labelLayer);
 
                 const areaType = areaTypeSelect.value;
                 const kmlPolygon = kmlGeoJson.features.find(f => f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon');
@@ -193,7 +240,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 if (areaType === 'nucleo') {
                     try {
-                        const buffer = turf.buffer(kmlPolygon, 500, { units: 'meters' });
+                        const buffer = T.buffer(kmlPolygon, 500, { units: 'meters' });
                         clipArea = buffer;
                         bufferLayer = L.geoJSON(buffer, {
                             style: {
@@ -212,37 +259,118 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const clipped = [];
                 for (const loc of localitiesData.features) {
-                    if (turf.booleanIntersects(loc.geometry, clipArea.geometry)) {
+                    if (T.booleanIntersects(loc.geometry, clipArea.geometry)) {
                         clipped.push(loc);
                     }
                 }
 
                 if (clipped.length > 0) {
-                    const clippedCollection = turf.featureCollection(clipped);
+                    // Generar una paleta de colores distinta por CVEGEO
+                    const colorsById = new Map();
+                    const palette = [
+                        '#d11149', '#1a8fe3', '#119822', '#ff7f0e', '#9467bd', '#e377c2', '#17becf', '#bcbd22', '#8c564b', '#2ca02c',
+                        '#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00', '#a65628', '#f781bf', '#999999', '#66c2a5', '#fc8d62'
+                    ];
+                    let i = 0;
+                    for (const f of clipped) {
+                        const id = f.properties?.CVEGEO || String(i);
+                        if (!colorsById.has(id)) {
+                            colorsById.set(id, palette[i % palette.length]);
+                            i++;
+                        }
+                    }
+
+                    // Capa de puntos con color propio y popup
+                    const clippedCollection = T.featureCollection(clipped);
                     clippedLocalitiesLayer = L.geoJSON(clippedCollection, {
-                        pointToLayer: (feature, latlng) =>
-                            L.circleMarker(latlng, {
+                        // Estilo para polígonos/líneas por CVEGEO
+                        style: (feature) => {
+                            const id = feature.properties?.CVEGEO;
+                            const color = (id && colorsById.get(id)) || '#008000';
+                            return {
+                                color,
+                                weight: 2,
+                                opacity: 0.9,
+                                fillColor: color,
+                                fillOpacity: 0.25
+                            };
+                        },
+                        // Puntos con color propio
+                        pointToLayer: (feature, latlng) => {
+                            const id = feature.properties?.CVEGEO;
+                            const color = (id && colorsById.get(id)) || '#008000';
+                            return L.circleMarker(latlng, {
                                 radius: 6,
-                                fillColor: '#008000',
-                                color: '#000',
+                                fillColor: color,
+                                color: '#222',
                                 weight: 1,
                                 opacity: 1,
-                                fillOpacity: 0.8
-                            }),
+                                fillOpacity: 0.9
+                            });
+                        },
                         onEachFeature: (feature, layer) => {
                             if (feature.properties?.CVEGEO) {
-                                layer.bindPopup(`Localidad: ${feature.properties.NOM_LOC}<br>CVEGEO: ${feature.properties.CVEGEO}`);
+                                layer.bindPopup(`Localidad: ${feature.properties.NOM_LOC || '—'}<br>CVEGEO: ${feature.properties.CVEGEO}`);
                             }
                         }
                     }).addTo(map);
 
+                    // Capa de etiquetas (CVEGEO) usando DivIcon
+                    const labels = [];
+                    clipped.forEach(f => {
+                        if (f.geometry.type === 'Point') {
+                            const [lng, lat] = f.geometry.coordinates;
+                            const id = f.properties?.CVEGEO;
+                            const color = (id && colorsById.get(id)) || '#008000';
+                            const icon = L.divIcon({
+                                className: 'cvegeo-label',
+                                html: `<span style="background:${color};color:#fff;padding:2px 4px;border-radius:3px;font-size:11px;">${id || ''}</span>`
+                            });
+                            labels.push(L.marker([lat, lng], { icon }));
+                        } else if (f.geometry.type === 'MultiPoint') {
+                            f.geometry.coordinates.forEach(([lng, lat]) => {
+                                const id = f.properties?.CVEGEO;
+                                const color = (id && colorsById.get(id)) || '#008000';
+                                const icon = L.divIcon({
+                                    className: 'cvegeo-label',
+                                    html: `<span style=\"background:${color};color:#fff;padding:2px 4px;border-radius:3px;font-size:11px;\">${id || ''}</span>`
+                                });
+                                labels.push(L.marker([lat, lng], { icon }));
+                            });
+                        } else if (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon') {
+                            try {
+                                const centroid = T.centroid(f);
+                                const [lng, lat] = centroid.geometry.coordinates;
+                                const id = f.properties?.CVEGEO;
+                                const color = (id && colorsById.get(id)) || '#008000';
+                                const icon = L.divIcon({
+                                    className: 'cvegeo-label',
+                                    html: `<span style=\"background:${color};color:#fff;padding:2px 4px;border-radius:3px;font-size:11px;\">${id || ''}</span>`
+                                });
+                                labels.push(L.marker([lat, lng], { icon }));
+                            } catch (e) {
+                                // si falla el centróide, ignorar esa etiqueta
+                            }
+                        }
+                    });
+                    if (labels.length) labelLayer = L.layerGroup(labels).addTo(map);
+
                     setTimeout(() => { map.invalidateSize(); map.fitBounds(clippedLocalitiesLayer.getBounds()); }, 50);
-                    displayCvegeoList(clipped);
+                    displayCvegeoList(clipped, colorsById);
                     showAlert(`Recorte completado. Se encontraron ${clipped.length} localidades.`, 'success');
                 } else {
                     showAlert('No se encontraron localidades dentro del área.', 'warning');
                     cvegeoListDiv.innerHTML = '<p class="mb-0">No se encontraron localidades dentro del área.</p>';
+                    const badge = document.getElementById('foundCountBadge');
+                    if (badge) badge.textContent = '0';
+                    const totalFound = document.getElementById('totalFound');
+                    if (totalFound) totalFound.textContent = '0';
+                    const currentCriteria = document.getElementById('currentCriteria');
+                    if (currentCriteria) currentCriteria.textContent = areaTypeSelect.options[areaTypeSelect.selectedIndex].text;
                 }
+            } catch (err) {
+                console.error('Error durante el recorte:', err);
+                showAlert('Ocurrió un error durante el recorte. Revisa la consola para más detalle.', 'danger', 7000);
             } finally {
                 // Ocultar preloader al finalizar el flujo
                 hidePreloader();
