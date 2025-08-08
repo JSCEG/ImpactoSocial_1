@@ -1,14 +1,38 @@
-// Variables de estado del mapa y datos
-let map;
-let localitiesData = null;
-let kmlLayer = null;
-let bufferLayer = null;
-let clippedLocalitiesLayer = null;
-let kmlGeoJson = null;
-let labelLayer = null;
-let lastAreaBounds = null; // para restaurar la vista del área
+/**
+ * GEOVISUALIZADOR DE ÁREAS DE INTERÉS - SENER
+ * ==========================================
+ * 
+ * Sistema para la visualización y análisis geoespacial de localidades
+ * en relación con áreas de interés definidas por archivos KML.
+ * 
+ * Desarrollado para la Secretaría de Energía (SENER) - Gobierno de México
+ */
 
-// Garantizar disponibilidad de Turf en tiempo de ejecución (fallback si CDN falla)
+// ============================================================================
+// VARIABLES DE ESTADO GLOBAL
+// ============================================================================
+
+/**
+ * Variables principales para manejo del estado de la aplicación
+ */
+let map; // Instancia principal del mapa Leaflet
+let localitiesData = null; // Datos de localidades cargados desde el servidor
+let kmlLayer = null; // Capa del polígono KML original cargado por el usuario
+let bufferLayer = null; // Capa del buffer generado para área núcleo
+let clippedLocalitiesLayer = null; // Capa de localidades resultantes del recorte
+let kmlGeoJson = null; // Datos GeoJSON convertidos del KML original
+let labelLayer = null; // Capa de etiquetas CVEGEO sobre el mapa
+let lastAreaBounds = null; // Bounds del área para restaurar la vista del área
+
+// ============================================================================
+// UTILIDADES PARA CARGA DE DEPENDENCIAS
+// ============================================================================
+
+/**
+ * Carga dinámicamente un script JavaScript de forma asíncrona
+ * @param {string} url - URL del script a cargar
+ * @returns {Promise} - Promesa que se resuelve cuando el script se carga exitosamente
+ */
 function loadScript(url) {
     return new Promise((resolve, reject) => {
         const s = document.createElement('script');
@@ -20,27 +44,53 @@ function loadScript(url) {
     });
 }
 
+/**
+ * Garantiza la disponibilidad de Turf.js con fallback a múltiples CDNs
+ * Turf.js es fundamental para las operaciones geoespaciales (intersecciones, buffers, etc.)
+ * @returns {Promise<object>} - Objeto Turf.js disponible globalmente
+ */
 async function ensureTurf() {
     // Si ya existe, úsalo
     if (window.turf) return window.turf;
+    
+    // Lista de CDNs alternativos en caso de falla
     const cdns = [
         'https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js',
         'https://unpkg.com/@turf/turf@6/turf.min.js'
     ];
+    
+    // Intentar cargar desde cada CDN hasta encontrar uno funcional
     for (const url of cdns) {
         try {
             await loadScript(url);
             if (window.turf) return window.turf;
-        } catch (_) { /* probar siguiente */ }
+        } catch (_) { 
+            /* Continuar con el siguiente CDN */ 
+        }
     }
-    throw new Error('Turf no disponible');
+    throw new Error('Turf no disponible desde ningún CDN');
 }
 
-// Utilidad: mostrar alertas Bootstrap de forma centralizada
+// ============================================================================
+// SISTEMA DE ALERTAS Y FEEDBACK VISUAL
+// ============================================================================
+
+/**
+ * Muestra alertas Bootstrap de forma centralizada con auto-dismiss
+ * @param {string} message - Mensaje a mostrar al usuario
+ * @param {string} type - Tipo de alerta ('primary', 'success', 'danger', 'warning', 'info')
+ * @param {number} timeoutMs - Tiempo en ms antes de auto-ocultar (0 = no auto-ocultar)
+ * @returns {HTMLElement} - Elemento de alerta creado
+ */
 function showAlert(message, type = 'info', timeoutMs = 4000) {
-    // type: 'primary' | 'success' | 'danger' | 'warning' | 'info'
     const container = document.getElementById('alertContainer');
-    if (!container) { alert(message); return; }
+    if (!container) { 
+        // Fallback si no existe el contenedor
+        alert(message); 
+        return; 
+    }
+    
+    // Crear elemento de alerta Bootstrap
     const wrapper = document.createElement('div');
     wrapper.className = `alert alert-${type} alert-dismissible fade show shadow`;
     wrapper.setAttribute('role', 'alert');
@@ -48,34 +98,53 @@ function showAlert(message, type = 'info', timeoutMs = 4000) {
         <div>${message}</div>
         <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
     `;
+    
     container.appendChild(wrapper);
-    if (timeoutMs > 0) setTimeout(() => {
-        wrapper.classList.remove('show');
-        wrapper.addEventListener('transitionend', () => wrapper.remove());
-    }, timeoutMs);
+    
+    // Auto-dismiss después del tiempo especificado
+    if (timeoutMs > 0) {
+        setTimeout(() => {
+            wrapper.classList.remove('show');
+            wrapper.addEventListener('transitionend', () => wrapper.remove());
+        }, timeoutMs);
+    }
+    
     return wrapper;
 }
 
-// Utilidad: ocultar el preloader de forma robusta con transición
+/**
+ * Oculta el preloader de forma robusta con transición suave
+ * El preloader se muestra durante operaciones largas como el recorte de localidades
+ */
 function hidePreloader() {
     const pre = document.getElementById('preloader');
     if (!pre) return;
+    
     // Marcar como hidden y ocultar visualmente
     pre.setAttribute('hidden', '');
     if (pre.style.display === 'none') return;
+    
     pre.classList.add('preloader-hide');
-    // tras la transición, elimínalo del flujo
+    
+    // Tras la transición CSS, eliminarlo del flujo de documentos
     setTimeout(() => {
         pre.style.display = 'none';
-        if (typeof map !== 'undefined' && map) setTimeout(() => map.invalidateSize(), 100);
+        // Recalcular tamaño del mapa después de cambios de layout
+        if (typeof map !== 'undefined' && map) {
+            setTimeout(() => map.invalidateSize(), 100);
+        }
     }, 350);
 }
 
-// Utilidad: mostrar el preloader (si no existe lo crea)
+/**
+ * Muestra el preloader durante operaciones largas
+ * Crea el overlay dinámicamente si no existe
+ */
 function showPreloader() {
     let pre = document.getElementById('preloader');
+    
     if (!pre) {
-        // Crear un overlay sencillo con spinner y logos
+        // Crear overlay de carga con branding institucional
         pre = document.createElement('div');
         pre.id = 'preloader';
         pre.className = 'position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center bg-white';
@@ -93,49 +162,88 @@ function showPreloader() {
             </div>`;
         document.body.appendChild(pre);
     }
+    
+    // Mostrar preloader
     pre.classList.remove('preloader-hide');
     pre.removeAttribute('hidden');
     pre.style.display = 'flex';
 }
 
+/**
+ * Actualiza la barra de progreso y mensaje del preloader
+ * @param {number} percent - Porcentaje de progreso (0-100)
+ * @param {string} message - Mensaje descriptivo del progreso actual
+ */
 function updateProgress(percent, message) {
     const bar = document.getElementById('preProgressBar');
     const msg = document.getElementById('preloaderMessage');
+    
     if (bar) {
-        bar.style.width = `${Math.max(0, Math.min(100, percent))}%`;
-        bar.setAttribute('aria-valuenow', String(Math.round(percent)));
+        const clampedPercent = Math.max(0, Math.min(100, percent));
+        bar.style.width = `${clampedPercent}%`;
+        bar.setAttribute('aria-valuenow', String(Math.round(clampedPercent)));
     }
+    
     if (msg && typeof message === 'string') {
         msg.textContent = message;
     }
 }
 
-// Nota: el preloader está oculto por defecto; se muestra sólo en procesos largos (p.ej. recorte)
+// ============================================================================
+// FUNCIÓN PRINCIPAL DE INICIALIZACIÓN
+// ============================================================================
 
+/**
+ * Inicializa la aplicación: configura el mapa, enlaces de eventos y carga inicial
+ * Esta función se ejecuta cuando el DOM está listo
+ */
 function initApp() {
     try {
-        // Garantizar que el preloader no bloquee la vista al iniciar
+        // Garantizar que el preloader no bloquee la vista inicial
         hidePreloader();
+        
+        // ====================================================================
+        // CONFIGURACIÓN DEL MAPA BASE
+        // ====================================================================
+        
+        // Inicializar mapa centrado en México con zoom nacional
         map = L.map("map").setView([24.1, -102], 6);
 
-        // Asegurar que el mapa calcule tamaño tras cargar CSS (loader asíncrono)
+        /**
+         * Asegurar que el mapa calcule su tamaño correctamente
+         * Esto es necesario porque los estilos se cargan de forma asíncrona
+         */
         (function ensureMapSized(attempt = 0) {
             if (!map) return;
+            
             const el = document.getElementById('map');
             const ready = el && el.clientHeight > 40;
             map.invalidateSize();
+            
+            // Reintentar hasta 10 veces si el contenedor no tiene altura
             if (!ready && attempt < 10) {
                 setTimeout(() => ensureMapSized(attempt + 1), 150);
             }
         })();
-        window.addEventListener('load', () => setTimeout(() => map && map.invalidateSize(), 100));
+        
+        // Recalcular tamaño cuando la ventana termine de cargar
+        window.addEventListener('load', () => {
+            setTimeout(() => map && map.invalidateSize(), 100);
+        });
 
+        // Agregar capa base de OpenStreetMap
         const base = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         }).addTo(map);
 
+        // ====================================================================
+        // CONFIGURACIÓN DE DATOS Y ELEMENTOS DEL DOM
+        // ====================================================================
+        
+        // URL del servicio de localidades (datos geoespaciales de INEGI)
         const localitiesUrl = 'https://cdn.sassoapps.com/Gabvy/localidades_4326.geojson';
 
+        // Referencias a elementos del DOM para controles
         const kmlFileInput = document.getElementById('kmlFile');
         const uploadKmlBtn = document.getElementById('uploadKmlBtn');
         const areaTypeSelect = document.getElementById('areaType');
@@ -143,39 +251,67 @@ function initApp() {
         const resetViewBtn = document.getElementById('resetViewBtn');
         const clearMapBtn = document.getElementById('clearMap');
         const cvegeoListDiv = document.getElementById('cvegeoList');
-        let featureLayersById = new Map(); // CVEGEO -> {bounds|latlng}
+        
+        // Mapa para mantener referencias de features por CVEGEO (para navegación)
+        let featureLayersById = new Map(); // CVEGEO -> {bounds|latlng, layer}
 
+        // Estado inicial: deshabilitar botones hasta que se carguen datos
         if (uploadKmlBtn) uploadKmlBtn.disabled = true;
         if (performClipBtn) performClipBtn.disabled = true;
 
+        // ====================================================================
+        // FUNCIONES DE MANEJO DE DATOS GEOESPACIALES
+        // ====================================================================
+
+        /**
+         * Carga los datos de localidades desde el servidor de forma asíncrona
+         * Los datos provienen de INEGI y contienen información geoespacial de todas
+         * las localidades de México con sus respectivos CVEGEO
+         */
         async function loadLocalitiesData() {
             try {
                 const response = await fetch(localitiesUrl);
-                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                if (!response.ok) {
+                    throw new Error(`Error HTTP! status: ${response.status}`);
+                }
+                
                 localitiesData = await response.json();
                 console.log(`Localidades cargadas: ${localitiesData.features.length}`);
                 showAlert(`Localidades cargadas: ${localitiesData.features.length}`, 'success');
+                
             } catch (error) {
                 console.error('Error al cargar localidades:', error);
-                showAlert('Error al cargar localidades desde el servidor.', 'danger', 6000);
+                showAlert('Error al cargar localidades desde el servidor. Verifica tu conexión.', 'danger', 6000);
+                throw error; // Re-lanzar para manejo en funciones que llaman
             }
         }
 
+        /**
+         * Limpia todas las capas del mapa y resetea el estado de la aplicación
+         * Útil para reiniciar el flujo de trabajo o limpiar datos obsoletos
+         */
         function clearAllLayers() {
+            // Remover todas las capas del mapa
             if (kmlLayer) map.removeLayer(kmlLayer);
             if (bufferLayer) map.removeLayer(bufferLayer);
             if (clippedLocalitiesLayer) map.removeLayer(clippedLocalitiesLayer);
             if (labelLayer) map.removeLayer(labelLayer);
+            
+            // Resetear variables de estado
             kmlLayer = null;
             bufferLayer = null;
             clippedLocalitiesLayer = null;
             labelLayer = null;
             kmlGeoJson = null;
+            lastAreaBounds = null;
+            
+            // Resetear UI a estado inicial
             cvegeoListDiv.innerHTML = '<p class="mb-0 text-muted">Sube un KML y realiza el recorte para ver la lista.</p>';
             uploadKmlBtn.disabled = true;
             performClipBtn.disabled = true;
             if (resetViewBtn) resetViewBtn.disabled = true;
-            lastAreaBounds = null;
+            
+            // Resetear contadores y badges
             const badge = document.getElementById('foundCountBadge');
             if (badge) badge.textContent = '0';
             const totalFound = document.getElementById('totalFound');
@@ -184,35 +320,71 @@ function initApp() {
             if (currentCriteria) currentCriteria.textContent = '—';
         }
 
+        // ====================================================================
+        // FUNCIONES DE NAVEGACIÓN Y VISUALIZACIÓN
+        // ====================================================================
+
+        /**
+         * Establece un elemento como activo en la lista de CVEGEO
+         * Proporciona feedback visual al usuario sobre qué localidad está seleccionada
+         * @param {string} targetId - CVEGEO de la localidad a destacar
+         */
         function setActiveListItem(targetId) {
             const items = cvegeoListDiv.querySelectorAll('li');
             items.forEach(li => {
                 if (li.dataset.cvegeo === targetId) {
                     li.classList.add('active');
-                    try { li.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (_) { /* opcional */ }
+                    // Scroll suave para mantener el elemento visible
+                    try { 
+                        li.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); 
+                    } catch (_) { 
+                        /* Fallback silencioso si scrollIntoView no está disponible */ 
+                    }
                 } else {
                     li.classList.remove('active');
                 }
             });
         }
 
+        /**
+         * Navega suavemente a una feature específica en el mapa
+         * Ajusta automáticamente el zoom y centrado óptimos según el tipo de geometría
+         * @param {object} ref - Referencia que contiene bounds o latlng de la feature
+         */
         function goToFeatureRef(ref) {
             if (!ref) return;
+            
             if (ref.bounds && ref.bounds.isValid()) {
+                // Para polígonos: centrar en bounds con zoom calculado automáticamente
                 const center = ref.bounds.getCenter();
                 const targetZoom = Math.min(map.getBoundsZoom(ref.bounds, true), 15);
-                map.setView(center, targetZoom, { animate: true, duration: 0.6 });
+                map.setView(center, targetZoom, { 
+                    animate: true, 
+                    duration: 0.6 
+                });
             } else if (ref.latlng) {
+                // Para puntos: usar zoom mínimo razonable
                 const z = Math.max(map.getZoom(), 13);
-                map.setView(ref.latlng, z, { animate: true, duration: 0.6 });
+                map.setView(ref.latlng, z, { 
+                    animate: true, 
+                    duration: 0.6 
+                });
             }
         }
 
+        /**
+         * Genera y muestra la lista de CVEGEO encontradas en el recorte
+         * Incluye código de colores y funcionalidad de navegación al hacer clic
+         * @param {Array} features - Array de features GeoJSON de localidades
+         * @param {Map} colorsById - Mapa de CVEGEO a color asignado
+         */
         function displayCvegeoList(features, colorsById) {
             if (features.length === 0) {
                 cvegeoListDiv.innerHTML = '<p>No se encontraron localidades dentro del área.</p>';
                 return;
             }
+            
+            // Construir lista interactiva con código de colores
             const ul = document.createElement('ul');
             features.forEach(f => {
                 if (f.properties.CVEGEO) {
@@ -220,49 +392,144 @@ function initApp() {
                     const color = colorsById.get(f.properties.CVEGEO) || '#008000';
                     li.innerHTML = `<span class="color-dot" style="background:${color}"></span>${f.properties.CVEGEO}`;
                     li.dataset.cvegeo = f.properties.CVEGEO;
+                    li.setAttribute('role', 'button');
+                    li.setAttribute('tabindex', '0');
+                    li.setAttribute('aria-label', `Ir a localidad ${f.properties.CVEGEO}`);
                     ul.appendChild(li);
                 }
             });
+            
             cvegeoListDiv.innerHTML = '';
             cvegeoListDiv.appendChild(ul);
+            
+            // Actualizar contadores en la interfaz
             const badge = document.getElementById('foundCountBadge');
             if (badge) badge.textContent = String(features.length);
             const totalFound = document.getElementById('totalFound');
             if (totalFound) totalFound.textContent = String(features.length);
             const currentCriteria = document.getElementById('currentCriteria');
-            if (currentCriteria) currentCriteria.textContent = areaTypeSelect.options[areaTypeSelect.selectedIndex].text;
+            if (currentCriteria) {
+                currentCriteria.textContent = areaTypeSelect.options[areaTypeSelect.selectedIndex].text;
+            }
 
-            // Click en elemento de la lista: centrar en esa localidad
+            // Agregar interactividad: click en elemento de la lista centra en esa localidad
             ul.querySelectorAll('li').forEach(li => {
                 li.addEventListener('click', () => {
                     const id = li.dataset.cvegeo;
                     const ref = featureLayersById.get(id);
                     if (!ref) return;
+                    
                     setActiveListItem(id);
                     goToFeatureRef(ref);
+                    
+                    // Abrir popup si está disponible
                     if (ref.layer && ref.layer.openPopup) {
                         ref.layer.openPopup();
+                    }
+                });
+                
+                // Soporte para navegación con teclado
+                li.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        li.click();
                     }
                 });
             });
         }
 
+        // ====================================================================
+        // PROCESAMIENTO DE ARCHIVOS KML
+        // ====================================================================
+
+        /**
+         * Valida que el archivo seleccionado sea un KML válido
+         * @param {File} file - Archivo a validar
+         * @returns {boolean} - true si el archivo es válido
+         */
+        function validateKmlFile(file) {
+            // Validar extensión
+            const validExtensions = ['.kml', '.kmz'];
+            const fileName = file.name.toLowerCase();
+            const hasValidExtension = validExtensions.some(ext => fileName.endsWith(ext));
+            
+            if (!hasValidExtension) {
+                showAlert('Por favor, selecciona un archivo con extensión .kml o .kmz', 'warning');
+                return false;
+            }
+            
+            // Validar tamaño (máximo 10MB)
+            const maxSize = 10 * 1024 * 1024; // 10MB en bytes
+            if (file.size > maxSize) {
+                showAlert('El archivo es demasiado grande. El tamaño máximo permitido es 10MB.', 'warning');
+                return false;
+            }
+            
+            return true;
+        }
+
+        /**
+         * Procesa un archivo KML cargado por el usuario
+         * Convierte el KML a GeoJSON y lo visualiza en el mapa
+         * @param {File} file - Archivo KML seleccionado por el usuario
+         */
         function processKmlFile(file) {
+            // Validar archivo antes de procesar
+            if (!validateKmlFile(file)) {
+                return;
+            }
+            
             const reader = new FileReader();
+            
             reader.onload = function (e) {
                 try {
                     const kmlText = e.target.result;
+                    
+                    // Validar que el contenido no esté vacío
+                    if (!kmlText || kmlText.trim().length === 0) {
+                        showAlert('El archivo KML está vacío o no se pudo leer correctamente.', 'danger');
+                        return;
+                    }
+                    
+                    // Parsear XML del KML
                     const kmlDom = new DOMParser().parseFromString(kmlText, 'text/xml');
+                    
+                    // Verificar errores de parseo XML
+                    const parseError = kmlDom.querySelector('parsererror');
+                    if (parseError) {
+                        showAlert('El archivo KML contiene errores de formato XML. Verifica que sea un archivo válido.', 'danger');
+                        return;
+                    }
+                    
+                    // Convertir KML a GeoJSON usando la librería togeojson
                     kmlGeoJson = toGeoJSON.kml(kmlDom);
 
-                    const kmlPolygon = kmlGeoJson.features.find(f => f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon');
-                    if (!kmlPolygon) {
-                        showAlert('El archivo KML no contiene un polígono válido.', 'warning');
+                    // Verificar que la conversión fue exitosa
+                    if (!kmlGeoJson || !kmlGeoJson.features || kmlGeoJson.features.length === 0) {
+                        showAlert('El archivo KML no contiene geometrías válidas o no se pudo convertir.', 'warning');
                         performClipBtn.disabled = true;
                         return;
                     }
 
+                    // Buscar el primer polígono válido en el KML
+                    const kmlPolygon = kmlGeoJson.features.find(f => 
+                        f.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon')
+                    );
+                    
+                    if (!kmlPolygon) {
+                        showAlert(
+                            'El archivo KML no contiene un polígono válido. ' +
+                            'Por favor, asegúrate de que el archivo contenga geometrías de tipo Polygon o MultiPolygon.', 
+                            'warning'
+                        );
+                        performClipBtn.disabled = true;
+                        return;
+                    }
+
+                    // Remover capa anterior si existe
                     if (kmlLayer) map.removeLayer(kmlLayer);
+                    
+                    // Agregar nueva capa con estilo institucional
                     kmlLayer = L.geoJSON(kmlPolygon, {
                         style: {
                             color: '#ff7800',
@@ -272,52 +539,100 @@ function initApp() {
                         }
                     }).addTo(map);
 
-                    // Asegurar que el mapa calcula su tamaño si estaba oculto por el preloader/accordion
-                    setTimeout(() => { map.invalidateSize(); map.fitBounds(kmlLayer.getBounds()); }, 50);
+                    // Asegurar que el mapa se actualice correctamente después de cambios de layout
+                    setTimeout(() => { 
+                        map.invalidateSize(); 
+                        map.fitBounds(kmlLayer.getBounds()); 
+                    }, 50);
+                    
+                    // Habilitar siguiente paso del flujo
                     performClipBtn.disabled = false;
-                    showAlert('KML cargado y visualizado correctamente.', 'success');
+                    showAlert(`KML cargado exitosamente. Se encontró un polígono con ${kmlPolygon.geometry.coordinates.length} coordenadas.`, 'success');
+                    
                 } catch (error) {
                     console.error('Error procesando KML:', error);
-                    showAlert('Error procesando el archivo KML.', 'danger', 6000);
+                    showAlert(
+                        'Error procesando el archivo KML. Verifica que sea un archivo válido y no esté corrupto. ' +
+                        'Detalles: ' + error.message, 
+                        'danger', 
+                        8000
+                    );
                 }
             };
+            
+            reader.onerror = function() {
+                showAlert('Error al leer el archivo. Intenta nuevamente con un archivo diferente.', 'danger');
+            };
+            
+            // Leer archivo como texto
             reader.readAsText(file);
         }
 
+        // ====================================================================
+        // PROCESAMIENTO GEOESPACIAL PRINCIPAL
+        // ====================================================================
+
+        /**
+         * Realiza el recorte de localidades según el área seleccionada
+         * Esta es la función más compleja del sistema, que:
+         * 1. Carga las localidades si no están en memoria
+         * 2. Genera buffers según el tipo de área
+         * 3. Realiza intersecciones geoespaciales
+         * 4. Visualiza los resultados con colores diferenciados
+         */
         async function performClipping() {
-            // Mostrar preloader durante el procesamiento del recorte
+            // Mostrar preloader durante procesamiento intensivo
             showPreloader();
             updateProgress(5, 'Validando insumos…');
-            // Validar que ya se cargó un KML
+            
+            // ================================================================
+            // VALIDACIONES INICIALES
+            // ================================================================
+            
             if (!kmlGeoJson) {
                 showAlert('Primero carga un archivo KML válido.', 'warning');
                 hidePreloader();
                 return;
             }
 
-            // Cargar localidades bajo demanda si aún no están en memoria
             try {
-                // Asegurar Turf
+                // ============================================================
+                // PREPARACIÓN DE HERRAMIENTAS Y DATOS
+                // ============================================================
+                
+                // Asegurar disponibilidad de Turf.js para operaciones geoespaciales
                 const T = await ensureTurf();
                 updateProgress(15, 'Realizando el análisis, por favor espere…');
+                
+                // Cargar localidades bajo demanda si no están en memoria
                 if (!localitiesData) {
                     await loadLocalitiesData();
                     updateProgress(35, 'Localidades cargadas. Preparando geometrías…');
-                    if (!localitiesData) return; // si falló la carga, abortar
+                    if (!localitiesData) return; // Abortar si falló la carga
                 }
 
+                // Limpiar capas previas para nueva operación
                 if (bufferLayer) map.removeLayer(bufferLayer);
                 if (clippedLocalitiesLayer) map.removeLayer(clippedLocalitiesLayer);
                 if (labelLayer) map.removeLayer(labelLayer);
 
+                // ============================================================
+                // PREPARACIÓN DEL ÁREA DE RECORTE
+                // ============================================================
+                
                 const areaType = areaTypeSelect.value;
-                const kmlPolygon = kmlGeoJson.features.find(f => f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon');
+                const kmlPolygon = kmlGeoJson.features.find(f => 
+                    f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon'
+                );
                 let clipArea = kmlPolygon;
 
+                // Para área núcleo: generar buffer de 500 metros
                 if (areaType === 'nucleo') {
                     try {
                         const buffer = T.buffer(kmlPolygon, 500, { units: 'meters' });
                         clipArea = buffer;
+                        
+                        // Visualizar buffer con estilo diferente
                         bufferLayer = L.geoJSON(buffer, {
                             style: {
                                 color: '#0078ff',
@@ -326,51 +641,75 @@ function initApp() {
                                 fillOpacity: 0.1
                             }
                         }).addTo(map);
-                        updateProgress(55, 'Buffer generado. Intersectando…');
+                        
+                        updateProgress(55, 'Buffer generado. Intersectando con localidades…');
+                        
                     } catch (e) {
                         console.error('Error creando buffer:', e);
-                        showAlert('No se pudo crear el buffer.', 'danger');
+                        showAlert('No se pudo crear el buffer de 500m. Verifica la geometría del KML.', 'danger');
+                        hidePreloader();
                         return;
                     }
                 }
 
+                // ============================================================
+                // PROCESAMIENTO DE INTERSECCIONES
+                // ============================================================
+                
                 const clipped = [];
                 const total = localitiesData.features.length;
                 let processed = 0;
-                const step = Math.max(50, Math.floor(total / 200)); // actualiza con frecuencia razonable
+                
+                // Configurar actualizaciones de progreso eficientes
+                const step = Math.max(50, Math.floor(total / 200));
+                
+                // Procesar cada localidad para determinar intersección
                 for (const loc of localitiesData.features) {
+                    // Verificar si la localidad intersecta con el área de recorte
                     if (T.booleanIntersects(loc.geometry, clipArea.geometry)) {
                         clipped.push(loc);
                     }
+                    
                     processed++;
+                    
+                    // Actualizar progreso periódicamente
                     if (processed % step === 0 || processed === total) {
                         const pct = 55 + Math.min(35, (processed / Math.max(1, total)) * 35);
                         updateProgress(pct, `Procesando localidades… ${processed}/${total}`);
                     }
                 }
-                updateProgress(90, `Encontradas ${clipped.length}. Dibujando…`);
+                
+                updateProgress(90, `Encontradas ${clipped.length} localidades. Preparando visualización…`);
 
+                // ============================================================
+                // VISUALIZACIÓN DE RESULTADOS
+                // ============================================================
+                
                 if (clipped.length > 0) {
-                    // Generar una paleta de colores distinta por CVEGEO
+                    // Generar paleta de colores distinta por CVEGEO
                     const colorsById = new Map();
                     const palette = [
-                        '#d11149', '#1a8fe3', '#119822', '#ff7f0e', '#9467bd', '#e377c2', '#17becf', '#bcbd22', '#8c564b', '#2ca02c',
-                        '#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00', '#a65628', '#f781bf', '#999999', '#66c2a5', '#fc8d62'
+                        '#d11149', '#1a8fe3', '#119822', '#ff7f0e', '#9467bd', 
+                        '#e377c2', '#17becf', '#bcbd22', '#8c564b', '#2ca02c',
+                        '#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00', 
+                        '#a65628', '#f781bf', '#999999', '#66c2a5', '#fc8d62'
                     ];
-                    let i = 0;
+                    
+                    let colorIndex = 0;
                     for (const f of clipped) {
-                        const id = f.properties?.CVEGEO || String(i);
+                        const id = f.properties?.CVEGEO || String(colorIndex);
                         if (!colorsById.has(id)) {
-                            colorsById.set(id, palette[i % palette.length]);
-                            i++;
+                            colorsById.set(id, palette[colorIndex % palette.length]);
+                            colorIndex++;
                         }
                     }
 
-                    // Capa de puntos con color propio y popup
+                    // Crear capa de localidades con estilos diferenciados
                     featureLayersById = new Map();
                     const clippedCollection = T.featureCollection(clipped);
+                    
                     clippedLocalitiesLayer = L.geoJSON(clippedCollection, {
-                        // Estilo para polígonos/líneas por CVEGEO
+                        // Estilo para polígonos/líneas diferenciado por CVEGEO
                         style: (feature) => {
                             const id = feature.properties?.CVEGEO;
                             const color = (id && colorsById.get(id)) || '#008000';
@@ -382,7 +721,8 @@ function initApp() {
                                 fillOpacity: 0.25
                             };
                         },
-                        // Puntos con color propio
+                        
+                        // Convertir puntos a círculos con color asignado
                         pointToLayer: (feature, latlng) => {
                             const id = feature.properties?.CVEGEO;
                             const color = (id && colorsById.get(id)) || '#008000';
@@ -395,154 +735,334 @@ function initApp() {
                                 fillOpacity: 0.9
                             });
                         },
+                        
+                        // Configurar popups informativos y navegación
                         onEachFeature: (feature, layer) => {
                             if (feature.properties) {
                                 const props = feature.properties;
                                 const nombre = props.NOM_LOC || props.NOMGEO || props.NOMBRE || '—';
                                 const cvegeo = props.CVEGEO || '—';
                                 const ambito = props.AMBITO || '—';
-                                layer.bindPopup(`Nombre: <strong>${nombre}</strong><br>CVEGEO: <strong>${cvegeo}</strong><br>Ámbito: <strong>${ambito}</strong>`);
+                                
+                                // Popup con información básica de la localidad
+                                layer.bindPopup(`
+                                    <strong>Información de la Localidad</strong><br>
+                                    <strong>Nombre:</strong> ${nombre}<br>
+                                    <strong>CVEGEO:</strong> ${cvegeo}<br>
+                                    <strong>Ámbito:</strong> ${ambito}
+                                `);
+                                
+                                // Guardar referencia para navegación
                                 const id = props.CVEGEO;
                                 const ref = { layer };
+                                
                                 if (layer.getBounds) {
                                     const b = layer.getBounds();
                                     if (b && b.isValid()) ref.bounds = b;
                                 } else if (layer.getLatLng) {
                                     ref.latlng = layer.getLatLng();
                                 }
+                                
                                 if (id) featureLayersById.set(id, ref);
                             }
-                            // Click: centra suavemente sin zoom agresivo
+                            
+                            // Evento click: centrar y destacar en lista
                             layer.on('click', () => {
                                 const id = feature.properties?.CVEGEO;
                                 if (id) setActiveListItem(id);
+                                
                                 const ref = featureLayersById.get(id) || (layer.getBounds
                                     ? { bounds: layer.getBounds(), layer }
                                     : layer.getLatLng ? { latlng: layer.getLatLng(), layer } : null);
+                                    
                                 goToFeatureRef(ref);
                                 if (layer.openPopup) layer.openPopup();
                             });
                         }
                     }).addTo(map);
 
-                    // Capa de etiquetas (CVEGEO) usando DivIcon
+                    // ========================================================
+                    // CREACIÓN DE ETIQUETAS CVEGEO
+                    // ========================================================
+                    
                     const labels = [];
                     clipped.forEach(f => {
+                        const id = f.properties?.CVEGEO;
+                        const color = (id && colorsById.get(id)) || '#008000';
+                        
+                        // Manejar diferentes tipos de geometría para etiquetas
                         if (f.geometry.type === 'Point') {
                             const [lng, lat] = f.geometry.coordinates;
-                            const id = f.properties?.CVEGEO;
-                            const color = (id && colorsById.get(id)) || '#008000';
                             const icon = L.divIcon({
                                 className: 'cvegeo-label',
                                 html: `<span style="background:${color};color:#fff;padding:2px 4px;border-radius:3px;font-size:11px;">${id || ''}</span>`
                             });
                             labels.push(L.marker([lat, lng], { icon }));
+                            
                         } else if (f.geometry.type === 'MultiPoint') {
                             f.geometry.coordinates.forEach(([lng, lat]) => {
-                                const id = f.properties?.CVEGEO;
-                                const color = (id && colorsById.get(id)) || '#008000';
                                 const icon = L.divIcon({
                                     className: 'cvegeo-label',
-                                    html: `<span style=\"background:${color};color:#fff;padding:2px 4px;border-radius:3px;font-size:11px;\">${id || ''}</span>`
+                                    html: `<span style="background:${color};color:#fff;padding:2px 4px;border-radius:3px;font-size:11px;">${id || ''}</span>`
                                 });
                                 labels.push(L.marker([lat, lng], { icon }));
                             });
+                            
                         } else if (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon') {
                             try {
+                                // Calcular centroide para polígonos
                                 const centroid = T.centroid(f);
                                 const [lng, lat] = centroid.geometry.coordinates;
-                                const id = f.properties?.CVEGEO;
-                                const color = (id && colorsById.get(id)) || '#008000';
                                 const icon = L.divIcon({
                                     className: 'cvegeo-label',
-                                    html: `<span style=\"background:${color};color:#fff;padding:2px 4px;border-radius:3px;font-size:11px;\">${id || ''}</span>`
+                                    html: `<span style="background:${color};color:#fff;padding:2px 4px;border-radius:3px;font-size:11px;">${id || ''}</span>`
                                 });
                                 labels.push(L.marker([lat, lng], { icon }));
                             } catch (e) {
-                                // si falla el centróide, ignorar esa etiqueta
+                                // Si falla el cálculo del centroide, omitir etiqueta
+                                console.warn('No se pudo calcular centroide para feature:', id);
                             }
                         }
                     });
+                    
+                    // Agregar capa de etiquetas si hay etiquetas válidas
                     if (labels.length) labelLayer = L.layerGroup(labels).addTo(map);
 
-                    // Guarda bounds del área y habilita restaurar vista
+                    // ========================================================
+                    // FINALIZACIÓN Y AJUSTES DE VISTA
+                    // ========================================================
+                    
+                    // Guardar bounds para función de restaurar vista
                     lastAreaBounds = clippedLocalitiesLayer.getBounds();
-                    if (resetViewBtn) resetViewBtn.disabled = !lastAreaBounds || !lastAreaBounds.isValid();
-                    setTimeout(() => { map.invalidateSize(); if (lastAreaBounds) map.fitBounds(lastAreaBounds); }, 50);
+                    if (resetViewBtn) {
+                        resetViewBtn.disabled = !lastAreaBounds || !lastAreaBounds.isValid();
+                    }
+                    
+                    // Ajustar vista del mapa a los resultados
+                    setTimeout(() => { 
+                        map.invalidateSize(); 
+                        if (lastAreaBounds && lastAreaBounds.isValid()) {
+                            map.fitBounds(lastAreaBounds); 
+                        }
+                    }, 50);
+                    
+                    // Actualizar interfaz con resultados
                     displayCvegeoList(clipped, colorsById);
-                    showAlert(`Recorte completado. Se encontraron ${clipped.length} localidades.`, 'success');
-                    updateProgress(100, 'Listo.');
+                    showAlert(`Recorte completado exitosamente. Se encontraron ${clipped.length} localidades.`, 'success');
+                    updateProgress(100, 'Proceso completado.');
+                    
                 } else {
-                    showAlert('No se encontraron localidades dentro del área.', 'warning');
-                    cvegeoListDiv.innerHTML = '<p class="mb-0">No se encontraron localidades dentro del área.</p>';
+                    // Caso sin resultados
+                    showAlert('No se encontraron localidades dentro del área especificada.', 'warning');
+                    cvegeoListDiv.innerHTML = '<p class="mb-0 text-muted">No se encontraron localidades dentro del área.</p>';
+                    
+                    // Actualizar contadores
                     const badge = document.getElementById('foundCountBadge');
                     if (badge) badge.textContent = '0';
                     const totalFound = document.getElementById('totalFound');
                     if (totalFound) totalFound.textContent = '0';
                     const currentCriteria = document.getElementById('currentCriteria');
-                    if (currentCriteria) currentCriteria.textContent = areaTypeSelect.options[areaTypeSelect.selectedIndex].text;
-                    updateProgress(100, 'Sin coincidencias.');
+                    if (currentCriteria) {
+                        currentCriteria.textContent = areaTypeSelect.options[areaTypeSelect.selectedIndex].text;
+                    }
+                    
+                    updateProgress(100, 'Sin coincidencias encontradas.');
                     lastAreaBounds = null;
                     if (resetViewBtn) resetViewBtn.disabled = true;
                 }
+                
             } catch (err) {
-                console.error('Error durante el recorte:', err);
-                showAlert('Ocurrió un error durante el recorte. Revisa la consola para más detalle.', 'danger', 7000);
+                console.error('Error durante el recorte geoespacial:', err);
+                showAlert(
+                    'Ocurrió un error durante el procesamiento geoespacial. Revisa la consola para más detalles.', 
+                    'danger', 
+                    8000
+                );
             } finally {
-                // Ocultar preloader al finalizar el flujo
+                // Siempre ocultar preloader al finalizar
                 hidePreloader();
             }
         }
 
-        // EVENTOS
-        kmlFileInput.addEventListener('change', () => {
-            uploadKmlBtn.disabled = kmlFileInput.files.length === 0;
+        // ====================================================================
+        // CONFIGURACIÓN DE EVENTOS DE INTERFAZ
+        // ====================================================================
+
+        /**
+         * Configuración de todos los event listeners para la interfaz de usuario
+         * Maneja la interactividad del formulario y controles del mapa
+         */
+
+        // Validación en tiempo real del archivo seleccionado
+        kmlFileInput.addEventListener('change', (e) => {
+            const hasFiles = e.target.files.length > 0;
+            uploadKmlBtn.disabled = !hasFiles;
+            
+            if (hasFiles) {
+                const file = e.target.files[0];
+                // Mostrar información del archivo seleccionado
+                const fileInfo = `${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+                uploadKmlBtn.innerHTML = `<i class="bi bi-upload me-1"></i>Subir: ${fileInfo}`;
+            } else {
+                uploadKmlBtn.innerHTML = `<i class="bi bi-upload me-1"></i>Subir KML`;
+            }
         });
 
+        // Procesar archivo KML seleccionado con validaciones mejoradas
         uploadKmlBtn.addEventListener('click', () => {
             const file = kmlFileInput.files[0];
-            if (file) processKmlFile(file);
-            else showAlert('Selecciona un archivo KML.', 'info');
+            if (file) {
+                // Deshabilitar temporalmente para evitar clicks múltiples
+                uploadKmlBtn.disabled = true;
+                uploadKmlBtn.innerHTML = `<i class="bi bi-hourglass-split me-1"></i>Procesando...`;
+                
+                // Procesar con delay para mostrar feedback visual
+                setTimeout(() => {
+                    processKmlFile(file);
+                    // Restaurar estado original
+                    uploadKmlBtn.disabled = false;
+                    uploadKmlBtn.innerHTML = `<i class="bi bi-upload me-1"></i>Subir KML`;
+                    // Limpiar selección para permitir re-cargar el mismo archivo
+                    kmlFileInput.value = '';
+                }, 100);
+            } else {
+                showAlert('Por favor, selecciona un archivo KML válido antes de continuar.', 'info');
+            }
         });
 
+        // Ejecutar recorte de localidades con protección contra clicks múltiples y validaciones
         performClipBtn.addEventListener('click', () => {
-            // Evitar múltiples ejecuciones simultáneas
+            // Validaciones previas
+            if (!kmlGeoJson) {
+                showAlert('Debes cargar un archivo KML válido antes de realizar el recorte.', 'warning');
+                return;
+            }
+            
+            // Confirmación para procesos largos
+            const selectedAreaType = areaTypeSelect.options[areaTypeSelect.selectedIndex].text;
+            const shouldProceed = confirm(
+                `¿Deseas proceder con el análisis del tipo "${selectedAreaType}"?\n\n` +
+                'Este proceso puede tomar varios segundos dependiendo del tamaño del área.'
+            );
+            
+            if (!shouldProceed) {
+                return;
+            }
+            
+            // Prevenir ejecuciones simultáneas del proceso intensivo
             performClipBtn.disabled = true;
-            Promise.resolve().then(() => performClipping()).finally(() => {
-                // re-habilitar sólo si hay KML cargado
-                performClipBtn.disabled = !kmlGeoJson;
-            });
+            performClipBtn.innerHTML = `<i class="bi bi-hourglass-split me-1"></i>Procesando...`;
+            
+            Promise.resolve()
+                .then(() => performClipping())
+                .catch(error => {
+                    console.error('Error en performClipping:', error);
+                    showAlert('Ocurrió un error inesperado durante el procesamiento.', 'danger');
+                })
+                .finally(() => {
+                    // Re-habilitar solo si hay KML cargado
+                    performClipBtn.disabled = !kmlGeoJson;
+                    performClipBtn.innerHTML = `<i class="bi bi-scissors me-1"></i>Realizar Recorte`;
+                });
         });
+
+        // Restaurar vista del área de resultados con validaciones
         if (resetViewBtn) {
             resetViewBtn.addEventListener('click', () => {
                 if (lastAreaBounds && lastAreaBounds.isValid()) {
-                    map.fitBounds(lastAreaBounds, { animate: true, duration: 0.5 });
+                    map.fitBounds(lastAreaBounds, { 
+                        animate: true, 
+                        duration: 0.5,
+                        padding: [10, 10] // Agregar padding para mejor visualización
+                    });
+                    showAlert('Vista restaurada al área de resultados.', 'info', 2000);
+                } else {
+                    showAlert('No hay un área válida para restaurar la vista. Realiza primero un recorte.', 'warning');
                 }
             });
         }
+
+        // Limpiar todas las capas y resetear aplicación con confirmación
         clearMapBtn.addEventListener('click', () => {
+            const hasData = kmlLayer || clippedLocalitiesLayer || bufferLayer;
+            
+            if (hasData) {
+                const shouldClear = confirm(
+                    '¿Estás seguro de que deseas limpiar todo el mapa?\n\n' +
+                    'Esta acción eliminará todas las capas y datos cargados.'
+                );
+                
+                if (!shouldClear) {
+                    return;
+                }
+            }
+            
             clearAllLayers();
-            showAlert('Mapa limpiado.', 'info');
+            showAlert('Mapa limpiado correctamente. Puedes cargar un nuevo archivo KML.', 'success');
+            
+            // Resetear formulario
+            kmlFileInput.value = '';
+            uploadKmlBtn.innerHTML = `<i class="bi bi-upload me-1"></i>Subir KML`;
         });
 
     } catch (err) {
-        console.error('Error inicializando la app:', err);
-        showAlert('Ocurrió un error inicializando la aplicación.', 'danger', 7000);
+        console.error('Error crítico inicializando la aplicación:', err);
+        showAlert(
+            'Ocurrió un error crítico al inicializar la aplicación. Recarga la página e intenta nuevamente.', 
+            'danger', 
+            10000
+        );
         hidePreloader();
     }
 }
 
+// ============================================================================
+// INICIALIZACIÓN DE LA APLICACIÓN
+// ============================================================================
+
+/**
+ * Detectar el estado del DOM e inicializar cuando esté listo
+ * Garantiza que todos los elementos estén disponibles antes de la configuración
+ */
 if (document.readyState === 'loading') {
+    // DOM aún se está cargando
     document.addEventListener('DOMContentLoaded', initApp);
 } else {
-    // DOM ya listo
+    // DOM ya está listo, inicializar inmediatamente
     initApp();
 }
 
-// Failsafes adicionales: si por alguna razón sigue visible, ocultarlo cuando termine de cargar todo
+// ============================================================================
+// FAILSAFES Y CLEANUP
+// ============================================================================
+
+/**
+ * Medidas de seguridad para garantizar que el preloader no bloquee la interfaz
+ * Estos eventos actúan como respaldo en caso de errores en el flujo normal
+ */
+
+// Ocultar preloader cuando termine de cargar toda la página
 window.addEventListener('load', () => {
     hidePreloader();
 });
 
-// Y un último intento tras 1 segundo
-setTimeout(() => hidePreloader(), 1000);
+// Failsafe final: forzar ocultamiento después de 1 segundo
+setTimeout(() => {
+    hidePreloader();
+}, 1000);
+
+/**
+ * ============================================================================
+ * FIN DEL ARCHIVO - GEOVISUALIZADOR DE ÁREAS DE INTERÉS
+ * ============================================================================
+ * 
+ * Este sistema permite:
+ * - Cargar y visualizar archivos KML de áreas de interés
+ * - Realizar análisis geoespaciales con diferentes criterios
+ * - Identificar localidades dentro de áreas definidas
+ * - Generar reportes visuales con código de colores por CVEGEO
+ * - Proporcionar una interfaz responsive y accesible
+ * 
+ * Desarrollado para la Secretaría de Energía (SENER) - Gobierno de México
+ * ============================================================================
+ */

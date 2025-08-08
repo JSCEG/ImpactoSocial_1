@@ -193,3 +193,60 @@
     line-height: 1;
     box-shadow: 0 1px 2px rgba(0, 0, 0, .25);
 }
+
+/* Mejoras de UX para botones */
+.btn[disabled] {
+    cursor: not-allowed !important;
+    opacity: 0.65;
+}
+
+.btn:not([disabled]):hover {
+    transform: translateY(-1px);
+    transition: transform 0.2s ease;
+}
+
+/* Tooltips mejorados para mejor UX */
+[title] {
+    cursor: help;
+}
+
+/* Estilos para texto de ayuda */
+.form-text {
+    color: #6c757d;
+    font-size: 0.875rem;
+    line-height: 1.4;
+}
+
+/* Mejoras de accesibilidad para lista CVEGEO */
+#cvegeoList li {
+    transition: background-color 0.2s ease;
+}
+
+#cvegeoList li:hover {
+    background-color: rgba(124, 25, 70, 0.05);
+}
+
+#cvegeoList li:focus {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+/* Indicadores visuales para elementos interactivos */
+.accordion-button::after {
+    transition: transform 0.2s ease;
+}
+
+.accordion-button[aria-expanded="true"]::after {
+    transform: rotate(180deg);
+}
+
+/* Mejoras para el mapa en dispositivos táctiles */
+@media (hover: none) and (pointer: coarse) {
+    #cvegeoList li {
+        padding: 0.5rem 0;
+    }
+    
+    .btn {
+        min-height: 44px; /* Tamaño mínimo táctil recomendado */
+    }
+}
