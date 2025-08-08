@@ -170,7 +170,7 @@ function showPreloader() {
 }
 
 /**
- * Actualiza la barra de progreso y mensaje del preloader
+ * Actualiza la barra de progreso y mensaje del preloader con animación suave
  * @param {number} percent - Porcentaje de progreso (0-100)
  * @param {string} message - Mensaje descriptivo del progreso actual
  */
@@ -180,13 +180,84 @@ function updateProgress(percent, message) {
     
     if (bar) {
         const clampedPercent = Math.max(0, Math.min(100, percent));
-        bar.style.width = `${clampedPercent}%`;
-        bar.setAttribute('aria-valuenow', String(Math.round(clampedPercent)));
+        
+        // Aplicar transición suave si no existe
+        if (!bar.style.transition || bar.style.transition === 'none') {
+            bar.style.transition = 'width 0.5s ease-in-out';
+        }
+        
+        // Actualizar con animación
+        requestAnimationFrame(() => {
+            bar.style.width = `${clampedPercent}%`;
+            bar.setAttribute('aria-valuenow', String(Math.round(clampedPercent)));
+        });
     }
     
     if (msg && typeof message === 'string') {
         msg.textContent = message;
     }
+}
+
+/**
+ * Muestra un modal de confirmación con mensaje personalizado
+ * @param {string} message - Mensaje a mostrar en el modal
+ * @param {string} title - Título del modal (opcional)
+ * @returns {Promise<boolean>} - Promise que resuelve true si el usuario confirma
+ */
+function showConfirmModal(message, title = 'Confirmar análisis') {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('confirmModal');
+        const modalTitle = document.getElementById('confirmModalLabel');
+        const modalMessage = document.getElementById('confirmModalMessage');
+        const proceedBtn = document.getElementById('confirmModalProceed');
+        
+        if (!modal || !modalMessage || !proceedBtn) {
+            // Fallback a confirm nativo si el modal no existe
+            resolve(confirm(message));
+            return;
+        }
+        
+        // Configurar contenido del modal
+        if (modalTitle) modalTitle.innerHTML = `<i class="bi bi-question-circle me-2"></i>${title}`;
+        modalMessage.textContent = message;
+        
+        // Crear instancia del modal Bootstrap
+        const bsModal = new bootstrap.Modal(modal);
+        
+        // Limpiar listeners previos
+        const newProceedBtn = proceedBtn.cloneNode(true);
+        proceedBtn.parentNode.replaceChild(newProceedBtn, proceedBtn);
+        
+        // Configurar event listeners
+        let resolved = false;
+        
+        const handleConfirm = () => {
+            if (!resolved) {
+                resolved = true;
+                bsModal.hide();
+                resolve(true);
+            }
+        };
+        
+        const handleCancel = () => {
+            if (!resolved) {
+                resolved = true;
+                resolve(false);
+            }
+        };
+        
+        // Event listeners
+        newProceedBtn.addEventListener('click', handleConfirm);
+        modal.addEventListener('hidden.bs.modal', handleCancel, { once: true });
+        
+        // Mostrar modal
+        bsModal.show();
+        
+        // Foco en botón de proceder para mejor UX
+        modal.addEventListener('shown.bs.modal', () => {
+            newProceedBtn.focus();
+        }, { once: true });
+    });
 }
 
 // ============================================================================
@@ -354,21 +425,49 @@ function initApp() {
         function goToFeatureRef(ref) {
             if (!ref) return;
             
-            if (ref.bounds && ref.bounds.isValid()) {
-                // Para polígonos: centrar en bounds con zoom calculado automáticamente
-                const center = ref.bounds.getCenter();
-                const targetZoom = Math.min(map.getBoundsZoom(ref.bounds, true), 15);
-                map.setView(center, targetZoom, { 
-                    animate: true, 
-                    duration: 0.6 
-                });
-            } else if (ref.latlng) {
-                // Para puntos: usar zoom mínimo razonable
-                const z = Math.max(map.getZoom(), 13);
-                map.setView(ref.latlng, z, { 
-                    animate: true, 
-                    duration: 0.6 
-                });
+            try {
+                if (ref.bounds && ref.bounds.isValid()) {
+                    // Para polígonos: centrar en bounds con zoom calculado automáticamente
+                    const center = ref.bounds.getCenter();
+                    let targetZoom = map.getBoundsZoom(ref.bounds, true);
+                    
+                    // Asegurar zoom mínimo útil y máximo razonable
+                    targetZoom = Math.max(10, Math.min(targetZoom, 17));
+                    
+                    // Centrar con animación suave
+                    map.setView(center, targetZoom, { 
+                        animate: true, 
+                        duration: 0.8,
+                        easeLinearity: 0.25
+                    });
+                    
+                } else if (ref.latlng) {
+                    // Para puntos: usar zoom apropiado para visualizar detalles
+                    const currentZoom = map.getZoom();
+                    const targetZoom = Math.max(currentZoom, 14);
+                    
+                    map.setView(ref.latlng, targetZoom, { 
+                        animate: true, 
+                        duration: 0.8,
+                        easeLinearity: 0.25
+                    });
+                }
+                
+                // Pequeño delay para asegurar que el mapa se actualice correctamente
+                setTimeout(() => {
+                    map.invalidateSize();
+                }, 100);
+                
+            } catch (error) {
+                console.warn('Error navegando a feature:', error);
+                // Fallback: intentar fit bounds si está disponible
+                if (ref.bounds && ref.bounds.isValid()) {
+                    map.fitBounds(ref.bounds, { 
+                        animate: true,
+                        duration: 0.5,
+                        padding: [20, 20]
+                    });
+                }
             }
         }
 
@@ -660,8 +759,8 @@ function initApp() {
                 const total = localitiesData.features.length;
                 let processed = 0;
                 
-                // Configurar actualizaciones de progreso eficientes
-                const step = Math.max(50, Math.floor(total / 200));
+                // Configurar actualizaciones de progreso más frecuentes para mejor UX
+                const updateStep = Math.max(10, Math.floor(total / 100));
                 
                 // Procesar cada localidad para determinar intersección
                 for (const loc of localitiesData.features) {
@@ -672,14 +771,18 @@ function initApp() {
                     
                     processed++;
                     
-                    // Actualizar progreso periódicamente
-                    if (processed % step === 0 || processed === total) {
-                        const pct = 55 + Math.min(35, (processed / Math.max(1, total)) * 35);
-                        updateProgress(pct, `Procesando localidades… ${processed}/${total}`);
+                    // Actualizar progreso más frecuentemente para mejor feedback visual
+                    if (processed % updateStep === 0 || processed === total) {
+                        const progressPercent = 55 + Math.min(35, (processed / Math.max(1, total)) * 35);
+                        const message = `Analizando localidades… ${processed.toLocaleString()}/${total.toLocaleString()} (${clipped.length} encontradas)`;
+                        updateProgress(progressPercent, message);
+                        
+                        // Permitir que el navegador actualice la UI
+                        await new Promise(resolve => setTimeout(resolve, 1));
                     }
                 }
                 
-                updateProgress(90, `Encontradas ${clipped.length} localidades. Preparando visualización…`);
+                updateProgress(90, `Procesamiento completado. Encontradas ${clipped.length} localidades. Preparando visualización…`);
 
                 // ============================================================
                 // VISUALIZACIÓN DE RESULTADOS
@@ -931,19 +1034,18 @@ function initApp() {
         });
 
         // Ejecutar recorte de localidades con protección contra clicks múltiples y validaciones
-        performClipBtn.addEventListener('click', () => {
+        performClipBtn.addEventListener('click', async () => {
             // Validaciones previas
             if (!kmlGeoJson) {
                 showAlert('Debes cargar un archivo KML válido antes de realizar el recorte.', 'warning');
                 return;
             }
             
-            // Confirmación para procesos largos
+            // Confirmación para procesos largos usando modal
             const selectedAreaType = areaTypeSelect.options[areaTypeSelect.selectedIndex].text;
-            const shouldProceed = confirm(
-                `¿Deseas proceder con el análisis del tipo "${selectedAreaType}"?\n\n` +
-                'Este proceso puede tomar varios segundos dependiendo del tamaño del área.'
-            );
+            const confirmMessage = `¿Deseas proceder con el análisis del tipo "${selectedAreaType}"?`;
+            
+            const shouldProceed = await showConfirmModal(confirmMessage);
             
             if (!shouldProceed) {
                 return;
@@ -953,17 +1055,16 @@ function initApp() {
             performClipBtn.disabled = true;
             performClipBtn.innerHTML = `<i class="bi bi-hourglass-split me-1"></i>Procesando...`;
             
-            Promise.resolve()
-                .then(() => performClipping())
-                .catch(error => {
-                    console.error('Error en performClipping:', error);
-                    showAlert('Ocurrió un error inesperado durante el procesamiento.', 'danger');
-                })
-                .finally(() => {
-                    // Re-habilitar solo si hay KML cargado
-                    performClipBtn.disabled = !kmlGeoJson;
-                    performClipBtn.innerHTML = `<i class="bi bi-scissors me-1"></i>Realizar Recorte`;
-                });
+            try {
+                await performClipping();
+            } catch (error) {
+                console.error('Error en performClipping:', error);
+                showAlert('Ocurrió un error inesperado durante el procesamiento.', 'danger');
+            } finally {
+                // Re-habilitar solo si hay KML cargado
+                performClipBtn.disabled = !kmlGeoJson;
+                performClipBtn.innerHTML = `<i class="bi bi-scissors me-1"></i>Realizar Recorte`;
+            }
         });
 
         // Restaurar vista del área de resultados con validaciones
@@ -983,13 +1084,13 @@ function initApp() {
         }
 
         // Limpiar todas las capas y resetear aplicación con confirmación
-        clearMapBtn.addEventListener('click', () => {
+        clearMapBtn.addEventListener('click', async () => {
             const hasData = kmlLayer || clippedLocalitiesLayer || bufferLayer;
             
             if (hasData) {
-                const shouldClear = confirm(
-                    '¿Estás seguro de que deseas limpiar todo el mapa?\n\n' +
-                    'Esta acción eliminará todas las capas y datos cargados.'
+                const shouldClear = await showConfirmModal(
+                    '¿Estás seguro de que deseas limpiar todo el mapa? Esta acción eliminará todas las capas y datos cargados.',
+                    'Confirmar limpieza'
                 );
                 
                 if (!shouldClear) {

@@ -150,9 +150,21 @@
     color: var(--secondary) !important;
 }
 
-/* Progreso del preloader */
+/* Progreso del preloader con animación suave */
 #preProgressBar {
-    transition: width .2s ease;
+    transition: width 0.5s ease-in-out;
+    background: linear-gradient(90deg, #28a745, #20c997);
+}
+
+/* Animación pulsante para el progreso activo */
+.progress-bar.active {
+    animation: progress-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes progress-pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.8; }
+    100% { opacity: 1; }
 }
 
 /* Footer institucional inspirado en gob.mx */
@@ -249,4 +261,25 @@
     .btn {
         min-height: 44px; /* Tamaño mínimo táctil recomendado */
     }
+}
+
+/* Estilos para modal de confirmación */
+.modal-content {
+    border: none;
+    box-shadow: 0 1rem 3rem rgba(0, 0, 0, 0.175);
+}
+
+.modal-header {
+    background-color: var(--primary);
+    color: white;
+    border-bottom: none;
+}
+
+.modal-header .btn-close {
+    filter: invert(1);
+}
+
+.modal-footer {
+    border-top: 1px solid rgba(0, 0, 0, 0.125);
+    background-color: #f8f9fa;
 }
