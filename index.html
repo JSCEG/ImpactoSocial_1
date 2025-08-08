@@ -85,6 +85,42 @@
     <div id="alertContainer" class="position-fixed top-0 start-50 translate-middle-x mt-3"
         style="z-index: 2100; width: min(92vw, 720px);"></div>
 
+    <!-- Modal de confirmación para procesos largos -->
+    <div class="modal fade" id="confirmModal" tabindex="-1" aria-labelledby="confirmModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="confirmModalLabel">
+                        <i class="bi bi-question-circle me-2"></i>Confirmar análisis
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="d-flex align-items-start">
+                        <div class="flex-shrink-0 me-3">
+                            <i class="bi bi-info-circle-fill text-primary fs-4"></i>
+                        </div>
+                        <div class="flex-grow-1">
+                            <p id="confirmModalMessage" class="mb-3">¿Deseas proceder con este análisis?</p>
+                            <div class="alert alert-info small mb-0">
+                                <i class="bi bi-clock me-1"></i>
+                                Este proceso puede tomar varios segundos dependiendo del tamaño del área.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                        <i class="bi bi-x-circle me-1"></i>Cancelar
+                    </button>
+                    <button type="button" class="btn btn-primary" id="confirmModalProceed">
+                        <i class="bi bi-play-circle me-1"></i>Proceder
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Contenido principal: mobile-first -->
     <main class="container-fluid py-3">
         <div class="row g-3">
