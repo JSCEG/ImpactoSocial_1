@@ -105,9 +105,15 @@
                                     aria-labelledby="headingKml" data-bs-parent="#controlsAccordion">
                                     <div class="accordion-body">
                                         <label for="kmlFile" class="form-label">Selecciona archivo KML</label>
-                                        <input type="file" id="kmlFile" accept=".kml" class="form-control mb-2">
-                                        <button id="uploadKmlBtn" class="btn btn-primary w-100" disabled>Subir
-                                            KML</button>
+                                        <input type="file" id="kmlFile" accept=".kml,.kmz" class="form-control mb-2" 
+                                               aria-describedby="kmlHelp">
+                                        <div id="kmlHelp" class="form-text mb-2">
+                                            <small>El archivo debe contener un polígono válido que defina el área de interés.</small>
+                                        </div>
+                                        <button id="uploadKmlBtn" class="btn btn-primary w-100" disabled
+                                                title="Cargar y visualizar el archivo KML seleccionado">
+                                            <i class="bi bi-upload me-1"></i>Subir KML
+                                        </button>
                                     </div>
                                 </div>
                             </div>
@@ -123,15 +129,21 @@
                                     data-bs-parent="#controlsAccordion">
                                     <div class="accordion-body">
                                         <label for="areaType" class="form-label">Tipo de área</label>
-                                        <select id="areaType" class="form-select mb-2">
-                                            <option value="nucleo">Área núcleo</option>
+                                        <select id="areaType" class="form-select mb-2" aria-describedby="areaHelp">
+                                            <option value="nucleo">Área núcleo (con buffer de 500m)</option>
                                             <option value="directa">Área de influencia directa</option>
                                             <option value="indirecta">Área de influencia indirecta</option>
                                         </select>
-                                        <button id="performClipBtn" class="btn btn-success w-100" disabled>Realizar
-                                            Recorte</button>
-                                        <button id="resetViewBtn" class="btn btn-outline-secondary w-100 mt-2" disabled>
-                                            Restaurar vista del área
+                                        <div id="areaHelp" class="form-text mb-2">
+                                            <small>El área núcleo incluye un buffer adicional de 500 metros alrededor del polígono.</small>
+                                        </div>
+                                        <button id="performClipBtn" class="btn btn-success w-100" disabled
+                                                title="Iniciar el análisis geoespacial con el área seleccionada">
+                                            <i class="bi bi-scissors me-1"></i>Realizar Recorte
+                                        </button>
+                                        <button id="resetViewBtn" class="btn btn-outline-secondary w-100 mt-2" disabled
+                                                title="Volver a la vista del área de resultados">
+                                            <i class="bi bi-arrow-clockwise me-1"></i>Restaurar vista del área
                                         </button>
                                     </div>
                                 </div>
@@ -174,7 +186,13 @@
                                 <div id="collapseClear" class="accordion-collapse collapse"
                                     aria-labelledby="headingClear" data-bs-parent="#controlsAccordion">
                                     <div class="accordion-body">
-                                        <button id="clearMap" class="btn btn-outline-danger w-100">Limpiar Todo</button>
+                                        <button id="clearMap" class="btn btn-outline-danger w-100"
+                                                title="Eliminar todas las capas del mapa y reiniciar la aplicación">
+                                            <i class="bi bi-trash me-1"></i>Limpiar Todo
+                                        </button>
+                                        <div class="form-text mt-2">
+                                            <small>Esta acción eliminará todas las capas del mapa y permitirá comenzar con un nuevo análisis.</small>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
