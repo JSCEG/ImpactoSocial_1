@@ -92,10 +92,51 @@
 
 /* Transición para ocultar preloader de forma suave */
 #preloader {
+    display: none;
+    /* Oculto por defecto para no bloquear la vista inicial */
     opacity: 1;
     transition: opacity .3s ease;
 }
 
+.no-transition {
+    transition: none !important;
+}
+
+/* Si el nodo tiene el atributo hidden, asegúrate que quede fuera del flujo */
+#preloader[hidden] {
+    display: none !important;
+    opacity: 0 !important;
+}
+
 .preloader-hide {
     opacity: 0;
+}
+
+/* Acordeón institucional (colores de marca) */
+.accordion-button {
+    background-color: #ffffff;
+    color: #333;
+}
+
+.accordion-button:not(.collapsed) {
+    color: #fff;
+    background-color: var(--primary);
+    box-shadow: inset 0 -1px 0 rgba(0, 0, 0, .125);
+}
+
+.accordion-button:focus {
+    box-shadow: 0 0 0 .25rem rgba(124, 25, 70, .25);
+}
+
+.accordion-item {
+    border-color: rgba(0, 0, 0, .075);
+}
+
+.accordion-body {
+    border-top: 1px solid rgba(0, 0, 0, .05);
+}
+
+/* Spinner con color secundario */
+.spinner-border.text-primary {
+    color: var(--secondary) !important;
 }
