@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Geovisualizador de Áreas de Interés</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <link rel="stylesheet" href="style.css">
+    <!-- Leaflet + Omnivore -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/leaflet-omnivore@0.3.4/leaflet-omnivore.min.js"></script>
+    <!-- Turf.js -->
+    <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+    <!-- togeojson local -->
+    <script src="togeojson.js"></script>
+</head>
+<body>
+    <header>
+        <h1>Geovisualizador de Áreas de Interés</h1>
+    </header>
+    <div class="container">
+        <div id="sidebar">
+            <div class="control-group">
+                <h3>1. Cargar KML</h3>
+                <label for="kmlFile">Seleccionar archivo KML:</label>
+                <input type="file" id="kmlFile" accept=".kml">
+                <button id="uploadKmlBtn" disabled>Subir KML</button>
+            </div>
+
+            <div class="control-group">
+                <h3>2. Recorte de Localidades</h3>
+                <label for="areaType">Tipo de área:</label>
+                <select id="areaType">
+                    <option value="nucleo">Área núcleo</option>
+                    <option value="directa">Área de influencia directa</option>
+                    <option value="indirecta">Área de influencia indirecta</option>
+                </select>
+                <button id="performClipBtn" disabled>Realizar Recorte</button>
+            </div>
+
+            <div class="control-group">
+                <h3>3. Localidades encontradas</h3>
+                <p>Claves Geoestadísticas (CVEGEO):</p>
+                <div id="cvegeoList">
+                    <p>Sube un KML y realiza el recorte para ver la lista.</p>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <h3>4. Limpiar Mapa</h3>
+                <button id="clearMap" class="button-red">Limpiar Todo</button>
+            </div>
+        </div>
+        <div id="map"></div>
+    </div>
+
+    <script src="index.js"></script>
+</body>
+</html>
