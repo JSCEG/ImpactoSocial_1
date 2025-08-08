@@ -84,10 +84,19 @@
 #cvegeoList li {
     padding: .25rem 0;
     border-bottom: 1px dashed #ddd;
+    cursor: pointer;
 }
 
 #cvegeoList li:last-child {
     border-bottom: none;
+}
+
+/* Resaltado del elemento activo en la lista */
+#cvegeoList li.active {
+    background: rgba(124, 25, 70, 0.08);
+    /* usa tono primario translúcido */
+    border-left: 3px solid var(--primary);
+    padding-left: .5rem;
 }
 
 /* Transición para ocultar preloader de forma suave */
@@ -139,6 +148,11 @@
 /* Spinner con color secundario */
 .spinner-border.text-primary {
     color: var(--secondary) !important;
+}
+
+/* Progreso del preloader */
+#preProgressBar {
+    transition: width .2s ease;
 }
 
 /* Footer institucional inspirado en gob.mx */

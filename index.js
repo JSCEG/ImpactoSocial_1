@@ -6,6 +6,7 @@ let bufferLayer = null;
 let clippedLocalitiesLayer = null;
 let kmlGeoJson = null;
 let labelLayer = null;
+let lastAreaBounds = null; // para restaurar la vista del área
 
 // Garantizar disponibilidad de Turf en tiempo de ejecución (fallback si CDN falla)
 function loadScript(url) {
@@ -84,12 +85,29 @@ function showPreloader() {
                 <img src="img/mujer.png" alt="Cargando" style="max-height: 120px; object-fit: contain;" class="mb-3">
                 <div class="spinner-border text-primary" role="status" aria-label="Cargando"></div>
                 <p class="mt-3 mb-0">Procesando…</p>
+                <div class="progress mt-3 mx-auto" style="height: 10px; width: min(80vw, 420px);">
+                    <div id="preProgressBar" class="progress-bar bg-success" role="progressbar" style="width: 0%;"
+                        aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div>
+                </div>
+                <p id="preloaderMessage" class="mt-2 mb-0 small text-muted">Preparando…</p>
             </div>`;
         document.body.appendChild(pre);
     }
     pre.classList.remove('preloader-hide');
     pre.removeAttribute('hidden');
     pre.style.display = 'flex';
+}
+
+function updateProgress(percent, message) {
+    const bar = document.getElementById('preProgressBar');
+    const msg = document.getElementById('preloaderMessage');
+    if (bar) {
+        bar.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+        bar.setAttribute('aria-valuenow', String(Math.round(percent)));
+    }
+    if (msg && typeof message === 'string') {
+        msg.textContent = message;
+    }
 }
 
 // Nota: el preloader está oculto por defecto; se muestra sólo en procesos largos (p.ej. recorte)
@@ -110,8 +128,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const uploadKmlBtn = document.getElementById('uploadKmlBtn');
         const areaTypeSelect = document.getElementById('areaType');
         const performClipBtn = document.getElementById('performClipBtn');
+        const resetViewBtn = document.getElementById('resetViewBtn');
         const clearMapBtn = document.getElementById('clearMap');
         const cvegeoListDiv = document.getElementById('cvegeoList');
+        let featureLayersById = new Map(); // CVEGEO -> {bounds|latlng}
 
         if (uploadKmlBtn) uploadKmlBtn.disabled = true;
         if (performClipBtn) performClipBtn.disabled = true;
@@ -142,12 +162,26 @@ document.addEventListener('DOMContentLoaded', () => {
             cvegeoListDiv.innerHTML = '<p class="mb-0 text-muted">Sube un KML y realiza el recorte para ver la lista.</p>';
             uploadKmlBtn.disabled = true;
             performClipBtn.disabled = true;
+            if (resetViewBtn) resetViewBtn.disabled = true;
+            lastAreaBounds = null;
             const badge = document.getElementById('foundCountBadge');
             if (badge) badge.textContent = '0';
             const totalFound = document.getElementById('totalFound');
             if (totalFound) totalFound.textContent = '0';
             const currentCriteria = document.getElementById('currentCriteria');
             if (currentCriteria) currentCriteria.textContent = '—';
+        }
+
+        function setActiveListItem(targetId) {
+            const items = cvegeoListDiv.querySelectorAll('li');
+            items.forEach(li => {
+                if (li.dataset.cvegeo === targetId) {
+                    li.classList.add('active');
+                    try { li.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (_) { /* opcional */ }
+                } else {
+                    li.classList.remove('active');
+                }
+            });
         }
 
         function displayCvegeoList(features, colorsById) {
@@ -161,6 +195,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const li = document.createElement('li');
                     const color = colorsById.get(f.properties.CVEGEO) || '#008000';
                     li.innerHTML = `<span class="color-dot" style="background:${color}"></span>${f.properties.CVEGEO}`;
+                    li.dataset.cvegeo = f.properties.CVEGEO;
                     ul.appendChild(li);
                 }
             });
@@ -172,6 +207,24 @@ document.addEventListener('DOMContentLoaded', () => {
             if (totalFound) totalFound.textContent = String(features.length);
             const currentCriteria = document.getElementById('currentCriteria');
             if (currentCriteria) currentCriteria.textContent = areaTypeSelect.options[areaTypeSelect.selectedIndex].text;
+
+            // Click en elemento de la lista: centrar en esa localidad
+            ul.querySelectorAll('li').forEach(li => {
+                li.addEventListener('click', () => {
+                    const id = li.dataset.cvegeo;
+                    const ref = featureLayersById.get(id);
+                    if (!ref) return;
+                    setActiveListItem(id);
+                    if (ref.bounds && ref.bounds.isValid()) {
+                        map.fitBounds(ref.bounds.pad(0.25), { animate: true, duration: 0.5, maxZoom: 14 });
+                    } else if (ref.latlng) {
+                        map.panTo(ref.latlng, { animate: true, duration: 0.5 });
+                    }
+                    if (ref.layer && ref.layer.openPopup) {
+                        ref.layer.openPopup();
+                    }
+                });
+            });
         }
 
         function processKmlFile(file) {
@@ -214,6 +267,7 @@ document.addEventListener('DOMContentLoaded', () => {
         async function performClipping() {
             // Mostrar preloader durante el procesamiento del recorte
             showPreloader();
+            updateProgress(5, 'Validando insumos…');
             // Validar que ya se cargó un KML
             if (!kmlGeoJson) {
                 showAlert('Primero carga un archivo KML válido.', 'warning');
@@ -225,8 +279,10 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 // Asegurar Turf
                 const T = await ensureTurf();
+                updateProgress(15, 'Realizando el análisis, por favor espere…');
                 if (!localitiesData) {
                     await loadLocalitiesData();
+                    updateProgress(35, 'Localidades cargadas. Preparando geometrías…');
                     if (!localitiesData) return; // si falló la carga, abortar
                 }
 
@@ -250,6 +306,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 fillOpacity: 0.1
                             }
                         }).addTo(map);
+                        updateProgress(55, 'Buffer generado. Intersectando…');
                     } catch (e) {
                         console.error('Error creando buffer:', e);
                         showAlert('No se pudo crear el buffer.', 'danger');
@@ -258,11 +315,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 const clipped = [];
+                const total = localitiesData.features.length;
+                let processed = 0;
+                const step = Math.max(50, Math.floor(total / 200)); // actualiza con frecuencia razonable
                 for (const loc of localitiesData.features) {
                     if (T.booleanIntersects(loc.geometry, clipArea.geometry)) {
                         clipped.push(loc);
                     }
+                    processed++;
+                    if (processed % step === 0 || processed === total) {
+                        const pct = 55 + Math.min(35, (processed / Math.max(1, total)) * 35);
+                        updateProgress(pct, `Procesando localidades… ${processed}/${total}`);
+                    }
                 }
+                updateProgress(90, `Encontradas ${clipped.length}. Dibujando…`);
 
                 if (clipped.length > 0) {
                     // Generar una paleta de colores distinta por CVEGEO
@@ -281,6 +347,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
 
                     // Capa de puntos con color propio y popup
+                    featureLayersById = new Map();
                     const clippedCollection = T.featureCollection(clipped);
                     clippedLocalitiesLayer = L.geoJSON(clippedCollection, {
                         // Estilo para polígonos/líneas por CVEGEO
@@ -310,8 +377,34 @@ document.addEventListener('DOMContentLoaded', () => {
                         },
                         onEachFeature: (feature, layer) => {
                             if (feature.properties?.CVEGEO) {
-                                layer.bindPopup(`Localidad: ${feature.properties.NOM_LOC || '—'}<br>CVEGEO: ${feature.properties.CVEGEO}`);
+                                const nombre = feature.properties.NOM_LOC || feature.properties.NOMBRE || '—';
+                                layer.bindPopup(`Localidad: ${nombre}<br>CVEGEO: ${feature.properties.CVEGEO}`);
+                                const id = feature.properties.CVEGEO;
+                                const ref = { layer };
+                                if (layer.getBounds) {
+                                    const b = layer.getBounds();
+                                    if (b && b.isValid()) ref.bounds = b;
+                                } else if (layer.getLatLng) {
+                                    ref.latlng = layer.getLatLng();
+                                }
+                                featureLayersById.set(id, ref);
                             }
+                            // Click: centra suavemente sin zoom agresivo
+                            layer.on('click', () => {
+                                const id = feature.properties?.CVEGEO;
+                                if (id) setActiveListItem(id);
+                                if (layer.getBounds) {
+                                    const b = layer.getBounds();
+                                    if (b && b.isValid()) {
+                                        map.fitBounds(b.pad(0.25), { animate: true, duration: 0.5, maxZoom: 14 });
+                                        return;
+                                    }
+                                }
+                                if (layer.getLatLng) {
+                                    map.panTo(layer.getLatLng(), { animate: true, duration: 0.5 });
+                                }
+                                if (layer.openPopup) layer.openPopup();
+                            });
                         }
                     }).addTo(map);
 
@@ -355,9 +448,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                     if (labels.length) labelLayer = L.layerGroup(labels).addTo(map);
 
-                    setTimeout(() => { map.invalidateSize(); map.fitBounds(clippedLocalitiesLayer.getBounds()); }, 50);
+                    // Guarda bounds del área y habilita restaurar vista
+                    lastAreaBounds = clippedLocalitiesLayer.getBounds();
+                    if (resetViewBtn) resetViewBtn.disabled = !lastAreaBounds || !lastAreaBounds.isValid();
+                    setTimeout(() => { map.invalidateSize(); if (lastAreaBounds) map.fitBounds(lastAreaBounds); }, 50);
                     displayCvegeoList(clipped, colorsById);
                     showAlert(`Recorte completado. Se encontraron ${clipped.length} localidades.`, 'success');
+                    updateProgress(100, 'Listo.');
                 } else {
                     showAlert('No se encontraron localidades dentro del área.', 'warning');
                     cvegeoListDiv.innerHTML = '<p class="mb-0">No se encontraron localidades dentro del área.</p>';
@@ -367,6 +464,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (totalFound) totalFound.textContent = '0';
                     const currentCriteria = document.getElementById('currentCriteria');
                     if (currentCriteria) currentCriteria.textContent = areaTypeSelect.options[areaTypeSelect.selectedIndex].text;
+                    updateProgress(100, 'Sin coincidencias.');
+                    lastAreaBounds = null;
+                    if (resetViewBtn) resetViewBtn.disabled = true;
                 }
             } catch (err) {
                 console.error('Error durante el recorte:', err);
@@ -396,6 +496,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 performClipBtn.disabled = !kmlGeoJson;
             });
         });
+        if (resetViewBtn) {
+            resetViewBtn.addEventListener('click', () => {
+                if (lastAreaBounds && lastAreaBounds.isValid()) {
+                    map.fitBounds(lastAreaBounds, { animate: true, duration: 0.5 });
+                }
+            });
+        }
         clearMapBtn.addEventListener('click', () => {
             clearAllLayers();
             showAlert('Mapa limpiado.', 'info');

@@ -33,7 +33,11 @@
         <div class="text-center">
             <img src="img/mujer.png" alt="Cargando" style="max-height: 120px; object-fit: contain;" class="mb-3">
             <div class="spinner-border text-primary" role="status" aria-label="Cargando"></div>
-            <p class="mt-3 mb-0">Procesando…</p>
+            <div class="progress mt-3 mx-auto" style="height: 10px; width: min(80vw, 420px);">
+                <div id="preProgressBar" class="progress-bar bg-success" role="progressbar" style="width: 0%;"
+                    aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div>
+            </div>
+            <p id="preloaderMessage" class="mt-2 mb-0 small text-muted">Preparando…</p>
         </div>
     </div>
 
@@ -106,6 +110,9 @@
                                         </select>
                                         <button id="performClipBtn" class="btn btn-success w-100" disabled>Realizar
                                             Recorte</button>
+                                        <button id="resetViewBtn" class="btn btn-outline-secondary w-100 mt-2" disabled>
+                                            Restaurar vista del área
+                                        </button>
                                     </div>
                                 </div>
                             </div>
