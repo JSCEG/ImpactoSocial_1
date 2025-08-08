@@ -247,14 +247,41 @@ console.log(map); // Debe ser una instancia de Map
 
 ### Contacto de Soporte Técnico
 
-**Equipo de Desarrollo**: 
+**Equipo de Desarrollo SENER**: 
 - Email: calidad@energia.gob.mx
-- Horario: Lunes a Viernes, 9:00 - 17:00 hrs
+- Horario: Lunes a Viernes, 9:00 - 17:00 hrs (Zona Horaria del Centro de México)
 
-**Escalamiento**:
-- Nivel 1: Administrador del servidor web
-- Nivel 2: Equipo de desarrollo de aplicaciones
+**Escalamiento de Incidencias**:
+- Nivel 1: Administrador del servidor web institucional
+- Nivel 2: Equipo de desarrollo de aplicaciones geoespaciales  
 - Nivel 3: Arquitectos de soluciones TI SENER
+
+**Documentación Técnica Adicional**:
+- `DOCUMENTACION_TECNICA.md` - Especificación completa del algoritmo de recorte
+- `ENTREGA_FORMAL.md` - Documento de entrega para equipos de TI
+- `GUIA_IMPLEMENTACION.md` - Guía rápida de implementación
+
+---
+
+## Mejoras Técnicas Implementadas
+
+### Comentarios de Código Mejorados
+- **Documentación exhaustiva** del algoritmo de recorte de capas geoespaciales
+- **Explicación detallada** de cómo se recorren las propiedades de localidades
+- **Descripción técnica** de la generación del arreglo de resultados
+- **Comentarios en español mexicano** para equipos de desarrollo locales
+
+### Proceso de Recorte de Capas Documentado
+- **Algoritmo paso a paso** de intersección geoespacial masiva
+- **Especificación de librerías** utilizadas y su función específica
+- **Optimizaciones de rendimiento** para procesamiento de 30,000+ localidades
+- **Estructuras de datos** y flujo de transformación completo
+
+### Documentación para Entrega Formal
+- **`DOCUMENTACION_TECNICA.md`** - Análisis técnico completo del sistema
+- **`ENTREGA_FORMAL.md`** - Documento de entrega para equipos de TI
+- **`GUIA_IMPLEMENTACION.md`** - Guía rápida de implementación
+- **Comentarios de código** mejorados con explicaciones detalladas
 
 ---
 
