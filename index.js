@@ -376,10 +376,13 @@ document.addEventListener('DOMContentLoaded', () => {
                             });
                         },
                         onEachFeature: (feature, layer) => {
-                            if (feature.properties?.CVEGEO) {
-                                const nombre = feature.properties.NOM_LOC || feature.properties.NOMBRE || '—';
-                                layer.bindPopup(`Localidad: ${nombre}<br>CVEGEO: ${feature.properties.CVEGEO}`);
-                                const id = feature.properties.CVEGEO;
+                            if (feature.properties) {
+                                const props = feature.properties;
+                                const nombre = props.NOM_LOC || props.NOMGEO || props.NOMBRE || '—';
+                                const cvegeo = props.CVEGEO || '—';
+                                const ambito = props.AMBITO || '—';
+                                layer.bindPopup(`Nombre: <strong>${nombre}</strong><br>CVEGEO: <strong>${cvegeo}</strong><br>Ámbito: <strong>${ambito}</strong>`);
+                                const id = props.CVEGEO;
                                 const ref = { layer };
                                 if (layer.getBounds) {
                                     const b = layer.getBounds();
@@ -387,7 +390,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 } else if (layer.getLatLng) {
                                     ref.latlng = layer.getLatLng();
                                 }
-                                featureLayersById.set(id, ref);
+                                if (id) featureLayersById.set(id, ref);
                             }
                             // Click: centra suavemente sin zoom agresivo
                             layer.on('click', () => {
