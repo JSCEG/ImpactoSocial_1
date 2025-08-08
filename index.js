@@ -636,12 +636,26 @@ function initApp() {
         // ====================================================================
 
         /**
-         * Realiza el recorte de localidades según el área seleccionada
-         * Esta es la función más compleja del sistema, que:
-         * 1. Carga las localidades si no están en memoria
-         * 2. Genera buffers según el tipo de área
-         * 3. Realiza intersecciones geoespaciales
-         * 4. Visualiza los resultados con colores diferenciados
+         * FUNCIÓN PRINCIPAL: Realiza el recorte de localidades según el área seleccionada
+         * ==================================================================================
+         * 
+         * Esta es la función más compleja y crítica del sistema. Ejecuta el algoritmo
+         * de análisis geoespacial que constituye el núcleo de la aplicación.
+         * 
+         * PROCESO DETALLADO:
+         * 1. Carga las localidades desde INEGI si no están en memoria (30,000+ registros)
+         * 2. Genera buffers de 500m para área núcleo utilizando Turf.js
+         * 3. Realiza intersecciones geoespaciales masivas entre localidades y área de interés
+         * 4. Aplica filtros de tipo de área (núcleo, directa, indirecta)
+         * 5. Visualiza los resultados con colores diferenciados por CVEGEO
+         * 6. Genera etiquetas interactivas y navegación en mapa
+         * 
+         * LIBRERÍAS INVOLUCRADAS:
+         * - Turf.js: Para operaciones geoespaciales (buffer, intersect, centroid)
+         * - Leaflet.js: Para visualización de capas en el mapa
+         * - togeojson.js: Ya ejecutada previamente para conversión KML→GeoJSON
+         * 
+         * RENDIMIENTO: Procesamiento optimizado en lotes para mantener UI responsiva
          */
         async function performClipping() {
             // Mostrar preloader durante procesamiento intensivo
@@ -724,45 +738,96 @@ function initApp() {
                 }
 
                 // ============================================================
-                // PROCESAMIENTO DE INTERSECCIONES
+                // PROCESAMIENTO DE INTERSECCIONES GEOESPACIALES MASIVAS
                 // ============================================================
+                
+                /*
+                 * ALGORITMO CLAVE: Recorrido y evaluación de todas las localidades
+                 * 
+                 * CÓMO SE RECORREN LAS PROPIEDADES:
+                 * 1. Se itera sobre localitiesData.features[] que contiene ~30,000 localidades
+                 * 2. Cada feature tiene structure: {geometry: {...}, properties: {CVEGEO, NOM_LOC, AMBITO, ...}}
+                 * 3. Se extrae geometry.coordinates para operaciones espaciales
+                 * 4. Se evalúa intersección geométrica con Turf.js booleanIntersects()
+                 * 5. Si intersecta, se agrega la feature COMPLETA al arreglo resultado
+                 * 
+                 * CÓMO SE GENERA EL ARREGLO FINAL:
+                 * - clipped[] inicia vacío
+                 * - Por cada localidad que intersecta: clipped.push(localidad_completa)  
+                 * - Resultado: Array de features GeoJSON con todas sus propiedades preservadas
+                 * - No se modifican datos originales, solo se filtran por intersección espacial
+                 * 
+                 * OPTIMIZACIÓN: Procesamiento en lotes para no bloquear la interfaz
+                 */
 
-                const clipped = [];
-                const total = localitiesData.features.length;
-                let processed = 0;
+                const clipped = [];  // Arreglo resultado que almacenará localidades intersectantes
+                const total = localitiesData.features.length;  // Total de localidades a procesar (~30,000)
+                let processed = 0;  // Contador de progreso
 
-                // Configurar actualizaciones y procesamiento en lotes para permitir repintado de UI
-                const base = 20; // % reservado para setup
-                const loopSpan = 75; // % dedicado al bucle de intersección (20 -> 95)
-                const batchSize = Math.max(500, Math.floor(total / 200)); // ~hasta 200 lotes
-                const features = localitiesData.features;
+                // Configurar procesamiento en lotes para permitir repintado de UI
+                const base = 20; // % reservado para setup inicial  
+                const loopSpan = 75; // % dedicado al bucle de intersección (20% → 95%)
+                const batchSize = Math.max(500, Math.floor(total / 200)); // ~200 lotes óptimos
+                const features = localitiesData.features;  // Referencia al array de localidades
+                
+                // Función para ceder control al navegador y permitir repintado de UI
                 const yieldUI = () => new Promise(res => (window.requestAnimationFrame ? requestAnimationFrame(() => res()) : setTimeout(res, 0)));
 
+                // BUCLE PRINCIPAL: Procesar localidades en lotes
                 for (let start = 0; start < total; start += batchSize) {
                     const end = Math.min(start + batchSize, total);
+                    
+                    // Procesar lote actual
                     for (let i = start; i < end; i++) {
-                        const loc = features[i];
+                        const loc = features[i];  // Localidad individual con todas sus propiedades
+                        
+                        /*
+                         * OPERACIÓN CRÍTICA: Evaluación de intersección geoespacial
+                         * 
+                         * T.booleanIntersects() determina si dos geometrías se superponen:
+                         * - loc.geometry: Geometría de la localidad (Point, Polygon, etc.)
+                         * - clipArea.geometry: Área de interés (Polygon del KML o buffer)
+                         * 
+                         * Algoritmo interno utiliza:
+                         * - Para puntos: Point-in-polygon con ray casting
+                         * - Para polígonos: Intersección de bordes y overlapping
+                         * - Manejo automático de diferentes tipos geométricos
+                         */
                         if (T.booleanIntersects(loc.geometry, clipArea.geometry)) {
-                            clipped.push(loc);
+                            clipped.push(loc);  // Agregar localidad completa al resultado
                         }
                     }
+                    
+                    // Actualizar progreso y estadísticas
                     processed = end;
                     const frac = processed / Math.max(1, total);
-                    const pct = base + loopSpan * frac; // 20% -> 95%
+                    const pct = base + loopSpan * frac; // Progreso de 20% a 95%
                     updateProgress(pct, `Procesando localidades… ${processed}/${total}`);
-                    // Ceder control al navegador para que repinte barra y spinner
+                    
+                    // Ceder control al navegador para repintar barra de progreso y spinner
                     await yieldUI();
                 }
 
                 updateProgress(95, `Encontradas ${clipped.length} localidades. Preparando visualización…`);
 
                 // ============================================================
-                // VISUALIZACIÓN DE RESULTADOS
+                // VISUALIZACIÓN DE RESULTADOS Y GENERACIÓN DE CAPAS
                 // ============================================================
 
                 if (clipped.length > 0) {
+                    /*
+                     * GENERACIÓN DE PALETA DE COLORES POR CVEGEO
+                     * 
+                     * Cada localidad necesita un color único para diferenciación visual:
+                     * 1. Se crea un Map() para asociar CVEGEO → Color
+                     * 2. Se define paleta de 20 colores institucionales  
+                     * 3. Los colores se asignan secuencialmente, con reutilización cíclica
+                     * 4. Esto permite hasta 20 localidades con colores únicos
+                     * 5. Si hay más de 20, los colores se reutilizan (patrón cíclico)
+                     */
+                    
                     // Generar paleta de colores distinta por CVEGEO
-                    const colorsById = new Map();
+                    const colorsById = new Map();  // CVEGEO → Color hex
                     const palette = [
                         '#d11149', '#1a8fe3', '#119822', '#ff7f0e', '#9467bd',
                         '#e377c2', '#17becf', '#bcbd22', '#8c564b', '#2ca02c',
@@ -771,6 +836,7 @@ function initApp() {
                     ];
 
                     let colorIndex = 0;
+                    // Asignar colores únicos por CVEGEO
                     for (const f of clipped) {
                         const id = f.properties?.CVEGEO || String(colorIndex);
                         if (!colorsById.has(id)) {
@@ -779,21 +845,33 @@ function initApp() {
                         }
                     }
 
+                    /*
+                     * CREACIÓN DE CAPAS LEAFLET CON ESTILOS DIFERENCIADOS
+                     * 
+                     * Se convierte el arreglo de features a una capa Leaflet visualizable:
+                     * 1. clipped[] → T.featureCollection() → Formato GeoJSON estándar
+                     * 2. L.geoJSON() → Capa Leaflet con estilos y eventos configurados
+                     * 3. Diferentes tipos de geometría requieren tratamiento especializado:
+                     *    - Puntos → CircleMarkers con colores específicos
+                     *    - Polígonos → Estilos de borde y relleno 
+                     *    - Líneas → Estilos de trazo
+                     */
+
                     // Crear capa de localidades con estilos diferenciados
-                    featureLayersById = new Map();
-                    const clippedCollection = T.featureCollection(clipped);
+                    featureLayersById = new Map();  // CVEGEO → {bounds, layer} para navegación
+                    const clippedCollection = T.featureCollection(clipped);  // Convertir a GeoJSON válido
 
                     clippedLocalitiesLayer = L.geoJSON(clippedCollection, {
-                        // Estilo para polígonos/líneas diferenciado por CVEGEO
+                        // Configuración de estilos para polígonos y líneas
                         style: (feature) => {
                             const id = feature.properties?.CVEGEO;
-                            const color = (id && colorsById.get(id)) || '#008000';
+                            const color = (id && colorsById.get(id)) || '#008000';  // Verde por defecto
                             return {
-                                color,
-                                weight: 2,
-                                opacity: 0.9,
-                                fillColor: color,
-                                fillOpacity: 0.25
+                                color,                    // Color del borde
+                                weight: 2,               // Grosor del borde
+                                opacity: 0.9,           // Transparencia del borde
+                                fillColor: color,       // Color de relleno
+                                fillOpacity: 0.25       // Transparencia del relleno
                             };
                         },
 
@@ -802,19 +880,21 @@ function initApp() {
                             const id = feature.properties?.CVEGEO;
                             const color = (id && colorsById.get(id)) || '#008000';
                             return L.circleMarker(latlng, {
-                                radius: 6,
-                                fillColor: color,
-                                color: '#222',
-                                weight: 1,
-                                opacity: 1,
-                                fillOpacity: 0.9
+                                radius: 6,              // Tamaño del círculo
+                                fillColor: color,       // Color de relleno
+                                color: '#222',          // Color del borde
+                                weight: 1,              // Grosor del borde
+                                opacity: 1,             // Opacidad del borde
+                                fillOpacity: 0.9        // Opacidad del relleno
                             });
                         },
 
-                        // Configurar popups informativos y navegación
+                        // Configurar popups informativos y navegación por cada feature
                         onEachFeature: (feature, layer) => {
                             if (feature.properties) {
                                 const props = feature.properties;
+                                
+                                // Extraer propiedades relevantes con fallbacks
                                 const nombre = props.NOM_LOC || props.NOMGEO || props.NOMBRE || '—';
                                 const cvegeo = props.CVEGEO || '—';
                                 const ambito = props.AMBITO || '—';
@@ -827,10 +907,11 @@ function initApp() {
                                     <strong>Ámbito:</strong> ${ambito}
                                 `);
 
-                                // Guardar referencia para navegación
+                                // Guardar referencia para navegación desde lista
                                 const id = props.CVEGEO;
                                 const ref = { layer };
 
+                                // Calcular bounds según tipo de geometría
                                 if (layer.getBounds) {
                                     const b = layer.getBounds();
                                     if (b && b.isValid()) ref.bounds = b;
@@ -841,7 +922,7 @@ function initApp() {
                                 if (id) featureLayersById.set(id, ref);
                             }
 
-                            // Evento click: centrar y destacar en lista
+                            // Evento click: centrar mapa y destacar en lista
                             layer.on('click', () => {
                                 const id = feature.properties?.CVEGEO;
                                 if (id) setActiveListItem(id);
@@ -854,19 +935,39 @@ function initApp() {
                                 if (layer.openPopup) layer.openPopup();
                             });
                         }
-                    }).addTo(map);
+                    }).addTo(map);  // Agregar capa al mapa
 
                     // ========================================================
-                    // CREACIÓN DE ETIQUETAS CVEGEO
+                    // CREACIÓN DE ETIQUETAS CVEGEO SOBRE EL MAPA
                     // ========================================================
+                    
+                    /*
+                     * ALGORITMO DE ETIQUETAS: Mostrar CVEGEO sobre cada localidad
+                     * 
+                     * PROPÓSITO: Facilitar identificación visual rápida de localidades
+                     * 
+                     * PROCESO:
+                     * 1. Para cada feature en clipped[], determinar posición óptima de etiqueta
+                     * 2. Manejar diferentes tipos de geometría con algoritmos específicos:
+                     *    - Point: Usar coordenadas directamente
+                     *    - Polygon/MultiPolygon: Calcular centroide geométrico con Turf.js
+                     *    - LineString: Usar punto medio de la línea
+                     * 3. Crear L.divIcon con HTML personalizado y color correspondiente
+                     * 4. Posicionar etiqueta en coordenadas calculadas
+                     * 
+                     * LIBRERÍAS UTILIZADAS:
+                     * - Turf.js: Para cálculo de centroides (T.centroid)
+                     * - Leaflet: Para creación de markers con iconos HTML (L.divIcon, L.marker)
+                     */
 
-                    const labels = [];
+                    const labels = [];  // Array de markers de etiquetas
                     clipped.forEach(f => {
                         const id = f.properties?.CVEGEO;
                         const color = (id && colorsById.get(id)) || '#008000';
 
-                        // Manejar diferentes tipos de geometría para etiquetas
+                        // Manejar diferentes tipos de geometría para posicionamiento de etiquetas
                         if (f.geometry.type === 'Point') {
+                            // CASO 1: Geometría tipo punto - usar coordenadas directamente
                             const [lng, lat] = f.geometry.coordinates;
                             const icon = L.divIcon({
                                 className: 'cvegeo-label',
@@ -875,6 +976,7 @@ function initApp() {
                             labels.push(L.marker([lat, lng], { icon }));
 
                         } else if (f.geometry.type === 'MultiPoint') {
+                            // CASO 2: Múltiples puntos - crear etiqueta para cada punto
                             f.geometry.coordinates.forEach(([lng, lat]) => {
                                 const icon = L.divIcon({
                                     className: 'cvegeo-label',
@@ -884,8 +986,18 @@ function initApp() {
                             });
 
                         } else if (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon') {
+                            // CASO 3: Polígonos - calcular centroide geométrico
                             try {
-                                // Calcular centroide para polígonos
+                                /*
+                                 * CÁLCULO DE CENTROIDE: Algoritmo geométrico para posición central
+                                 * 
+                                 * T.centroid() utiliza:
+                                 * - Para polígonos simples: Centro de masa geométrico
+                                 * - Para polígonos complejos: Promedio ponderado de vértices
+                                 * - Para MultiPolygon: Centroide del polígono más grande
+                                 * 
+                                 * Resultado: Point GeoJSON con coordenadas [lng, lat]
+                                 */
                                 const centroid = T.centroid(f);
                                 const [lng, lat] = centroid.geometry.coordinates;
                                 const icon = L.divIcon({
