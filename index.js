@@ -1,9 +1,29 @@
+// Variables de estado del mapa y datos
 let map;
 let localitiesData = null;
 let kmlLayer = null;
 let bufferLayer = null;
 let clippedLocalitiesLayer = null;
 let kmlGeoJson = null;
+
+// Utilidad: mostrar alertas Bootstrap de forma centralizada
+function showAlert(message, type = 'info', timeoutMs = 4000) {
+    // type: 'primary' | 'success' | 'danger' | 'warning' | 'info'
+    const container = document.getElementById('alertContainer');
+    if (!container) { alert(message); return; }
+    const wrapper = document.createElement('div');
+    wrapper.className = `alert alert-${type} alert-dismissible fade show shadow`;
+    wrapper.setAttribute('role', 'alert');
+    wrapper.innerHTML = `
+        <div>${message}</div>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+    `;
+    container.appendChild(wrapper);
+    if (timeoutMs > 0) setTimeout(() => {
+        wrapper.classList.remove('show');
+        wrapper.addEventListener('transitionend', () => wrapper.remove());
+    }, timeoutMs);
+}
 
 document.addEventListener('DOMContentLoaded', () => {
     map = L.map("map").setView([24.1, -102], 6);
@@ -30,9 +50,10 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
             localitiesData = await response.json();
             console.log(`Localidades cargadas: ${localitiesData.features.length}`);
+            showAlert(`Localidades cargadas: ${localitiesData.features.length}`, 'success');
         } catch (error) {
             console.error('Error al cargar localidades:', error);
-            alert('Error al cargar localidades desde GeoServer.');
+            showAlert('Error al cargar localidades desde el servidor.', 'danger', 6000);
         }
     }
 
@@ -46,7 +67,7 @@ document.addEventListener('DOMContentLoaded', () => {
         bufferLayer = null;
         clippedLocalitiesLayer = null;
         kmlGeoJson = null;
-        cvegeoListDiv.innerHTML = '<p>Sube un KML y realiza el recorte para ver la lista.</p>';
+        cvegeoListDiv.innerHTML = '<p class="mb-0 text-muted">Sube un KML y realiza el recorte para ver la lista.</p>';
         uploadKmlBtn.disabled = true;
         performClipBtn.disabled = true;
     }
@@ -78,7 +99,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const kmlPolygon = kmlGeoJson.features.find(f => f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon');
                 if (!kmlPolygon) {
-                    alert('El archivo KML no contiene un polígono válido.');
+                    showAlert('El archivo KML no contiene un polígono válido.', 'warning');
                     performClipBtn.disabled = true;
                     return;
                 }
@@ -93,12 +114,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 }).addTo(map);
 
-                map.fitBounds(kmlLayer.getBounds());
+                // Asegurar que el mapa calcula su tamaño si estaba oculto por el preloader/accordion
+                setTimeout(() => { map.invalidateSize(); map.fitBounds(kmlLayer.getBounds()); }, 50);
                 performClipBtn.disabled = false;
-                alert('KML cargado y visualizado correctamente.');
+                showAlert('KML cargado y visualizado correctamente.', 'success');
             } catch (error) {
                 console.error('Error procesando KML:', error);
-                alert('Error procesando el archivo KML.');
+                showAlert('Error procesando el archivo KML.', 'danger', 6000);
             }
         };
         reader.readAsText(file);
@@ -106,7 +128,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function performClipping() {
         if (!kmlGeoJson || !localitiesData) {
-            alert('Falta archivo KML o datos de localidades.');
+            showAlert('Falta archivo KML o datos de localidades.', 'warning');
             return;
         }
 
@@ -131,7 +153,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }).addTo(map);
             } catch (e) {
                 console.error('Error creando buffer:', e);
-                alert('No se pudo crear el buffer.');
+                showAlert('No se pudo crear el buffer.', 'danger');
                 return;
             }
         }
@@ -162,12 +184,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }).addTo(map);
 
-            map.fitBounds(clippedLocalitiesLayer.getBounds());
+            setTimeout(() => { map.invalidateSize(); map.fitBounds(clippedLocalitiesLayer.getBounds()); }, 50);
             displayCvegeoList(clipped);
-            alert(`Recorte completado. Se encontraron ${clipped.length} localidades.`);
+            showAlert(`Recorte completado. Se encontraron ${clipped.length} localidades.`, 'success');
         } else {
-            alert('No se encontraron localidades dentro del área.');
-            cvegeoListDiv.innerHTML = '<p>No se encontraron localidades dentro del área.</p>';
+            showAlert('No se encontraron localidades dentro del área.', 'warning');
+            cvegeoListDiv.innerHTML = '<p class="mb-0">No se encontraron localidades dentro del área.</p>';
         }
     }
 
@@ -185,6 +207,13 @@ document.addEventListener('DOMContentLoaded', () => {
     performClipBtn.addEventListener('click', performClipping);
     clearMapBtn.addEventListener('click', () => {
         clearAllLayers();
-        alert('Mapa limpiado.');
+        showAlert('Mapa limpiado.', 'info');
+    });
+
+    // Ocultar preloader cuando la app esté lista (una vez mapa y primer fetch iniciados)
+    window.addEventListener('load', () => {
+        const pre = document.getElementById('preloader');
+        if (pre) pre.style.display = 'none';
+        setTimeout(() => map.invalidateSize(), 100);
     });
 });
