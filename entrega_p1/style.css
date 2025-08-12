@@ -1,0 +1,252 @@
+/*
+    Estilos institucionales y mobile-first.
+    Paleta de referencia (tomada de la imagen):
+    - Primario: #7C1946 (vino)
+    - Secundario: #197E74 (verde)
+    - Acento: #C49A3E (dorado)
+    - Fondo claro: #F7F4F2
+*/
+
+:root {
+    --primary: #7C1946;
+    --primary-600: #641238;
+    --secondary: #197E74;
+    --accent: #C49A3E;
+    --muted: #F7F4F2;
+}
+
+/* Ajustes de Bootstrap por paleta */
+.bg-primary {
+    background-color: var(--primary) !important;
+}
+
+.navbar-dark .navbar-brand,
+.navbar-dark .navbar-nav .nav-link {
+    color: #fff;
+}
+
+.btn-primary {
+    background-color: var(--primary);
+    border-color: var(--primary-600);
+}
+
+.btn-primary:hover {
+    background-color: var(--primary-600);
+    border-color: var(--primary-600);
+}
+
+.btn-success {
+    background-color: var(--secondary);
+    border-color: var(--secondary);
+}
+
+.btn-outline-danger {
+    border-color: #dc3545;
+    color: #dc3545;
+}
+
+.btn-outline-danger:hover {
+    background: #dc3545;
+    color: #fff;
+}
+
+.bg-body {
+    background-color: var(--muted);
+}
+
+/* Mapa responsive: ocupa alto adecuado en móvil y crece en escritorio */
+#map {
+    width: 100%;
+    height: 60vh;
+    /* Móvil: 60% de la ventana */
+    min-height: 360px;
+    /* Alto mínimo razonable */
+    border-radius: .5rem;
+}
+
+@media (min-width: 992px) {
+    #map {
+        height: calc(100vh - 220px);
+    }
+}
+
+/* Panel de lista CVEGEO */
+#cvegeoList {
+    max-height: 240px;
+    overflow-y: auto;
+}
+
+#cvegeoList ul {
+    list-style: none;
+    padding-left: 1rem;
+}
+
+#cvegeoList li {
+    padding: .25rem 0;
+    border-bottom: 1px dashed #ddd;
+    cursor: pointer;
+}
+
+#cvegeoList li:last-child {
+    border-bottom: none;
+}
+
+/* Resaltado del elemento activo en la lista */
+#cvegeoList li.active {
+    background: rgba(124, 25, 70, 0.08);
+    /* usa tono primario translúcido */
+    border-left: 3px solid var(--primary);
+    padding-left: .5rem;
+}
+
+/* Transición para ocultar preloader de forma suave */
+#preloader {
+    display: none;
+    /* Oculto por defecto para no bloquear la vista inicial */
+    opacity: 1;
+    transition: opacity .3s ease;
+}
+
+.no-transition {
+    transition: none !important;
+}
+
+/* Si el nodo tiene el atributo hidden, asegúrate que quede fuera del flujo */
+#preloader[hidden] {
+    display: none !important;
+    opacity: 0 !important;
+}
+
+.preloader-hide {
+    opacity: 0;
+}
+
+/* Acordeón institucional (colores de marca) */
+.accordion-button {
+    background-color: #ffffff;
+    color: #333;
+}
+
+.accordion-button:not(.collapsed) {
+    color: #fff;
+    background-color: var(--primary);
+    box-shadow: inset 0 -1px 0 rgba(0, 0, 0, .125);
+}
+
+.accordion-button:focus {
+    box-shadow: 0 0 0 .25rem rgba(124, 25, 70, .25);
+}
+
+.accordion-item {
+    border-color: rgba(0, 0, 0, .075);
+}
+
+.accordion-body {
+    border-top: 1px solid rgba(0, 0, 0, .05);
+}
+
+/* Spinner con color secundario */
+.spinner-border.text-primary {
+    color: var(--secondary) !important;
+}
+
+/* Progreso del preloader */
+#preProgressBar {
+    transition: width .2s ease;
+}
+
+/* Footer institucional inspirado en gob.mx */
+.gov-footer {
+    background-color: #5c102e;
+    /* tono vino oscuro cercano al screenshot */
+    position: relative;
+}
+
+.gov-footer a.link-light {
+    text-decoration: none;
+}
+
+.gov-footer a.link-light:hover {
+    text-decoration: underline;
+}
+
+.gov-footer .footer-pattern {
+    height: 56px;
+    background-image: linear-gradient(90deg, rgba(0, 0, 0, 0) 0, rgba(0, 0, 0, 0) 40px),
+        repeating-linear-gradient(45deg, #7C1946 0, #7C1946 14px, #8c264f 14px, #8c264f 28px);
+    border-top: 6px solid #7C1946;
+}
+
+/* Utilidades para etiquetas de color en lista */
+.color-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: .5rem;
+    border: 1px solid rgba(0, 0, 0, .2);
+}
+
+/* Etiquetas CVEGEO en el mapa */
+.cvegeo-label span {
+    white-space: nowrap;
+    line-height: 1;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, .25);
+}
+
+/* Mejoras de UX para botones */
+.btn[disabled] {
+    cursor: not-allowed !important;
+    opacity: 0.65;
+}
+
+.btn:not([disabled]):hover {
+    transform: translateY(-1px);
+    transition: transform 0.2s ease;
+}
+
+/* Tooltips mejorados para mejor UX */
+[title] {
+    cursor: help;
+}
+
+/* Estilos para texto de ayuda */
+.form-text {
+    color: #6c757d;
+    font-size: 0.875rem;
+    line-height: 1.4;
+}
+
+/* Mejoras de accesibilidad para lista CVEGEO */
+#cvegeoList li {
+    transition: background-color 0.2s ease;
+}
+
+#cvegeoList li:hover {
+    background-color: rgba(124, 25, 70, 0.05);
+}
+
+#cvegeoList li:focus {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+/* Indicadores visuales para elementos interactivos */
+.accordion-button::after {
+    transition: transform 0.2s ease;
+}
+
+.accordion-button[aria-expanded="true"]::after {
+    transform: rotate(180deg);
+}
+
+/* Mejoras para el mapa en dispositivos táctiles */
+@media (hover: none) and (pointer: coarse) {
+    #cvegeoList li {
+        padding: 0.5rem 0;
+    }
+    
+    .btn {
+        min-height: 44px; /* Tamaño mínimo táctil recomendado */
+    }
+}

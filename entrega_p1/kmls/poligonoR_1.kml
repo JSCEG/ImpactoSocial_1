@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Área de Interés</name>
+    <description>Área generada desde el geovisualizador.</description>
+    <Style id="rectangleStyle">
+      <LineStyle>
+        <color>ff0000ff</color> <width>3</width>
+      </LineStyle>
+      <PolyStyle>
+        <color>3300a5ff</color> <fill>1</fill>
+        <outline>1</outline>
+      </PolyStyle>
+    </Style>
+    <Placemark>
+      <name>Área Seleccionada</name>
+      <styleUrl>#rectangleStyle</styleUrl>
+      <Polygon>
+        <outerBoundaryIs>
+          <LinearRing>
+            <coordinates>
+              -100,19,0 -99,19,0 -99,20,0 -100,20,0 -100,19,0
+            </coordinates>
+          </LinearRing>
+        </outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+  </Document>
+</kml>

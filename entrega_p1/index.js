@@ -1,11 +1,11 @@
 /**
- * GEOVISUALIZADOR DE ÁREAS DE INTERÉS - SENER
+ * GEOVISUALIZADOR DE ÁREAS DE INTERÉS 
  * ==========================================
  * 
  * Sistema para la visualización y análisis geoespacial de localidades
  * en relación con áreas de interés definidas por archivos KML.
  * 
- * Desarrollado para la Secretaría de Energía (SENER) - Gobierno de México
+ * 
  */
 
 // ============================================================================
@@ -27,11 +27,6 @@ let lastAreaBounds = null; // Bounds del área para restaurar la vista del área
 // ============================================================================
 // UTILIDAD DE FORMATEO NUMÉRICO
 // ============================================================================
-/**
- * Formatea números con separador de miles (locale es-MX)
- * @param {number} n
- * @returns {string}
- */
 function formatNumber(n) {
     if (n == null || isNaN(n)) return '0';
     try { return n.toLocaleString('es-MX'); } catch (_) { return String(n); }
@@ -311,7 +306,7 @@ function initApp() {
         // ====================================================================
 
         // URL del servicio de localidades (datos geoespaciales de INEGI)
-        const localitiesUrl = 'https://cdn.sassoapps.com/Gabvy/localidades_4326.geojson';
+        const localitiesUrl = 'https://cdn.sassoapps.com/Gabvy/localidades_4326.geojson'; //*Cambiar ruta al servidor Geoespacial*
 
         // Referencias a elementos del DOM para controles
         const kmlFileInput = document.getElementById('kmlFile');
@@ -751,14 +746,14 @@ function initApp() {
                 }
 
                 // ============================================================
-                // PROCESAMIENTO DE INTERSECCIONES GEOESPACIALES MASIVAS
+                // PROCESAMIENTO DE INTERSECCIONES GEOESPACIALES 
                 // ============================================================
 
                 /*
                  * ALGORITMO CLAVE: Recorrido y evaluación de todas las localidades
                  * 
                  * CÓMO SE RECORREN LAS PROPIEDADES:
-                 * 1. Se itera sobre localitiesData.features[] que contiene ~30,000 localidades
+                 * 1. Se itera sobre localitiesData.features[] que contiene aprox. ~30,000 localidades
                  * 2. Cada feature tiene structure: {geometry: {...}, properties: {CVEGEO, NOM_LOC, AMBITO, ...}}
                  * 3. Se extrae geometry.coordinates para operaciones espaciales
                  * 4. Se evalúa intersección geométrica con Turf.js booleanIntersects()
@@ -1305,15 +1300,5 @@ setTimeout(() => {
 /**
  * ============================================================================
  * FIN DEL ARCHIVO - GEOVISUALIZADOR DE ÁREAS DE INTERÉS
- * ============================================================================
- * 
- * Este sistema permite:
- * - Cargar y visualizar archivos KML de áreas de interés
- * - Realizar análisis geoespaciales con diferentes criterios
- * - Identificar localidades dentro de áreas definidas
- * - Generar reportes visuales con código de colores por CVEGEO
- * - Proporcionar una interfaz responsive y accesible
- * 
- * Desarrollado para la Secretaría de Energía (SENER) - Gobierno de México
  * ============================================================================
  */

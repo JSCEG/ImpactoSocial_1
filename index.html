@@ -4,223 +4,268 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Geovisualizador de Áreas de Interés</title>
+    <title>Geovisualizador de Áreas de Interés - Selector de Versión</title>
 
-    <!-- Bootstrap CSS (para diseño mobile-first y componentes) -->
+    <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-
-    <!-- Leaflet CSS -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-
-    <!-- Estilos propios (sobrescribe Bootstrap cuando sea necesario) se cargan con versión para evitar caché -->
-    <!-- Cache-busting loader: actualiza APP_VERSION para invalidar caché de style.css, togeojson.js e index.js -->
-    <script>
-        window.APP_VERSION = '20250807-1';
-        (function () {
-            function withV(url) { return url + (url.indexOf('?') > -1 ? '&' : '?') + 'v=' + encodeURIComponent(window.APP_VERSION); }
-            function loadCss(href) { var l = document.createElement('link'); l.rel = 'stylesheet'; l.href = withV(href); document.head.appendChild(l); }
-            function loadScript(src, cb) { var s = document.createElement('script'); s.src = withV(src); s.onload = function () { cb && cb(); }; document.head.appendChild(s); }
-            function whenLeafletReady(cb, tries) {
-                tries = tries || 100; // ~10-15s
-                (function wait() {
-                    if (window.L && typeof window.L.map === 'function') { cb(); return; }
-                    if (--tries <= 0) { cb(); return; }
-                    setTimeout(wait, 120);
-                })();
-            }
-            // Cargar CSS propio versionado
-            loadCss('style.css');
-            // Cargar togeojson versionado y esperar a Leaflet para cargar la app
-            loadScript('togeojson.js');
-            whenLeafletReady(function () { loadScript('index.js'); });
-        })();
-    </script>
-
-    <!-- Bootstrap Icons para redes sociales en el footer -->
+    <!-- Bootstrap Icons -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+    <!-- Noto Sans (guía institucional) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 
-    <!-- Librerías JS de mapas y utilidades -->
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/leaflet-omnivore@0.3.4/leaflet-omnivore.min.js"></script>
-    <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+    <style>
+        :root {
+            /* Paleta institucional (Pantone → RGB → HEX) */
+            --vino-7420: #9C2348;
+            /* R156 G35  B72  */
+            --vino-7421: #621333;
+            /* R98  G19  B51  */
+            --dorado-1255: #A6802D;
+            /* R166 G128 B45  */
+            --beige-7402: #E7D295;
+            /* R231 G210 B149 */
+            --verde-626: #1E5B4F;
+            /* R30  G91  B79  */
+            --verde-627: #002F2A;
+            /* R0   G47  B42  */
+            --gris-cool7: #98989A;
+            /* R152 G152 B154 */
+            --negro-neutral: #171B1E;
+            /* R23  G27  B30  */
+
+            /* Semánticos */
+            --color-primary: var(--vino-7421);
+            --color-secondary: var(--verde-626);
+            --color-accent: var(--dorado-1255);
+            --color-bg: var(--beige-7402);
+            --color-text-on-dark: #FFFFFF;
+        }
+
+        body {
+            background: linear-gradient(135deg, var(--color-primary) 0%, var(--verde-627) 100%);
+            min-height: 100vh;
+            font-family: 'Noto Sans', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: var(--color-text-on-dark);
+        }
+
+        .version-card {
+            transition: all 0.3s ease;
+            border: none;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+            height: 100%;
+        }
+
+        .version-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2);
+        }
+
+        .version-badge {
+            position: absolute;
+            top: -10px;
+            right: -10px;
+            z-index: 10;
+        }
+
+        .feature-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .feature-list li {
+            padding: 0.5rem 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .feature-list li:last-child {
+            border-bottom: none;
+        }
+
+        .feature-list i {
+            color: var(--color-secondary);
+            margin-right: 0.5rem;
+        }
+
+        .hero-section {
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.18);
+        }
+
+        .btn-version {
+            background: linear-gradient(45deg, var(--color-accent), var(--color-secondary));
+            border: none;
+            padding: 12px 30px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            transition: all 0.3s ease;
+            box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18);
+        }
+
+        .btn-version:hover {
+            background: linear-gradient(45deg, #8F6F23, #184D43);
+            /* tonos más oscuros del acento y secundario */
+            transform: translateY(-2px);
+        }
+
+        /* Utilidades de color institucional */
+        .bg-primario {
+            background-color: var(--color-primary) !important;
+        }
+
+        .bg-secundario {
+            background-color: var(--color-secondary) !important;
+        }
+
+        .bg-acento {
+            background-color: var(--color-accent) !important;
+        }
+
+        .bg-beige {
+            background-color: var(--color-bg) !important;
+        }
+
+        .text-primario {
+            color: var(--color-primary) !important;
+        }
+
+        .text-secundario {
+            color: var(--color-secondary) !important;
+        }
+
+        .text-acento {
+            color: var(--color-accent) !important;
+        }
+
+        .text-oscuro {
+            color: var(--negro-neutral) !important;
+        }
+
+        /* Footer institucional (igual que index1/index2) */
+        .gov-footer {
+            background-color: #5c102e;
+            /* tono vino oscuro cercano al screenshot */
+            position: relative;
+        }
+
+        .gov-footer a.link-light {
+            text-decoration: none;
+        }
+
+        .gov-footer a.link-light:hover {
+            text-decoration: underline;
+        }
+
+        .gov-footer .footer-pattern {
+            height: 56px;
+            background-image: linear-gradient(90deg, rgba(0, 0, 0, 0) 0, rgba(0, 0, 0, 0) 40px),
+                repeating-linear-gradient(45deg, #7C1946 0, #7C1946 14px, #8c264f 14px, #8c264f 28px);
+            border-top: 6px solid #7C1946;
+        }
+    </style>
 </head>
 
-<body class="bg-body">
-    <!-- Preloader: se muestra mientras se cargan datos/mapa -->
-    <div id="preloader" hidden
-        class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center bg-white"
-        style="z-index: 2050; display: none;">
-        <div class="text-center">
-            <img src="img/mujer.png" alt="Cargando" style="max-height: 120px; object-fit: contain;" class="mb-3">
-            <div class="spinner-border text-primary" role="status" aria-label="Cargando"></div>
-            <div class="progress mt-3 mx-auto" style="height: 10px; width: min(80vw, 420px);">
-                <div id="preProgressBar" class="progress-bar bg-success" role="progressbar" style="width: 0%;"
-                    aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div>
-            </div>
-            <p id="preloaderMessage" class="mt-2 mb-0 small text-muted">Preparando…</p>
-        </div>
-    </div>
+<body>
+    <div class="container-fluid py-5">
+        <div class="row justify-content-center">
+            <div class="col-lg-10">
 
-    <!-- Navbar con logos (header institucional) -->
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm">
-        <div class="container-fluid">
-            <a class="navbar-brand d-flex align-items-center" href="#">
-                <img src="img/logo_gob.png" alt="Logo Gobierno" class="me-2" style="height:38px;">
-                <img src="img/logo_sener.png" alt="Logo SENER" class="me-2" style="height:38px;">
-                <span class="fw-semibold">Geovisualizador de Áreas de Interés</span>
-            </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarContent"
-                aria-controls="navbarContent" aria-expanded="false" aria-label="Alternar navegación">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarContent">
-                <ul class="navbar-nav ms-auto">
-                    <li class="nav-item"><a class="nav-link active" href="#">Inicio</a></li>
-                </ul>
-            </div>
-        </div>
-    </nav>
+                <!-- Hero Section -->
+                <div class="hero-section text-center text-white p-5 mb-5">
+                    <img src="img/mujer.png" alt="Logo" style="max-height: 120px; object-fit: contain;" class="mb-4">
+                    <h1 class="display-4 fw-bold mb-3">Geovisualizador de Áreas de Interés</h1>
+                    <p class="lead mb-4">Visualización e identificación geoespacial de múltiples capas en
+                        relación con áreas de interés definidas por archivos KML.</p>
+                </div>
 
-    <!-- Contenedor de alertas Bootstrap (se inyectan por JS) -->
-    <div id="alertContainer" class="position-fixed top-0 start-50 translate-middle-x mt-3"
-        style="z-index: 2100; width: min(92vw, 720px);"></div>
+                <!-- Version Selection -->
+                <div class="row g-4">
 
-    <!-- Contenido principal: mobile-first -->
-    <main class="container-fluid py-3">
-        <div class="row g-3">
-            <!-- Panel de controles: ocupa todo en móvil y se vuelve sidebar en pantallas grandes -->
-            <section class="col-12 col-lg-4 col-xl-3">
-                <div class="card shadow-sm">
-                    <div class="card-body">
-                        <h2 class="h5 card-title">Controles</h2>
-                        <div class="accordion" id="controlsAccordion">
-                            <!-- 1. Cargar KML -->
-                            <div class="accordion-item">
-                                <h2 class="accordion-header" id="headingKml">
-                                    <button class="accordion-button" type="button" data-bs-toggle="collapse"
-                                        data-bs-target="#collapseKml" aria-expanded="true"
-                                        aria-controls="collapseKml">1) Cargar KML</button>
-                                </h2>
-                                <div id="collapseKml" class="accordion-collapse collapse show"
-                                    aria-labelledby="headingKml" data-bs-parent="#controlsAccordion">
-                                    <div class="accordion-body">
-                                        <label for="kmlFile" class="form-label">Selecciona archivo KML</label>
-                                        <input type="file" id="kmlFile" accept=".kml,.kmz" class="form-control mb-2"
-                                            aria-describedby="kmlHelp">
-                                        <div id="kmlHelp" class="form-text mb-2">
-                                            <small>El archivo debe contener un polígono válido que defina el área de
-                                                interés.</small>
-                                        </div>
-                                        <button id="uploadKmlBtn" class="btn btn-primary w-100" disabled
-                                            title="Cargar y visualizar el archivo KML seleccionado">
-                                            <i class="bi bi-upload me-1"></i>Subir KML
-                                        </button>
-                                        <button id="centerKmlBtn" class="btn btn-outline-secondary w-100 mt-2" disabled
-                                            title="Centrar el mapa en el área del KML cargado">
-                                            <i class="bi bi-crosshair me-1"></i>Centrar en KML
-                                        </button>
-                                    </div>
-                                </div>
+                    <!-- Versión 1: Básica -->
+                    <div class="col-lg-6">
+                        <div class="card version-card position-relative">
+                            <span class="badge bg-primario version-badge">V1</span>
+                            <div class="card-header bg-primario text-white text-center">
+                                <i class="bi bi-geo-alt-fill fs-1 mb-2"></i>
+                                <h3 class="card-title mb-0">Versión 1</h3>
+                                <small>Análisis de áreas de interés vs Localidades</small>
                             </div>
+                            <div class="card-body">
+                                <p class="card-text text-oscuro mb-4">
+                                    Versión enfocada en el análisis específico de localidades dentro de áreas de
+                                    interés.
+                                </p>
 
-                            <!-- 2. Recorte -->
-                            <div class="accordion-item">
-                                <h2 class="accordion-header" id="headingClip">
-                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
-                                        data-bs-target="#collapseClip" aria-expanded="false"
-                                        aria-controls="collapseClip">2) Recorte de Localidades</button>
-                                </h2>
-                                <div id="collapseClip" class="accordion-collapse collapse" aria-labelledby="headingClip"
-                                    data-bs-parent="#controlsAccordion">
-                                    <div class="accordion-body">
-                                        <label for="areaType" class="form-label">Tipo de área</label>
-                                        <select id="areaType" class="form-select mb-2" aria-describedby="areaHelp">
-                                            <option value="nucleo">Área núcleo (con buffer de 500m)</option>
-                                            <option value="directa">Área de influencia directa</option>
-                                            <option value="indirecta">Área de influencia indirecta</option>
-                                        </select>
-                                        <div id="areaHelp" class="form-text mb-2">
-                                            <small>El área núcleo incluye un buffer adicional de 500 metros alrededor
-                                                del polígono.</small>
-                                        </div>
-                                        <button id="performClipBtn" class="btn btn-success w-100" disabled
-                                            title="Iniciar el análisis geoespacial con el área seleccionada">
-                                            <i class="bi bi-scissors me-1"></i>Realizar Recorte
-                                        </button>
-                                        <button id="resetViewBtn" class="btn btn-outline-secondary w-100 mt-2" disabled
-                                            title="Volver a la vista del área de resultados">
-                                            <i class="bi bi-arrow-clockwise me-1"></i>Restaurar vista del área
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
+                                <h6 class="fw-bold mb-3">Funcionalidades:</h6>
+                                <ul class="feature-list">
+                                    <li><i class="bi bi-check-circle-fill"></i>Análisis de localidades por CVEGEO</li>
+                                    <li><i class="bi bi-check-circle-fill"></i>Carga y procesamiento de archivos KML
+                                    </li>
+                                    <li><i class="bi bi-check-circle-fill"></i>Generación de buffers de 500m</li>
+                                    <li><i class="bi bi-check-circle-fill"></i>Visualización en mapa interactivo</li>
+                                    <li><i class="bi bi-check-circle-fill"></i>Listado detallado de localidades</li>
 
-                            <!-- 3. Lista de CVEGEO -->
-                            <div class="accordion-item">
-                                <h2 class="accordion-header" id="headingList">
-                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
-                                        data-bs-target="#collapseList" aria-expanded="false"
-                                        aria-controls="collapseList">
-                                        3) Localidades encontradas
-                                        <span id="foundCountBadge" class="badge bg-secondary ms-2">0</span>
-                                    </button>
-                                </h2>
-                                <div id="collapseList" class="accordion-collapse collapse" aria-labelledby="headingList"
-                                    data-bs-parent="#controlsAccordion">
-                                    <div class="accordion-body">
-                                        <div id="summaryCounts"
-                                            class="d-flex align-items-center justify-content-between small mb-2">
-                                            <span>Criterio actual: <strong id="currentCriteria">—</strong></span>
-                                            <span>Total: <strong id="totalFound">0</strong></span>
-                                        </div>
-                                        <p class="mb-2">Claves Geoestadísticas (CVEGEO) y colores en el mapa:</p>
-                                        <div id="cvegeoList" class="border rounded p-2 bg-light small">
-                                            <p class="mb-0 text-muted">Sube un KML y realiza el recorte para ver la
-                                                lista.</p>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
+                                </ul>
 
-                            <!-- 4. Limpiar -->
-                            <div class="accordion-item">
-                                <h2 class="accordion-header" id="headingClear">
-                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
-                                        data-bs-target="#collapseClear" aria-expanded="false"
-                                        aria-controls="collapseClear">4) Limpiar Mapa</button>
-                                </h2>
-                                <div id="collapseClear" class="accordion-collapse collapse"
-                                    aria-labelledby="headingClear" data-bs-parent="#controlsAccordion">
-                                    <div class="accordion-body">
-                                        <button id="clearMap" class="btn btn-outline-danger w-100"
-                                            title="Eliminar todas las capas del mapa y reiniciar la aplicación">
-                                            <i class="bi bi-trash me-1"></i>Limpiar Todo
-                                        </button>
-                                        <div class="form-text mt-2">
-                                            <small>Esta acción eliminará todas las capas del mapa y permitirá comenzar
-                                                con un nuevo análisis.</small>
-                                        </div>
-                                    </div>
+                                <div class="mt-4 text-center">
+                                    <a href="index1.html" class="btn btn-version text-white">
+                                        <i class="bi bi-arrow-right-circle me-2"></i>Usar Versión Básica
+                                    </a>
                                 </div>
                             </div>
                         </div>
                     </div>
-                </div>
-            </section>
 
-            <!-- Mapa: ocupa todo el ancho en móvil -->
-            <section class="col-12 col-lg-8 col-xl-9">
-                <div class="card shadow-sm h-100">
-                    <div class="card-body p-2 p-md-3">
-                        <div id="map" class="w-100"></div>
+                    <!-- Versión 2: Multicapa -->
+                    <div class="col-lg-6">
+                        <div class="card version-card position-relative">
+                            <span class="badge bg-secundario version-badge">V2</span>
+                            <div class="card-header bg-secundario text-white text-center">
+                                <i class="bi bi-layers-fill fs-1 mb-2"></i>
+                                <h3 class="card-title mb-0">Versión Multicapa</h3>
+                                <small>Análisis Geoespacial</small>
+                            </div>
+                            <div class="card-body">
+                                <p class="card-text text-oscuro mb-4">
+                                    Versión con análisis multicapa, para el análisis integral de áreas
+                                    de interés.
+                                </p>
+
+                                <h6 class="fw-bold mb-3">Funcionalidades:</h6>
+                                <ul class="feature-list">
+                                    <li><i class="bi bi-check-circle-fill"></i>6 capas geoespaciales</li>
+                                    <li><i class="bi bi-check-circle-fill"></i>Atlas de Pueblos Indígenas</li>
+                                    <li><i class="bi bi-check-circle-fill"></i>Regiones y Lenguas Indígenas</li>
+                                    <li><i class="bi bi-check-circle-fill"></i>Datos del RAN (Registro Agrario Nacional)
+                                    </li>
+                                    <li><i class="bi bi-check-circle-fill"></i>Funcionalidad de Foco</li>
+                                    <li><i class="bi bi-check-circle-fill"></i>Activación automática de capas</li>
+                                    <li><i class="bi bi-check-circle-fill"></i>Análisis de área núcleo y buffer</li>
+                                </ul>
+
+                                <div class="mt-4 text-center">
+                                    <a href="index2.html" class="btn btn-version text-white">
+                                        <i class="bi bi-arrow-right-circle me-2"></i>Usar Versión Multicapa
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
                     </div>
+
                 </div>
-            </section>
+
+
+
+            </div>
         </div>
-    </main>
+    </div>
 
     <!-- Footer institucional -->
-    <footer class="gov-footer mt-4 pt-4 text-white">
+    <footer class="gov-footer mt-5 pt-4 text-white">
         <div class="container-fluid px-4">
             <div class="row gy-4">
                 <div class="col-12 col-md-3 d-flex align-items-start">
@@ -244,7 +289,7 @@
                     <ul class="list-unstyled small mb-0">
                         <li><a href="#" class="link-light">English</a></li>
                         <li><a href="#" class="link-light">Declaración de Accesibilidad</a></li>
-                        <li><a href="#" class="link-light">Términos y Condiciones</a></li>
+                        <li><a href="#" class="link-light">Privacidad</a></li>
                     </ul>
                 </div>
                 <div class="col-12 col-md-3">
@@ -267,28 +312,8 @@
         <div class="footer-pattern"></div>
     </footer>
 
-    <!-- Bootstrap JS (componentes como navbar/accordion) -->
+    <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-    <!-- Lógica de la app se inyecta vía loader con versión (ver APP_VERSION en <head>) -->
-
-    <!-- Modal genérico para avisos (usado en recorte) -->
-    <div class="modal fade" id="appModal" tabindex="-1" aria-labelledby="appModalLabel" aria-hidden="true">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="appModalLabel">Aviso</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
-                </div>
-                <div class="modal-body" id="appModalBody">Mensaje</div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" id="appModalCancelBtn" data-bs-dismiss="modal"
-                        style="display:none">Cancelar</button>
-                    <button type="button" class="btn btn-primary" id="appModalOkBtn"
-                        data-bs-dismiss="modal">Aceptar</button>
-                </div>
-            </div>
-        </div>
-    </div>
 </body>
 
 </html>

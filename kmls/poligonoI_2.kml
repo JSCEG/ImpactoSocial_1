@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+<Document id="root_doc">
+<Schema name="poligonos_4326" id="poligonos_4326">
+	<SimpleField name="id" type="float"></SimpleField>
+</Schema>
+<Folder><name>poligonos_4326</name>
+  <Placemark id="poligonos_4326.1">
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#poligonos_4326">
+		<SimpleData name="id">4</SimpleData>
+	</SchemaData></ExtendedData>
+      <MultiGeometry><Polygon><outerBoundaryIs><LinearRing><coordinates>-91.382245538961,18.2192831058976 -91.3446696084582,18.3792099320619 -91.251646268311,18.3595054807007 -91.2401901919382,18.3136811752095 -91.2580616710798,18.2793129460911 -91.3254234001519,18.2944349669032 -91.382245538961,18.2192831058976</coordinates></LinearRing></outerBoundaryIs></Polygon></MultiGeometry>
+  </Placemark>
+</Folder>
+</Document></kml>
