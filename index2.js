@@ -16,6 +16,14 @@ let bufferLayer = null; // Capa del buffer generado para área núcleo
 let kmlGeoJson = null; // Datos GeoJSON convertidos del KML original
 let lastAreaBounds = null; // Bounds del área para restaurar la vista del área
 
+// ============================================================================
+// UTILIDAD DE FORMATEO NUMÉRICO (separador de miles)
+// ============================================================================
+function formatNumber(n) {
+    if (n == null || isNaN(n)) return '0';
+    try { return n.toLocaleString('es-MX'); } catch (_) { return String(n); }
+}
+
 // Datos originales de cada capa
 let localitiesData = null;
 let atlasData = null;
@@ -794,9 +802,9 @@ function initApp() {
 
             // Actualizar contadores
             const badge = document.getElementById('foundCountBadge');
-            if (badge) badge.textContent = String(totalElements);
+            if (badge) badge.textContent = formatNumber(totalElements);
             const totalFound = document.getElementById('totalFound');
-            if (totalFound) totalFound.textContent = String(totalElements);
+            if (totalFound) totalFound.textContent = formatNumber(totalElements);
             const currentCriteria = document.getElementById('currentCriteria');
             if (currentCriteria) {
                 currentCriteria.textContent = areaTypeSelect.options[areaTypeSelect.selectedIndex].text;
@@ -834,9 +842,9 @@ function initApp() {
 
             // Resetear contadores y badges
             const badge = document.getElementById('foundCountBadge');
-            if (badge) badge.textContent = '0';
+            if (badge) badge.textContent = formatNumber(0);
             const totalFound = document.getElementById('totalFound');
-            if (totalFound) totalFound.textContent = '0';
+            if (totalFound) totalFound.textContent = formatNumber(0);
             const currentCriteria = document.getElementById('currentCriteria');
             if (currentCriteria) currentCriteria.textContent = '—';
 
