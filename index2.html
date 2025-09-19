@@ -6,47 +6,69 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Geovisualizador de Áreas de Interés</title>
 
-    <!-- Bootstrap CSS (para diseño mobile-first y componentes) -->
+    <!-- Bootstrap CSS para el diseño responsive y componentes -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 
-    <!-- Leaflet CSS -->
+    <!-- Leaflet CSS para el mapa interactivo -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 
-    <!-- Estilos propios (sobrescribe Bootstrap cuando sea necesario) se cargan con versión para evitar caché -->
-    <!-- Cache-busting loader: actualiza APP_VERSION para invalidar caché de style2.css, togeojson.js e index2.js -->
+    <!-- Sistema de versionado para evitar problemas de caché en producción -->
+    <!-- Cambiar APP_VERSION cuando se actualicen los archivos CSS/JS -->
     <script>
+        // Versión de la app para control de caché
         window.APP_VERSION = '20250807-1';
+
+        // Cargador inteligente que añade versión a los archivos para evitar caché
         (function () {
             function withV(url) { return url + (url.indexOf('?') > -1 ? '&' : '?') + 'v=' + encodeURIComponent(window.APP_VERSION); }
             function loadCss(href) { var l = document.createElement('link'); l.rel = 'stylesheet'; l.href = withV(href); document.head.appendChild(l); }
             function loadScript(src, cb) { var s = document.createElement('script'); s.src = withV(src); s.onload = function () { cb && cb(); }; document.head.appendChild(s); }
+
+            // Espera a que Leaflet esté listo antes de cargar la app principal
             function whenLeafletReady(cb, tries) {
-                tries = tries || 100; // ~10-15s
+                tries = tries || 100;
+                console.log(`[DEBUG] Checking Leaflet readiness, tries left: ${tries}`);
                 (function wait() {
-                    if (window.L && typeof window.L.map === 'function') { cb(); return; }
-                    if (--tries <= 0) { cb(); return; }
+                    if (window.L && typeof window.L.map === 'function') {
+                        console.log('[DEBUG] Leaflet is ready, loading index2.js');
+                        cb();
+                        return;
+                    }
+                    if (--tries <= 0) {
+                        console.log('[DEBUG] Leaflet timeout reached, loading index2.js anyway');
+                        cb();
+                        return;
+                    }
                     setTimeout(wait, 120);
                 })();
             }
-            // Cargar CSS propio versionado
+
+            // Cargar archivos en orden: CSS primero, luego JS cuando Leaflet esté listo
+            console.log('[DEBUG] Starting to load CSS and scripts');
             loadCss('style2.css');
-            // Cargar togeojson versionado y esperar a Leaflet para cargar la app
             loadScript('togeojson.js');
-            whenLeafletReady(function () { loadScript('index2.js'); });
+            whenLeafletReady(function () {
+                console.log('[DEBUG] Loading index2.js now');
+                loadScript('index2.js');
+            });
         })();
     </script>
 
-    <!-- Bootstrap Icons para redes sociales en el footer -->
+    <!-- Bootstrap Icons para iconos del footer y botones -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
 
-    <!-- Librerías JS de mapas y utilidades -->
+    <!-- Librerías principales para funcionalidad de mapas -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/leaflet-omnivore@0.3.4/leaflet-omnivore.min.js"></script>
     <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+
+    <!-- NOTA TÉCNICA: Los navegadores Chrome/Edge/Brave pueden tener problemas de CORS 
+         al cargar datos GeoJSON externos. Firefox funciona mejor. El código incluye 
+         fallbacks automáticos y datos de ejemplo para desarrollo. -->
 </head>
 
 <body class="bg-body">
-    <!-- Preloader: se muestra mientras se cargan datos/mapa -->
+    <!-- Pantalla de carga con barra de progreso -->
     <div id="preloader" hidden
         class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center bg-white"
         style="z-index: 2050; display: none;">
@@ -61,7 +83,7 @@
         </div>
     </div>
 
-    <!-- Navbar con logos (header institucional) -->
+    <!-- Header institucional con logos del gobierno -->
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm">
         <div class="container-fluid">
             <a class="navbar-brand d-flex align-items-center" href="#">
@@ -81,20 +103,20 @@
         </div>
     </nav>
 
-    <!-- Contenedor de alertas Bootstrap (se inyectan por JS) -->
+    <!-- Contenedor para mostrar alertas y notificaciones -->
     <div id="alertContainer" class="position-fixed top-0 start-50 translate-middle-x mt-3"
         style="z-index: 2100; width: min(92vw, 720px);"></div>
 
-    <!-- Contenido principal: mobile-first -->
+    <!-- Contenido principal con diseño responsive -->
     <main class="container-fluid py-3">
         <div class="row g-3">
-            <!-- Panel de controles: ocupa todo en móvil y se vuelve sidebar en pantallas grandes -->
+            <!-- Panel de controles: sidebar en desktop, full width en móvil -->
             <section class="col-12 col-lg-4 col-xl-3">
                 <div class="card shadow-sm">
                     <div class="card-body">
                         <h2 class="h5 card-title">Controles</h2>
                         <div class="accordion" id="controlsAccordion">
-                            <!-- 1. Cargar KML -->
+                            <!-- Paso 1: Subir archivo KML con el área de interés -->
                             <div class="accordion-item">
                                 <h2 class="accordion-header" id="headingKml">
                                     <button class="accordion-button" type="button" data-bs-toggle="collapse"
@@ -127,7 +149,7 @@
                                 </div>
                             </div>
 
-                            <!-- 2. Recorte -->
+                            <!-- Paso 2: Realizar análisis geoespacial -->
                             <div class="accordion-item">
                                 <h2 class="accordion-header" id="headingClip">
                                     <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
@@ -159,13 +181,13 @@
                                 </div>
                             </div>
 
-                            <!-- 3. Capas encontradas -->
+                            <!-- Paso 3: Ver resultados del análisis -->
                             <div class="accordion-item">
                                 <h2 class="accordion-header" id="headingList">
                                     <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
                                         data-bs-target="#collapseList" aria-expanded="false"
                                         aria-controls="collapseList">
-                                        3) Capas encontradas
+                                        3) Capas analizadas
                                         <span id="foundCountBadge" class="badge bg-secondary ms-2">0</span>
                                     </button>
                                 </h2>
@@ -186,7 +208,7 @@
                                 </div>
                             </div>
 
-                            <!-- 4. Limpiar -->
+                            <!-- Paso 4: Reiniciar para nuevo análisis -->
                             <div class="accordion-item">
                                 <h2 class="accordion-header" id="headingClear">
                                     <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
@@ -212,7 +234,7 @@
                 </div>
             </section>
 
-            <!-- Mapa: ocupa todo el ancho en móvil -->
+            <!-- Área principal del mapa interactivo -->
             <section class="col-12 col-lg-8 col-xl-9">
                 <div class="card shadow-sm h-100">
                     <div class="card-body p-2 p-md-3">
@@ -223,7 +245,7 @@
         </div>
     </main>
 
-    <!-- Footer institucional -->
+    <!-- Footer institucional estilo gob.mx -->
     <footer class="gov-footer mt-4 pt-4 text-white">
         <div class="container-fluid px-4">
             <div class="row gy-4">
@@ -271,11 +293,11 @@
         <div class="footer-pattern"></div>
     </footer>
 
-    <!-- Bootstrap JS (componentes como navbar/accordion) -->
+    <!-- Bootstrap JS para componentes interactivos -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-    <!-- Lógica de la app se inyecta vía loader con versión (ver APP_VERSION en <head>) -->
+    <!-- La lógica principal se carga dinámicamente con control de versión -->
 
-    <!-- Modal genérico para avisos (usado en recorte) -->
+    <!-- Modal reutilizable para mostrar mensajes al usuario -->
     <div class="modal fade" id="appModal" tabindex="-1" aria-labelledby="appModalLabel" aria-hidden="true">
         <div class="modal-dialog">
             <div class="modal-content">

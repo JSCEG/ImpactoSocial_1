@@ -6,36 +6,36 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Geovisualizador de Áreas de Interés - Selector de Versión</title>
 
-    <!-- Bootstrap CSS -->
+    <!-- Bootstrap CSS para el diseño responsive -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- Bootstrap Icons -->
+    <!-- Bootstrap Icons para los iconos de la interfaz -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
-    <!-- Noto Sans (guía institucional) -->
+    <!-- Fuente Noto Sans siguiendo las guías institucionales -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 
     <style>
         :root {
-            /* Paleta institucional (Pantone → RGB → HEX) */
+            /* Paleta de colores institucional del gobierno mexicano */
             --vino-7420: #9C2348;
-            /* R156 G35  B72  */
+            /* Vino claro */
             --vino-7421: #621333;
-            /* R98  G19  B51  */
+            /* Vino oscuro */
             --dorado-1255: #A6802D;
-            /* R166 G128 B45  */
+            /* Dorado institucional */
             --beige-7402: #E7D295;
-            /* R231 G210 B149 */
+            /* Beige claro */
             --verde-626: #1E5B4F;
-            /* R30  G91  B79  */
+            /* Verde institucional */
             --verde-627: #002F2A;
-            /* R0   G47  B42  */
+            /* Verde oscuro */
             --gris-cool7: #98989A;
-            /* R152 G152 B154 */
+            /* Gris neutro */
             --negro-neutral: #171B1E;
-            /* R23  G27  B30  */
+            /* Negro para texto */
 
-            /* Semánticos */
+            /* Variables semánticas para usar en el CSS */
             --color-primary: var(--vino-7421);
             --color-secondary: var(--verde-626);
             --color-accent: var(--dorado-1255);
@@ -50,15 +50,19 @@
             color: var(--color-text-on-dark);
         }
 
+        /* Tarjetas para cada versión del geovisualizador */
         .version-card {
             transition: all 0.3s ease;
+            /* Transición suave para efectos hover */
             border: none;
             box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
             height: 100%;
+            /* Altura completa para que sean iguales */
         }
 
         .version-card:hover {
             transform: translateY(-5px);
+            /* Efecto de elevación al pasar el mouse */
             box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2);
         }
 
@@ -174,25 +178,25 @@
         <div class="row justify-content-center">
             <div class="col-lg-10">
 
-                <!-- Hero Section -->
+                <!-- Sección principal con título y descripción -->
                 <div class="hero-section text-center text-white p-5 mb-5">
                     <img src="img/mujer.png" alt="Logo" style="max-height: 120px; object-fit: contain;" class="mb-4">
                     <h1 class="display-4 fw-bold mb-3">Geovisualizador de Áreas de Interés</h1>
-                    <p class="lead mb-4">Visualización e identificación geoespacial de múltiples capas en
-                        relación con áreas de interés definidas por archivos KML.</p>
+                    <p class="lead mb-4">Herramienta para análisis geoespacial que permite identificar qué elementos
+                        de diferentes capas se encuentran dentro de un área de interés definida por archivos KML.</p>
                 </div>
 
-                <!-- Version Selection -->
+                <!-- Selector de versiones del geovisualizador -->
                 <div class="row g-4">
 
-                    <!-- Versión 1: Básica -->
+                    <!-- Versión 1: Enfocada en localidades -->
                     <div class="col-lg-6">
                         <div class="card version-card position-relative">
                             <span class="badge bg-primario version-badge">V1</span>
                             <div class="card-header bg-primario text-white text-center">
                                 <i class="bi bi-geo-alt-fill fs-1 mb-2"></i>
                                 <h3 class="card-title mb-0">Versión 1</h3>
-                                <small>Análisis de áreas de interés vs Localidades</small>
+                                <small>Análisis específico de localidades</small>
                             </div>
                             <div class="card-body">
                                 <p class="card-text text-oscuro mb-4">
@@ -220,29 +224,38 @@
                         </div>
                     </div>
 
-                    <!-- Versión 2: Multicapa -->
+                    <!-- Versión 2: Análisis completo multicapa -->
                     <div class="col-lg-6">
                         <div class="card version-card position-relative">
                             <span class="badge bg-secundario version-badge">V2</span>
                             <div class="card-header bg-secundario text-white text-center">
                                 <i class="bi bi-layers-fill fs-1 mb-2"></i>
                                 <h3 class="card-title mb-0">Versión Multicapa</h3>
-                                <small>Análisis Geoespacial</small>
+                                <small>Análisis integral de múltiples capas</small>
                             </div>
                             <div class="card-body">
                                 <p class="card-text text-oscuro mb-4">
-                                    Versión con análisis multicapa, para el análisis integral de áreas
-                                    de interés.
+                                    Versión con análisis multicapa completo, para el análisis integral de áreas
+                                    de interés con 12 capas geoespaciales especializadas.
                                 </p>
 
                                 <h6 class="fw-bold mb-3">Funcionalidades:</h6>
                                 <ul class="feature-list">
-                                    <li><i class="bi bi-check-circle-fill"></i>6 capas geoespaciales</li>
+                                    <li><i class="bi bi-check-circle-fill"></i>12 capas geoespaciales especializadas
+                                    </li>
+                                    <li><i class="bi bi-check-circle-fill"></i>Localidades con información de ámbito
+                                    </li>
                                     <li><i class="bi bi-check-circle-fill"></i>Atlas de Pueblos Indígenas</li>
                                     <li><i class="bi bi-check-circle-fill"></i>Regiones y Lenguas Indígenas</li>
                                     <li><i class="bi bi-check-circle-fill"></i>Datos del RAN (Registro Agrario Nacional)
                                     </li>
-                                    <li><i class="bi bi-check-circle-fill"></i>Funcionalidad de Foco</li>
+                                    <li><i class="bi bi-check-circle-fill"></i>Zonas Arqueológicas Públicas (ZA - áreas)
+                                    </li>
+                                    <li><i class="bi bi-check-circle-fill"></i>Áreas Naturales Protegidas Estatales</li>
+                                    <li><i class="bi bi-check-circle-fill"></i>Sitios Ramsar</li>
+                                    <li><i class="bi bi-check-circle-fill"></i>Sitios Arqueológicos (puntos)</li>
+                                    <li><i class="bi bi-check-circle-fill"></i>Zonas Históricas</li>
+                                    <li><i class="bi bi-check-circle-fill"></i>Funcionalidad de Foco y navegación</li>
                                     <li><i class="bi bi-check-circle-fill"></i>Activación automática de capas</li>
                                     <li><i class="bi bi-check-circle-fill"></i>Análisis de área núcleo y buffer</li>
                                 </ul>

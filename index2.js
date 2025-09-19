@@ -2,59 +2,79 @@
  * GEOVISUALIZADOR DE ÁREAS DE INTERÉS - VERSIÓN MULTICAPA
  * ========================================================
  * 
- * Sistema para la visualización y análisis geoespacial de múltiples capas
- * en relación con áreas de interés definidas por archivos KML.
+ * Sistema para análisis geoespacial que permite cargar un área de interés
+ * desde un archivo KML y analizar qué elementos de diferentes capas
+ * (localidades, pueblos indígenas, municipios, etc.) se encuentran dentro.
  */
 
 // ============================================================================
-// VARIABLES DE ESTADO GLOBAL
+// VARIABLES PRINCIPALES DE LA APLICACIÓN
 // ============================================================================
 
-let map; // Instancia principal del mapa Leaflet
-let kmlLayer = null; // Capa del polígono KML original cargado por el usuario
-let bufferLayer = null; // Capa del buffer generado para área núcleo
-let kmlGeoJson = null; // Datos GeoJSON convertidos del KML original
-let lastAreaBounds = null; // Bounds del área para restaurar la vista del área
+let map; // El mapa principal de Leaflet
+let kmlLayer = null; // Capa que muestra el polígono KML subido
+let bufferLayer = null; // Capa del buffer de 500m para área núcleo
+let kmlGeoJson = null; // Datos del KML convertidos a GeoJSON
+let lastAreaBounds = null; // Para poder volver a centrar en el área analizada
 
 // ============================================================================
-// UTILIDAD DE FORMATEO NUMÉRICO (separador de miles)
+// UTILIDADES Y VARIABLES DE DATOS
 // ============================================================================
+
+// Función para formatear números con separadores de miles
 function formatNumber(n) {
     if (n == null || isNaN(n)) return '0';
     try { return n.toLocaleString('es-MX'); } catch (_) { return String(n); }
 }
 
-// Datos originales de cada capa
-let localitiesData = null;
-let atlasData = null;
-let municipiosData = null;
-let regionesData = null;
-let ranData = null;
-let lenguasData = null;
+// Variables para almacenar los datos originales de cada capa geoespacial
+let localitiesData = null;      // Localidades de México
+let atlasData = null;           // Atlas de Pueblos Indígenas
+let municipiosData = null;      // Municipios
+let regionesData = null;        // Regiones Indígenas
+let ranData = null;             // Registro Agrario Nacional
+let lenguasData = null;         // Lenguas Indígenas
+let zaPublicoData = null;       // Zonas de Amortiguamiento Público
+let zaPublicoAData = null;      // Zonas de Amortiguamiento Público A
+let anpEstatalData = null;      // Áreas Naturales Protegidas Estatales
+let ramsarData = null;          // Sitios Ramsar
+let sitioArqueologicoData = null; // Sitios Arqueológicos
+let zHistoricosData = null;     // Zonas Históricas
 
-// Capas recortadas
+// Variables para las capas filtradas que se muestran en el mapa
 let clippedLocalitiesLayer = null;
 let clippedAtlasLayer = null;
 let clippedMunicipiosLayer = null;
 let clippedRegionesLayer = null;
 let clippedRanLayer = null;
 let clippedLenguasLayer = null;
+let clippedZaPublicoLayer = null;
+let clippedZaPublicoALayer = null;
+let clippedAnpEstatalLayer = null;
+let clippedRamsarLayer = null;
+let clippedSitioArqueologicoLayer = null;
+let clippedZHistoricosLayer = null;
 
-// Control de capas
+// Control de capas de Leaflet y utilidades de navegación
 let overlaysControl = null;
-
-// Mapa para mantener referencias de features por ID (para navegación)
-let featureLayersById = new Map();
-
-// Capa de highlight para elementos seleccionados
-let highlightLayer = null;
+let featureLayersById = new Map();  // Para poder navegar a elementos específicos
+let highlightLayer = null;          // Para resaltar elementos seleccionados
 
 // ============================================================================
-// UTILIDADES PARA CARGA DE DEPENDENCIAS
+// FUNCIONES PARA CARGAR LIBRERÍAS EXTERNAS
 // ============================================================================
 
 /**
- * Carga dinámicamente un script JavaScript de forma asíncrona
+ * Detecta si el navegador es basado en Chromium (Chrome, Edge, Brave)
+ */
+function isChromiumBased() {
+    const userAgent = navigator.userAgent.toLowerCase();
+    return userAgent.includes('chrome') || userAgent.includes('chromium') ||
+        userAgent.includes('edge') || userAgent.includes('brave');
+}
+
+/**
+ * Carga un script de forma asíncrona - útil para cargar librerías bajo demanda
  */
 function loadScript(url) {
     return new Promise((resolve, reject) => {
@@ -68,7 +88,8 @@ function loadScript(url) {
 }
 
 /**
- * Garantiza la disponibilidad de Turf.js con fallback a múltiples CDNs
+ * Se asegura de que Turf.js esté disponible, probando múltiples CDNs
+ * Turf.js es la librería que usamos para operaciones geoespaciales complejas
  */
 async function ensureTurf() {
     if (window.turf) return window.turf;
@@ -80,22 +101,22 @@ async function ensureTurf() {
         try {
             await loadScript(url);
             if (window.turf) return window.turf;
-        } catch (_) { /* Continuar con el siguiente CDN */ }
+        } catch (_) { /* Si falla un CDN, prueba el siguiente */ }
     }
     throw new Error('Turf no disponible desde ningún CDN');
 }
 
 // ============================================================================
-// SISTEMA DE ALERTAS Y FEEDBACK VISUAL
+// SISTEMA DE NOTIFICACIONES Y FEEDBACK AL USUARIO
 // ============================================================================
 
 /**
- * Muestra alertas Bootstrap de forma centralizada con auto-dismiss
+ * Muestra alertas bonitas usando Bootstrap que se auto-ocultan después de un tiempo
  */
 function showAlert(message, type = 'info', timeoutMs = 4000) {
     const container = document.getElementById('alertContainer');
     if (!container) {
-        alert(message);
+        alert(message);  // Fallback si no hay contenedor
         return;
     }
 
@@ -109,6 +130,7 @@ function showAlert(message, type = 'info', timeoutMs = 4000) {
 
     container.appendChild(wrapper);
 
+    // Auto-ocultar después del tiempo especificado
     if (timeoutMs > 0) {
         setTimeout(() => {
             wrapper.classList.remove('show');
@@ -120,42 +142,55 @@ function showAlert(message, type = 'info', timeoutMs = 4000) {
 }
 
 /**
- * Muestra modal Bootstrap reutilizable
+ * Muestra un modal para mensajes importantes que requieren confirmación del usuario
  */
 function showModal({ title = 'Aviso', message = '', okText = 'Aceptar', onOk = null } = {}) {
     const modalEl = document.getElementById('appModal');
     if (!modalEl) { showAlert(message, 'info', 5000); return; }
+
     const titleEl = document.getElementById('appModalLabel');
     const bodyEl = document.getElementById('appModalBody');
     const okBtn = document.getElementById('appModalOkBtn');
+
     if (titleEl) titleEl.textContent = title;
     if (bodyEl) bodyEl.innerHTML = message;
     if (okBtn) {
         okBtn.textContent = okText;
         okBtn.onclick = () => { if (onOk) try { onOk(); } catch (_) { } };
     }
+
     try {
         const modal = new bootstrap.Modal(modalEl);
         modal.show();
     } catch (_) {
-        showAlert(message, 'info', 5000);
+        showAlert(message, 'info', 5000);  // Fallback si el modal no funciona
     }
 }
 
 /**
- * Oculta el preloader de forma robusta con transición suave
+ * Oculta la pantalla de carga con una transición suave
  */
 function hidePreloader() {
+    console.log('[DEBUG] hidePreloader called');
     const pre = document.getElementById('preloader');
-    if (!pre) return;
+    if (!pre) {
+        console.log('[DEBUG] Preloader element not found');
+        return;
+    }
 
     pre.setAttribute('hidden', '');
-    if (pre.style.display === 'none') return;
+    if (pre.style.display === 'none') {
+        console.log('[DEBUG] Preloader already hidden');
+        return;
+    }
 
+    console.log('[DEBUG] Hiding preloader with animation');
     pre.classList.add('preloader-hide');
 
     setTimeout(() => {
         pre.style.display = 'none';
+        console.log('[DEBUG] Preloader hidden');
+        // Asegurar que el mapa se redibuje correctamente
         if (typeof map !== 'undefined' && map) {
             setTimeout(() => map.invalidateSize(), 100);
         }
@@ -163,12 +198,15 @@ function hidePreloader() {
 }
 
 /**
- * Muestra el preloader durante operaciones largas
+ * Muestra la pantalla de carga durante operaciones que toman tiempo
  */
 function showPreloader() {
+    console.log('[DEBUG] showPreloader called');
     let pre = document.getElementById('preloader');
 
+    // Crear el preloader si no existe
     if (!pre) {
+        console.log('[DEBUG] Creating preloader element');
         pre = document.createElement('div');
         pre.id = 'preloader';
         pre.className = 'position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center bg-white';
@@ -187,13 +225,14 @@ function showPreloader() {
         document.body.appendChild(pre);
     }
 
+    console.log('[DEBUG] Showing preloader');
     pre.classList.remove('preloader-hide');
     pre.removeAttribute('hidden');
     pre.style.display = 'flex';
 }
 
 /**
- * Actualiza la barra de progreso y mensaje del preloader
+ * Actualiza la barra de progreso para mostrar el avance de las operaciones
  */
 function updateProgress(percent, message) {
     const bar = document.getElementById('preProgressBar');
@@ -218,9 +257,12 @@ function updateProgress(percent, message) {
  * Inicializa la aplicación: configura el mapa, enlaces de eventos y carga inicial
  */
 function initApp() {
+    console.log('[DEBUG] initApp started');
     try {
+        console.log('[DEBUG] Checking preloader state');
         // Solo ocultar preloader si no hay operaciones en curso
         if (!document.getElementById('preloader')?.style.display || document.getElementById('preloader').style.display === 'none') {
+            console.log('[DEBUG] Hiding preloader initially');
             hidePreloader();
         }
 
@@ -259,13 +301,36 @@ function initApp() {
         // CONFIGURACIÓN DE DATOS Y ELEMENTOS DEL DOM
         // ====================================================================
 
+        // URLs de las capas geoespaciales
         const urls = {
             localidades: 'https://cdn.sassoapps.com/Gabvy/localidades_4326.geojson',
             atlas: 'https://cdn.sassoapps.com/Gabvy/atlaspueblosindigenas.geojson',
             municipios: 'https://cdn.sassoapps.com/Gabvy/municipios_4326.geojson',
             regiones: 'https://cdn.sassoapps.com/Gabvy/regionesindigenas.geojson',
             ran: 'https://cdn.sassoapps.com/Gabvy/RAN_4326.geojson',
-            lenguas: 'https://cdn.sassoapps.com/Gabvy/lenguasindigenas.geojson'
+            lenguas: 'https://cdn.sassoapps.com/Gabvy/lenguasindigenas.geojson',
+            za_publico: 'https://cdn.sassoapps.com/Gabvy/ZA_publico.geojson',
+            za_publico_a: 'https://cdn.sassoapps.com/Gabvy/ZA_publico_a.geojson',
+            anp_estatal: 'https://cdn.sassoapps.com/Gabvy/anp_estatal.geojson',
+            ramsar: 'https://cdn.sassoapps.com/Gabvy/ramsar.geojson',
+            sitio_arqueologico: 'https://cdn.sassoapps.com/Gabvy/sitio_arqueologico.geojson',
+            z_historicos: 'https://cdn.sassoapps.com/Gabvy/z_historicos.geojson'
+        };
+
+        // URLs alternativas con proxy CORS (fallback automático)
+        const proxyUrls = {
+            localidades: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.localidades),
+            atlas: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.atlas),
+            municipios: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.municipios),
+            regiones: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.regiones),
+            ran: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.ran),
+            lenguas: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.lenguas),
+            za_publico: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.za_publico),
+            za_publico_a: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.za_publico_a),
+            anp_estatal: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.anp_estatal),
+            ramsar: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.ramsar),
+            sitio_arqueologico: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.sitio_arqueologico),
+            z_historicos: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.z_historicos)
         };
 
         const kmlFileInput = document.getElementById('kmlFile');
@@ -298,64 +363,139 @@ function initApp() {
                 console.log(`Cargando ${name} desde: ${url}`);
 
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 segundos timeout
+                const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 segundos timeout
 
-                const response = await fetch(url, {
-                    signal: controller.signal,
-                    headers: {
-                        'Accept': 'application/json',
-                        'Cache-Control': 'no-cache'
-                    }
-                });
+                // Intentar primero con CORS normal
+                let response;
+                try {
+                    response = await fetch(url, {
+                        signal: controller.signal,
+                        mode: 'cors',
+                        headers: {
+                            'Accept': 'application/json',
+                            'Cache-Control': 'no-cache'
+                        }
+                    });
+                } catch (corsError) {
+                    console.warn(`CORS falló para ${name}, intentando sin CORS:`, corsError);
+
+                    // Fallback: intentar sin CORS (para navegadores Chromium estrictos)
+                    response = await fetch(url, {
+                        signal: controller.signal,
+                        mode: 'no-cors',
+                        cache: 'no-cache'
+                    });
+                }
 
                 clearTimeout(timeoutId);
 
-                if (!response.ok) {
+                if (!response.ok && response.status !== 0) { // status 0 es normal en no-cors
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
 
-                const data = await response.json();
+                // En modo no-cors, response.json() puede fallar, usar texto y parsear
+                let data;
+                try {
+                    data = await response.json();
+                } catch (jsonError) {
+                    console.warn(`JSON parsing falló para ${name}, intentando como texto:`, jsonError);
+                    const text = await response.text();
+                    if (text) {
+                        data = JSON.parse(text);
+                    } else {
+                        throw new Error(`Respuesta vacía para ${name}`);
+                    }
+                }
+
                 console.log(`${name} cargado exitosamente: ${data.features?.length || 0} features`);
                 return data;
 
             } catch (error) {
                 console.error(`Error cargando ${name}:`, error);
                 if (error.name === 'AbortError') {
-                    throw new Error(`Timeout cargando ${name} (10s)`);
+                    throw new Error(`Timeout cargando ${name} (15s)`);
                 }
+
+                // Último fallback: usar un proxy CORS público
+                console.warn(`Intentando proxy CORS para ${name}...`);
+                try {
+                    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+                    const proxyResponse = await fetch(proxyUrl, {
+                        headers: { 'Accept': 'application/json' }
+                    });
+
+                    if (proxyResponse.ok) {
+                        const proxyData = await proxyResponse.json();
+                        const data = JSON.parse(proxyData.contents);
+                        console.log(`${name} cargado vía proxy: ${data.features?.length || 0} features`);
+                        return data;
+                    }
+                } catch (proxyError) {
+                    console.error(`Proxy también falló para ${name}:`, proxyError);
+                }
+
                 throw new Error(`Error cargando ${name}: ${error.message}`);
             }
         }
 
         async function loadDataOptional() {
+            console.log('[DEBUG] loadDataOptional started');
             try {
+                console.log('[DEBUG] Showing preloader');
                 showPreloader();
                 updateProgress(5, 'Iniciando carga de capas geoespaciales...');
 
+                // Mostrar advertencia específica para navegadores Chromium
+                if (isChromiumBased()) {
+                    updateProgress(8, 'Detectado navegador Chromium - usando estrategia CORS especial...');
+                }
+
                 // Cargar capas secuencialmente para evitar problemas de concurrencia
-                updateProgress(10, 'Cargando localidades...');
+                updateProgress(5, 'Cargando localidades...');
                 localitiesData = await loadSingleLayer(urls.localidades, 'Localidades');
 
-                updateProgress(25, 'Cargando atlas pueblos indígenas...');
+                updateProgress(10, 'Cargando atlas pueblos indígenas...');
                 atlasData = await loadSingleLayer(urls.atlas, 'Atlas Pueblos Indígenas');
 
-                updateProgress(40, 'Cargando municipios...');
+                updateProgress(15, 'Cargando municipios...');
                 municipiosData = await loadSingleLayer(urls.municipios, 'Municipios');
 
-                updateProgress(55, 'Cargando regiones indígenas...');
+                updateProgress(20, 'Cargando regiones indígenas...');
                 regionesData = await loadSingleLayer(urls.regiones, 'Regiones Indígenas');
 
-                updateProgress(70, 'Cargando RAN...');
+                updateProgress(25, 'Cargando RAN...');
                 ranData = await loadSingleLayer(urls.ran, 'RAN');
 
-                updateProgress(85, 'Cargando lenguas indígenas...');
+                updateProgress(30, 'Cargando lenguas indígenas...');
                 lenguasData = await loadSingleLayer(urls.lenguas, 'Lenguas Indígenas');
+
+                updateProgress(35, 'Cargando zonas de amortiguamiento público...');
+                zaPublicoData = await loadSingleLayer(urls.za_publico, 'ZA Público');
+
+                updateProgress(40, 'Cargando zonas de amortiguamiento público A...');
+                zaPublicoAData = await loadSingleLayer(urls.za_publico_a, 'ZA Público A');
+
+                updateProgress(45, 'Cargando ANP estatales...');
+                anpEstatalData = await loadSingleLayer(urls.anp_estatal, 'ANP Estatales');
+
+                updateProgress(50, 'Cargando sitios Ramsar...');
+                ramsarData = await loadSingleLayer(urls.ramsar, 'Ramsar');
+
+                updateProgress(55, 'Cargando sitios arqueológicos...');
+                sitioArqueologicoData = await loadSingleLayer(urls.sitio_arqueologico, 'Sitios Arqueológicos');
+
+                updateProgress(60, 'Cargando zonas históricas...');
+                zHistoricosData = await loadSingleLayer(urls.z_historicos, 'Zonas Históricas');
 
                 updateProgress(100, 'Todas las capas cargadas exitosamente');
                 console.log("Todas las capas cargadas correctamente.");
+                console.log('[DEBUG] About to hide preloader after successful load');
                 showAlert('Todas las capas geoespaciales han sido cargadas exitosamente', 'success');
 
-                setTimeout(hidePreloader, 800);
+                setTimeout(() => {
+                    console.log('[DEBUG] Hiding preloader after timeout');
+                    hidePreloader();
+                }, 800);
 
             } catch (err) {
                 console.error("Error cargando capas:", err);
@@ -366,15 +506,23 @@ function initApp() {
                     errorMessage = 'Timeout al cargar capas. El servidor tardó demasiado en responder.';
                 } else if (err.message.includes('HTTP')) {
                     errorMessage = 'Error del servidor al cargar capas. Verifica que las URLs sean correctas.';
-                } else if (err.message.includes('Failed to fetch')) {
-                    errorMessage = 'Error de conexión. Verifica tu conexión a internet y que el servidor esté disponible.';
+                } else if (err.message.includes('Failed to fetch') || err.message.includes('CORS')) {
+                    if (isChromiumBased()) {
+                        errorMessage = 'Error de CORS: Los navegadores Chrome/Edge/Brave bloquean la carga de datos externos. Recomendamos usar Firefox para mejor compatibilidad, o contactar al administrador para configurar un servidor local.';
+                    } else {
+                        errorMessage = 'Error de conexión. Verifica tu conexión a internet y que el servidor esté disponible.';
+                    }
+                } else if (err.message.includes('NetworkError')) {
+                    errorMessage = 'Error de red. Verifica tu conexión a internet.';
                 }
 
-                showAlert(errorMessage, 'warning', 6000);
+                console.log('[DEBUG] Error in loadDataOptional, about to hide preloader');
+                showAlert(errorMessage + ' Usando datos de ejemplo para continuar.', 'warning', 8000);
                 hidePreloader();
 
-                // Usar datos de ejemplo para desarrollo
+                // Usar datos de ejemplo para desarrollo cuando falla la carga externa
                 console.warn('Carga de datos externos falló. Usando datos de ejemplo para desarrollo.');
+                console.log('[DEBUG] Creating sample data');
                 createSampleData();
             }
         }
@@ -395,7 +543,8 @@ function initApp() {
                             CVEGEO: "09001001",
                             NOM_LOC: "Ciudad de México",
                             NOM_MUN: "Álvaro Obregón",
-                            NOM_ENT: "Ciudad de México"
+                            NOM_ENT: "Ciudad de México",
+                            AMBITO: "Urbano"
                         },
                         geometry: {
                             type: "Point",
@@ -408,11 +557,30 @@ function initApp() {
                             CVEGEO: "14001001",
                             NOM_LOC: "Guadalajara",
                             NOM_MUN: "Guadalajara",
-                            NOM_ENT: "Jalisco"
+                            NOM_ENT: "Jalisco",
+                            AMBITO: "Urbano"
                         },
                         geometry: {
                             type: "Point",
                             coordinates: [-103.3496, 20.6597]
+                        }
+                    },
+                    {
+                        type: "Feature",
+                        properties: {
+                            CVEGEO: "010060024",
+                            CVE_ENT: "01",
+                            CVE_MUN: "006",
+                            CVE_LOC: "0024",
+                            NOMGEO: "Ojo Zarco [Colonia]",
+                            AMBITO: "Rural",
+                            NOM_LOC: "Ojo Zarco [Colonia]",
+                            NOM_MUN: "Aguascalientes",
+                            NOM_ENT: "Aguascalientes"
+                        },
+                        geometry: {
+                            type: "Point",
+                            coordinates: [-102.3, 21.9]
                         }
                     }
                 ]
@@ -470,10 +638,118 @@ function initApp() {
                 ]
             };
 
+            // Configurar ZA Público A (área - polígono)
+            zaPublicoAData = {
+                type: "FeatureCollection",
+                features: [
+                    {
+                        type: "Feature",
+                        properties: {
+                            NOMBRE: "Tetzcotzinco",
+                            TIPO: "Zona Arqueológica Abierta al Público",
+                            ESTADO: "México",
+                            MUNICIPIO: "Texcoco",
+                            LOCALIDAD: "No aplica"
+                        },
+                        geometry: {
+                            type: "Polygon",
+                            coordinates: [[
+                                [-98.90, 19.50], [-98.85, 19.50], [-98.85, 19.55], [-98.90, 19.55], [-98.90, 19.50]
+                            ]]
+                        }
+                    }
+                ]
+            };
+
+            // Configurar ZA Público (puntos)
+            zaPublicoData = {
+                type: "FeatureCollection",
+                features: [
+                    {
+                        type: "Feature",
+                        properties: {
+                            NOMBRE: "Olintepec",
+                            TIPO: "Zona Arqueológica Abierta al Público",
+                            ESTADO: "Morelos",
+                            MUNICIPIO: "Ayala",
+                            LOCALIDAD: "No aplica"
+                        },
+                        geometry: {
+                            type: "Point",
+                            coordinates: [-99.05, 18.75]
+                        }
+                    }
+                ]
+            };
+
+            // Configurar Zonas Históricas
+            zHistoricosData = {
+                type: "FeatureCollection",
+                features: [
+                    {
+                        type: "Feature",
+                        properties: {
+                            NOMBRE: "Zona de Monumentos Históricos calzada El Albarradón de San Cristóbal",
+                            ESTADO: "México",
+                            MUNICIPIO: "Ecatepec de Morelos",
+                            LOCALIDAD: "Ecatepec de Morelos"
+                        },
+                        geometry: {
+                            type: "Polygon",
+                            coordinates: [[
+                                [-99.05, 19.60], [-99.00, 19.60], [-99.00, 19.65], [-99.05, 19.65], [-99.05, 19.60]
+                            ]]
+                        }
+                    }
+                ]
+            };
+
+            // Configurar Sitios Arqueológicos
+            sitioArqueologicoData = {
+                type: "FeatureCollection",
+                features: [
+                    {
+                        type: "Feature",
+                        properties: {
+                            nombre: "El Vallecito",
+                            nom_ent: "Baja California",
+                            nom_mun: "Tecate",
+                            nom_loc: "Agua de Fierro"
+                        },
+                        geometry: {
+                            type: "Point",
+                            coordinates: [-116.5, 32.5]
+                        }
+                    }
+                ]
+            };
+
+            // Configurar Sitios Ramsar
+            ramsarData = {
+                type: "FeatureCollection",
+                features: [
+                    {
+                        type: "Feature",
+                        properties: {
+                            NOMBRE: "Estero El Soldado",
+                            ESTADO: "Sonora",
+                            MUNICIPIO: "Guaymas"
+                        },
+                        geometry: {
+                            type: "Polygon",
+                            coordinates: [[
+                                [-110.9, 27.9], [-110.8, 27.9], [-110.8, 28.0], [-110.9, 28.0], [-110.9, 27.9]
+                            ]]
+                        }
+                    }
+                ]
+            };
+
             // Inicializar otras capas como vacías
             atlasData = { type: "FeatureCollection", features: [] };
             regionesData = { type: "FeatureCollection", features: [] };
             ranData = { type: "FeatureCollection", features: [] };
+            anpEstatalData = { type: "FeatureCollection", features: [] };
 
             showAlert('Usando datos de ejemplo para desarrollo. Carga un KML para probar la funcionalidad.', 'info', 5000);
         }
@@ -496,7 +772,13 @@ function initApp() {
                 'municipios': 'Municipios',
                 'regiones': 'Regiones Indígenas',
                 'ran': 'RAN',
-                'lenguas': 'Lenguas Indígenas'
+                'lenguas': 'Lenguas Indígenas',
+                'za_publico': 'ZA Público',
+                'za_publico_a': 'ZA Público A',
+                'anp_estatal': 'ANP Estatales',
+                'ramsar': 'Ramsar',
+                'sitio_arqueologico': 'Sitios Arqueológicos',
+                'z_historicos': 'Zonas Históricas'
             };
             return displayNames[layerName] || layerName;
         }
@@ -524,7 +806,13 @@ function initApp() {
                 'municipios': clippedMunicipiosLayer,
                 'regiones': clippedRegionesLayer,
                 'ran': clippedRanLayer,
-                'lenguas': clippedLenguasLayer
+                'lenguas': clippedLenguasLayer,
+                'za_publico': clippedZaPublicoLayer,
+                'za_publico_a': clippedZaPublicoALayer,
+                'anp_estatal': clippedAnpEstatalLayer,
+                'ramsar': clippedRamsarLayer,
+                'sitio_arqueologico': clippedSitioArqueologicoLayer,
+                'z_historicos': clippedZHistoricosLayer
             };
 
             const correspondingLayer = layerMapping[layerName];
@@ -747,19 +1035,32 @@ function initApp() {
                 municipios: '#0000ff',
                 regiones: '#ffa500',
                 ran: '#ff0000',
-                lenguas: '#00ffff'
+                lenguas: '#00ffff',
+                za_publico: '#800080',
+                za_publico_a: '#800000',
+                anp_estatal: '#008080',
+                ramsar: '#808000',
+                sitio_arqueologico: '#808080',
+                z_historicos: '#400080'
             };
 
             // Crear secciones para cada capa
             Object.entries(layersData).forEach(([layerName, data]) => {
-                if (data.features && data.features.length > 0) {
+                if (data.features) {
+                    console.log(`[DEBUG] Processing layer ${layerName} with ${data.features.length} features`);
                     const propertyMap = {
                         localidades: 'CVEGEO',
                         atlas: 'CVEGEO',
                         municipios: 'CVEGEO',
                         regiones: 'Name',
                         ran: 'Clv_Unica',
-                        lenguas: 'Lengua'
+                        lenguas: 'Lengua',
+                        za_publico: 'Zona Arqueológica',
+                        za_publico_a: 'Zona Arqueológica',
+                        anp_estatal: 'NOMBRE',
+                        ramsar: 'RAMSAR',
+                        sitio_arqueologico: 'nombre',
+                        z_historicos: 'Nombre'
                     };
 
                     const titleMap = {
@@ -768,11 +1069,28 @@ function initApp() {
                         municipios: 'Municipios',
                         regiones: 'Regiones Indígenas',
                         ran: 'RAN',
-                        lenguas: 'Lenguas Indígenas'
+                        lenguas: 'Lenguas Indígenas',
+                        za_publico: 'Zonas Arqueológicas (Puntos)',
+                        za_publico_a: 'Zonas Arqueológicas (Áreas)',
+                        anp_estatal: 'ANP Estatales',
+                        ramsar: 'Ramsar',
+                        sitio_arqueologico: 'Sitios Arqueológicos',
+                        z_historicos: 'Zonas Históricas'
                     };
 
                     // Determinar si es la capa de lenguas para tratamiento especial
                     const isLenguasLayer = layerName === 'lenguas';
+
+                    // Debug specific layers
+                    if (['ramsar', 'sitio_arqueologico', 'z_historicos'].includes(layerName)) {
+                        console.log(`[DEBUG] ${layerName} - Property map: ${propertyMap[layerName]}, First feature properties:`, data.features[0]?.properties);
+                        console.log(`[DEBUG] ${layerName} - Property value for ${propertyMap[layerName]}:`, data.features[0]?.properties?.[propertyMap[layerName]]);
+                        console.log(`[DEBUG] ${layerName} - All property keys:`, Object.keys(data.features[0]?.properties || {}));
+                        console.log(`[DEBUG] ${layerName} - All property keys values:`, data.features[0]?.properties);
+                        if (layerName === 'ramsar') {
+                            console.log(`[DEBUG] ramsar detailed properties:`, JSON.stringify(data.features[0]?.properties, null, 2));
+                        }
+                    }
 
                     const section = createLayerSection(
                         titleMap[layerName],
@@ -820,11 +1138,11 @@ function initApp() {
          */
         function clearAllLayers() {
             // Remover todas las capas del mapa
-            [kmlLayer, bufferLayer, clippedLocalitiesLayer, clippedAtlasLayer, clippedMunicipiosLayer, clippedRegionesLayer, clippedRanLayer, clippedLenguasLayer, highlightLayer]
+            [kmlLayer, bufferLayer, clippedLocalitiesLayer, clippedAtlasLayer, clippedMunicipiosLayer, clippedRegionesLayer, clippedRanLayer, clippedLenguasLayer, clippedZaPublicoLayer, clippedZaPublicoALayer, clippedAnpEstatalLayer, clippedRamsarLayer, clippedSitioArqueologicoLayer, clippedZHistoricosLayer, highlightLayer]
                 .forEach(layer => { if (layer) map.removeLayer(layer); });
 
             // Resetear variables de estado
-            kmlLayer = bufferLayer = clippedLocalitiesLayer = clippedAtlasLayer = clippedMunicipiosLayer = clippedRegionesLayer = clippedRanLayer = clippedLenguasLayer = highlightLayer = null;
+            kmlLayer = bufferLayer = clippedLocalitiesLayer = clippedAtlasLayer = clippedMunicipiosLayer = clippedRegionesLayer = clippedRanLayer = clippedLenguasLayer = clippedZaPublicoLayer = clippedZaPublicoALayer = clippedAnpEstatalLayer = clippedRamsarLayer = clippedSitioArqueologicoLayer = clippedZHistoricosLayer = highlightLayer = null;
             kmlGeoJson = null;
             lastAreaBounds = null;
 
@@ -1052,7 +1370,13 @@ function initApp() {
                     { data: municipiosData, name: 'Municipios' },
                     { data: regionesData, name: 'Regiones Indígenas' },
                     { data: ranData, name: 'RAN' },
-                    { data: lenguasData, name: 'Lenguas Indígenas' }
+                    { data: lenguasData, name: 'Lenguas Indígenas' },
+                    { data: zaPublicoData, name: 'ZA Público' },
+                    { data: zaPublicoAData, name: 'ZA Público A' },
+                    { data: anpEstatalData, name: 'ANP Estatales' },
+                    { data: ramsarData, name: 'Ramsar' },
+                    { data: sitioArqueologicoData, name: 'Sitios Arqueológicos' },
+                    { data: zHistoricosData, name: 'Zonas Históricas' }
                 ].filter(layer => layer.data && layer.data.features && layer.data.features.length > 0);
 
                 if (availableLayers.length === 0) {
@@ -1095,7 +1419,7 @@ function initApp() {
                 }
 
                 // Remover capas anteriores
-                [clippedLocalitiesLayer, clippedAtlasLayer, clippedMunicipiosLayer, clippedRegionesLayer, clippedRanLayer, clippedLenguasLayer]
+                [clippedLocalitiesLayer, clippedAtlasLayer, clippedMunicipiosLayer, clippedRegionesLayer, clippedRanLayer, clippedLenguasLayer, clippedZaPublicoLayer, clippedZaPublicoALayer, clippedAnpEstatalLayer, clippedRamsarLayer, clippedSitioArqueologicoLayer, clippedZHistoricosLayer]
                     .forEach(layer => { if (layer) map.removeLayer(layer); });
 
                 // Recrear control de capas
@@ -1109,6 +1433,12 @@ function initApp() {
                 let processedCount = 0;
                 const totalLayers = availableLayers.length;
 
+                // Inicializar todas las capas posibles con arrays vacíos
+                const allLayerNames = ['localidades', 'atlas', 'municipios', 'regiones', 'ran', 'lenguas', 'za_publico', 'za_publico_a', 'anp_estatal', 'ramsar', 'sitio_arqueologico', 'z_historicos'];
+                allLayerNames.forEach(name => {
+                    layersData[name] = { features: [] };
+                });
+
                 if (localitiesData && localitiesData.features) {
                     updateProgress(20 + (processedCount * 60 / totalLayers), 'Procesando localidades…');
                     const locResult = clipLayer(localitiesData, "CVEGEO",
@@ -1117,7 +1447,8 @@ function initApp() {
                             { value: p.NOM_LOC || p.NOMBRE || 'Sin nombre', isMain: true },
                             { label: 'CVEGEO', value: p.CVEGEO },
                             { label: 'Municipio', value: p.NOM_MUN || p.MUNICIPIO },
-                            { label: 'Estado', value: p.NOM_ENT || p.ESTADO }
+                            { label: 'Estado', value: p.NOM_ENT || p.ESTADO },
+                            { label: 'Ámbito', value: p.AMBITO }
                         ]), clipArea);
                     clippedLocalitiesLayer = locResult.layer.addTo(map);
                     overlaysControl.addOverlay(clippedLocalitiesLayer, "Localidades");
@@ -1138,6 +1469,10 @@ function initApp() {
                     overlaysControl.addOverlay(clippedAtlasLayer, "Atlas Pueblos Indígenas");
                     layersData.atlas = { features: atlasResult.clipped };
                     processedCount++;
+                } else {
+                    // Crear capa vacía para mostrar en el control de capas
+                    clippedAtlasLayer = L.layerGroup().addTo(map);
+                    overlaysControl.addOverlay(clippedAtlasLayer, "Atlas Pueblos Indígenas");
                 }
 
                 if (municipiosData && municipiosData.features) {
@@ -1154,6 +1489,9 @@ function initApp() {
                     overlaysControl.addOverlay(clippedMunicipiosLayer, "Municipios");
                     layersData.municipios = { features: munResult.clipped };
                     processedCount++;
+                } else {
+                    clippedMunicipiosLayer = L.layerGroup().addTo(map);
+                    overlaysControl.addOverlay(clippedMunicipiosLayer, "Municipios");
                 }
 
                 if (regionesData && regionesData.features) {
@@ -1169,6 +1507,9 @@ function initApp() {
                     overlaysControl.addOverlay(clippedRegionesLayer, "Regiones Indígenas");
                     layersData.regiones = { features: regResult.clipped };
                     processedCount++;
+                } else {
+                    clippedRegionesLayer = L.layerGroup().addTo(map);
+                    overlaysControl.addOverlay(clippedRegionesLayer, "Regiones Indígenas");
                 }
 
                 if (ranData && ranData.features) {
@@ -1186,6 +1527,9 @@ function initApp() {
                     overlaysControl.addOverlay(clippedRanLayer, "RAN");
                     layersData.ran = { features: ranResult.clipped };
                     processedCount++;
+                } else {
+                    clippedRanLayer = L.layerGroup().addTo(map);
+                    overlaysControl.addOverlay(clippedRanLayer, "RAN");
                 }
 
                 if (lenguasData && lenguasData.features) {
@@ -1202,6 +1546,132 @@ function initApp() {
                     overlaysControl.addOverlay(clippedLenguasLayer, "Lenguas Indígenas");
                     layersData.lenguas = { features: lenguasResult.clipped };
                     processedCount++;
+                } else {
+                    clippedLenguasLayer = L.layerGroup().addTo(map);
+                    overlaysControl.addOverlay(clippedLenguasLayer, "Lenguas Indígenas");
+                }
+
+                if (zaPublicoData && zaPublicoData.features) {
+                    updateProgress(20 + (processedCount * 60 / totalLayers), 'Procesando ZA público…');
+                    const zaPublicoResult = clipLayer(zaPublicoData, "Zona Arqueológica",
+                        { pointToLayer: (f, latlng) => L.circleMarker(latlng, { radius: 6, fillColor: '#800080', color: '#000', weight: 1, opacity: 1, fillOpacity: 0.8 }) },
+                        p => createPopupContent('ZA Público', '🏞️', [
+                            { value: p["Zona Arqueológica"] || 'Sin nombre', isMain: true },
+                            { label: 'Estado', value: p.ESTADO },
+                            { label: 'Municipio', value: p.MUNICIPIO },
+                            { label: 'Localidad', value: p.LOCALIDAD }
+                        ]), clipArea);
+                    clippedZaPublicoLayer = zaPublicoResult.layer.addTo(map);
+                    overlaysControl.addOverlay(clippedZaPublicoLayer, "Zonas Arqueológicas (Puntos)");
+                    layersData.za_publico = { features: zaPublicoResult.clipped };
+                    processedCount++;
+                } else {
+                    clippedZaPublicoLayer = L.layerGroup().addTo(map);
+                    overlaysControl.addOverlay(clippedZaPublicoLayer, "Zonas Arqueológicas (Puntos)");
+                }
+
+                if (zaPublicoAData && zaPublicoAData.features) {
+                    updateProgress(20 + (processedCount * 60 / totalLayers), 'Procesando ZA público A…');
+                    const zaPublicoAResult = clipLayer(zaPublicoAData, "Zona Arqueológica",
+                        { style: { color: '#800000', weight: 2, fillOpacity: 0.1 } },
+                        p => createPopupContent('ZA Público A', '🏞️', [
+                            { value: p["Zona Arqueológica"] || 'Sin nombre', isMain: true },
+                            { label: 'Estado', value: p.ESTADO },
+                            { label: 'Municipio', value: p.MUNICIPIO },
+                            { label: 'Localidad', value: p.LOCALIDAD }
+                        ]), clipArea);
+                    clippedZaPublicoALayer = zaPublicoAResult.layer.addTo(map);
+                    overlaysControl.addOverlay(clippedZaPublicoALayer, "Zonas Arqueológicas (Áreas)");
+                    layersData.za_publico_a = { features: zaPublicoAResult.clipped };
+                    processedCount++;
+                } else {
+                    clippedZaPublicoALayer = L.layerGroup().addTo(map);
+                    overlaysControl.addOverlay(clippedZaPublicoALayer, "Zonas Arqueológicas (Áreas)");
+                }
+
+                if (anpEstatalData && anpEstatalData.features) {
+                    updateProgress(20 + (processedCount * 60 / totalLayers), 'Procesando ANP estatales…');
+                    const anpEstatalResult = clipLayer(anpEstatalData, "NOMBRE",
+                        { style: { color: '#008080', weight: 2, fillOpacity: 0.1 } },
+                        p => createPopupContent('ANP Estatal', '🌿', [
+                            { value: p.NOMBRE || 'Sin nombre', isMain: true },
+                            { label: 'Tipo', value: p.TIPO },
+                            { label: 'Categoría DEC', value: p.CAT_DEC },
+                            { label: 'Entidad', value: p.ENTIDAD },
+                            { label: 'Municipio DEC', value: p.MUN_DEC }
+                        ]), clipArea);
+                    clippedAnpEstatalLayer = anpEstatalResult.layer.addTo(map);
+                    overlaysControl.addOverlay(clippedAnpEstatalLayer, "ANP Estatales");
+                    layersData.anp_estatal = { features: anpEstatalResult.clipped };
+                    processedCount++;
+                } else {
+                    clippedAnpEstatalLayer = L.layerGroup().addTo(map);
+                    overlaysControl.addOverlay(clippedAnpEstatalLayer, "ANP Estatales");
+                }
+
+                if (ramsarData && ramsarData.features) {
+                    console.log('[DEBUG] Processing Ramsar data:', ramsarData.features.length, 'features');
+                    updateProgress(20 + (processedCount * 60 / totalLayers), 'Procesando Ramsar…');
+                    const ramsarResult = clipLayer(ramsarData, "RAMSAR",
+                        { style: { color: '#808000', weight: 2, fillOpacity: 0.1 } },
+                        p => createPopupContent('Sitio Ramsar', '🦆', [
+                            { value: p.RAMSAR || 'Sin nombre', isMain: true },
+                            { label: 'Estado', value: p.ESTADO },
+                            { label: 'Municipio', value: p.MUNICIPIOS }
+                        ]), clipArea);
+                    console.log('[DEBUG] Ramsar clipped result:', ramsarResult.clipped.length, 'features');
+                    clippedRamsarLayer = ramsarResult.layer.addTo(map);
+                    overlaysControl.addOverlay(clippedRamsarLayer, "Ramsar");
+                    layersData.ramsar = { features: ramsarResult.clipped };
+                    processedCount++;
+                } else {
+                    console.log('[DEBUG] Ramsar data not available or empty');
+                    clippedRamsarLayer = L.layerGroup().addTo(map);
+                    overlaysControl.addOverlay(clippedRamsarLayer, "Ramsar");
+                }
+
+                if (sitioArqueologicoData && sitioArqueologicoData.features) {
+                    console.log('[DEBUG] Processing Sitios Arqueológicos data:', sitioArqueologicoData.features.length, 'features');
+                    updateProgress(20 + (processedCount * 60 / totalLayers), 'Procesando sitios arqueológicos…');
+                    const sitioArqueologicoResult = clipLayer(sitioArqueologicoData, "nombre",
+                        { pointToLayer: (f, latlng) => L.circleMarker(latlng, { radius: 5, fillColor: '#808080', color: '#000', weight: 1, opacity: 1, fillOpacity: 0.8 }) },
+                        p => createPopupContent('Sitio Arqueológico', '🏛️', [
+                            { value: p.nombre || 'Sin nombre', isMain: true },
+                            { label: 'Estado', value: p.nom_ent },
+                            { label: 'Municipio', value: p.nom_mun },
+                            { label: 'Localidad', value: p.nom_loc }
+                        ]), clipArea);
+                    console.log('[DEBUG] Sitios Arqueológicos clipped result:', sitioArqueologicoResult.clipped.length, 'features');
+                    clippedSitioArqueologicoLayer = sitioArqueologicoResult.layer.addTo(map);
+                    overlaysControl.addOverlay(clippedSitioArqueologicoLayer, "Sitios Arqueológicos");
+                    layersData.sitio_arqueologico = { features: sitioArqueologicoResult.clipped };
+                    processedCount++;
+                } else {
+                    console.log('[DEBUG] Sitios Arqueológicos data not available or empty');
+                    clippedSitioArqueologicoLayer = L.layerGroup().addTo(map);
+                    overlaysControl.addOverlay(clippedSitioArqueologicoLayer, "Sitios Arqueológicos");
+                }
+
+                if (zHistoricosData && zHistoricosData.features) {
+                    console.log('[DEBUG] Processing Zonas Históricas data:', zHistoricosData.features.length, 'features');
+                    updateProgress(20 + (processedCount * 60 / totalLayers), 'Procesando zonas históricas…');
+                    const zHistoricosResult = clipLayer(zHistoricosData, "Nombre",
+                        { style: { color: '#400080', weight: 2, fillOpacity: 0.1 } },
+                        p => createPopupContent('Zona Histórica', '🏰', [
+                            { value: p.Nombre || 'Sin nombre', isMain: true },
+                            { label: 'Estado', value: p.ESTADO },
+                            { label: 'Municipio', value: p.MUNICIPIO },
+                            { label: 'Localidad', value: p.LOCALIDAD }
+                        ]), clipArea);
+                    console.log('[DEBUG] Zonas Históricas clipped result:', zHistoricosResult.clipped.length, 'features');
+                    clippedZHistoricosLayer = zHistoricosResult.layer.addTo(map);
+                    overlaysControl.addOverlay(clippedZHistoricosLayer, "Zonas Históricas");
+                    layersData.z_historicos = { features: zHistoricosResult.clipped };
+                    processedCount++;
+                } else {
+                    console.log('[DEBUG] Zonas Históricas data not available or empty');
+                    clippedZHistoricosLayer = L.layerGroup().addTo(map);
+                    overlaysControl.addOverlay(clippedZHistoricosLayer, "Zonas Históricas");
                 }
 
                 updateLayersDisplay(layersData);
@@ -1215,7 +1685,7 @@ function initApp() {
 
                 if (resetViewBtn) resetViewBtn.disabled = false;
 
-                updateProgress(100, 'Análisis completado exitosamente');
+                updateProgress(100, 'Todas las capas procesadas exitosamente');
 
                 // Mantener el preloader visible un poco más para que el usuario vea el progreso completo
                 setTimeout(() => {
@@ -1283,6 +1753,12 @@ function initApp() {
                 regionesData = null;
                 ranData = null;
                 lenguasData = null;
+                zaPublicoData = null;
+                zaPublicoAData = null;
+                anpEstatalData = null;
+                ramsarData = null;
+                sitioArqueologicoData = null;
+                zHistoricosData = null;
 
                 // Reintentar carga
                 showAlert('Reintentando carga de datos...', 'info', 3000);
@@ -1292,8 +1768,10 @@ function initApp() {
 
     } catch (error) {
         console.error('Error inicializando aplicación:', error);
+        console.log('[DEBUG] Error in initApp, about to show error alert');
         showAlert('Error al inicializar la aplicación. Recarga la página.', 'danger', 8000);
     }
+    console.log('[DEBUG] initApp completed');
 }
 
 // Inicializar cuando el DOM esté listo
