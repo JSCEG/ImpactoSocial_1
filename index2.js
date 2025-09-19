@@ -60,6 +60,10 @@ let overlaysControl = null;
 let featureLayersById = new Map();  // Para poder navegar a elementos específicos
 let highlightLayer = null;          // Para resaltar elementos seleccionados
 
+// Variables para el reporte Excel
+let totalElements = 0;              // Total de elementos encontrados
+let layersData = {};                // Datos de todas las capas para el reporte
+
 // ============================================================================
 // FUNCIONES PARA CARGAR LIBRERÍAS EXTERNAS
 // ============================================================================
@@ -1023,10 +1027,12 @@ function initApp() {
         /**
          * Actualiza la visualización de todas las capas encontradas
          */
-        function updateLayersDisplay(layersData) {
+        function updateLayersDisplay(layersDataParam) {
             layersContainer.innerHTML = '';
 
-            let totalElements = 0;
+            // Actualizar variables globales para el reporte
+            layersData = layersDataParam;
+            totalElements = 0;
 
             // Definir colores para cada capa
             const layerColors = {
@@ -1131,6 +1137,12 @@ function initApp() {
             if (totalElements === 0) {
                 layersContainer.innerHTML = '<p class="mb-0 text-muted">No se encontraron elementos en ninguna capa.</p>';
             }
+
+            // Habilitar/deshabilitar botón de descarga
+            const downloadReportBtn = document.getElementById('downloadReportBtn');
+            if (downloadReportBtn) {
+                downloadReportBtn.disabled = totalElements === 0;
+            }
         }
 
         /**
@@ -1166,11 +1178,21 @@ function initApp() {
             const currentCriteria = document.getElementById('currentCriteria');
             if (currentCriteria) currentCriteria.textContent = '—';
 
+            // Resetear variables globales del reporte
+            totalElements = 0;
+            layersData = {};
+
             // Recrear control de capas
             if (overlaysControl) {
                 map.removeControl(overlaysControl);
             }
             overlaysControl = L.control.layers(null, null, { collapsed: false }).addTo(map);
+
+            // Deshabilitar botón de descarga
+            const downloadReportBtn = document.getElementById('downloadReportBtn');
+            if (downloadReportBtn) {
+                downloadReportBtn.disabled = true;
+            }
         }
 
         // ====================================================================
@@ -1701,6 +1723,138 @@ function initApp() {
         }
 
         // ====================================================================
+        // FUNCIONES DE REPORTE EXCEL
+        // ====================================================================
+
+        /**
+         * Genera y descarga un reporte Excel con todos los datos analizados
+         */
+        function generateExcelReport() {
+            try {
+                showAlert('Generando reporte Excel...', 'info', 2000);
+
+                const workbook = XLSX.utils.book_new();
+
+                // Hoja de resumen
+                const summaryData = [
+                    ['Análisis Geoespacial - Áreas de Interés'],
+                    ['Fecha del análisis', new Date().toLocaleString('es-MX')],
+                    ['Archivo KML', kmlFileInput?.files[0]?.name || 'No especificado'],
+                    ['Tipo de área', areaTypeSelect.options[areaTypeSelect.selectedIndex].text],
+                    ['Total elementos encontrados', formatNumber(totalElements)],
+                    [],
+                    ['Resumen por capas:']
+                ];
+
+                // Agregar resumen de cada capa
+                Object.entries(layersData).forEach(([layerName, data]) => {
+                    if (data.features && data.features.length > 0) {
+                        const displayName = getLayerDisplayName(layerName);
+                        summaryData.push([displayName, data.features.length + ' elementos']);
+                    }
+                });
+
+                const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
+                XLSX.utils.book_append_sheet(workbook, summarySheet, 'Resumen');
+
+                // Generar hojas para cada capa con datos detallados
+                const layerConfigs = {
+                    localidades: { property: 'CVEGEO', headers: ['CVEGEO', 'Localidad', 'Municipio', 'Estado', 'Ámbito'] },
+                    atlas: { property: 'CVEGEO', headers: ['CVEGEO', 'Localidad', 'Municipio'] },
+                    municipios: { property: 'CVEGEO', headers: ['CVEGEO', 'Municipio', 'Estado', 'Cabecera'] },
+                    regiones: { property: 'Name', headers: ['Nombre', 'Tipo', 'Descripción'] },
+                    ran: { property: 'Clv_Unica', headers: ['Clave', 'Nombre', 'Tipo', 'Estado', 'Municipio'] },
+                    lenguas: { property: 'Lengua', headers: ['Lengua', 'Localidad', 'Municipio', 'Estado'] },
+                    za_publico: { property: 'Zona Arqueológica', headers: ['Nombre', 'Estado', 'Municipio', 'Localidad'] },
+                    za_publico_a: { property: 'Zona Arqueológica', headers: ['Nombre', 'Estado', 'Municipio', 'Localidad'] },
+                    anp_estatal: { property: 'NOMBRE', headers: ['Nombre', 'Tipo', 'Categoría DEC', 'Entidad', 'Municipio DEC'] },
+                    ramsar: { property: 'RAMSAR', headers: ['Nombre', 'Estado', 'Municipio'] },
+                    sitio_arqueologico: { property: 'nombre', headers: ['Nombre', 'Estado', 'Municipio', 'Localidad'] },
+                    z_historicos: { property: 'Nombre', headers: ['Nombre', 'Estado', 'Municipio', 'Localidad'] }
+                };
+
+                Object.entries(layersData).forEach(([layerName, data]) => {
+                    if (data.features && data.features.length > 0) {
+                        const config = layerConfigs[layerName];
+                        if (config) {
+                            const sheetData = [config.headers];
+
+                            data.features.forEach(feature => {
+                                const row = [];
+                                config.headers.forEach(header => {
+                                    let value = '';
+
+                                    // Mapear headers a propiedades reales
+                                    switch (header) {
+                                        case 'CVEGEO':
+                                            value = feature.properties.CVEGEO || '';
+                                            break;
+                                        case 'Localidad':
+                                            value = feature.properties.NOM_LOC || feature.properties.nom_loc || feature.properties.LOCALIDAD || '';
+                                            break;
+                                        case 'Municipio':
+                                            value = feature.properties.NOM_MUN || feature.properties.nom_mun || feature.properties.MUNICIPIO || feature.properties.MUNICIPIOS || '';
+                                            break;
+                                        case 'Estado':
+                                            value = feature.properties.NOM_ENT || feature.properties.nom_ent || feature.properties.ESTADO || '';
+                                            break;
+                                        case 'Ámbito':
+                                            value = feature.properties.AMBITO || '';
+                                            break;
+                                        case 'Cabecera':
+                                            value = feature.properties.NOM_CAB || feature.properties.CABECERA || '';
+                                            break;
+                                        case 'Nombre':
+                                            value = feature.properties[config.property] || feature.properties.NOMBRE || '';
+                                            break;
+                                        case 'Tipo':
+                                            value = feature.properties.TIPO || feature.properties.Tipo || '';
+                                            break;
+                                        case 'Descripción':
+                                            value = feature.properties.Descripci || feature.properties.DESCRIPCION || '';
+                                            break;
+                                        case 'Clave':
+                                            value = feature.properties.Clv_Unica || '';
+                                            break;
+                                        case 'Categoría DEC':
+                                            value = feature.properties.CAT_DEC || '';
+                                            break;
+                                        case 'Entidad':
+                                            value = feature.properties.ENTIDAD || '';
+                                            break;
+                                        case 'Municipio DEC':
+                                            value = feature.properties.MUN_DEC || '';
+                                            break;
+                                        default:
+                                            value = feature.properties[header] || '';
+                                    }
+
+                                    row.push(value);
+                                });
+
+                                sheetData.push(row);
+                            });
+
+                            const sheet = XLSX.utils.aoa_to_sheet(sheetData);
+                            const displayName = getLayerDisplayName(layerName);
+                            XLSX.utils.book_append_sheet(workbook, sheet, displayName.substring(0, 31)); // Excel limita nombres de hoja a 31 caracteres
+                        }
+                    }
+                });
+
+                // Descargar archivo
+                const fileName = `reporte_analisis_${new Date().toISOString().split('T')[0]}.xlsx`;
+                XLSX.writeFile(workbook, fileName);
+
+                showAlert(`Reporte Excel generado exitosamente: ${fileName}`, 'success', 4000);
+
+            } catch (error) {
+                console.error('Error generando reporte Excel:', error);
+                showAlert('Error al generar el reporte Excel. Intenta nuevamente.', 'danger', 4000);
+            }
+        }
+
+        // ====================================================================
         // EVENTOS Y ENLACES
         // ====================================================================
 
@@ -1764,6 +1918,12 @@ function initApp() {
                 showAlert('Reintentando carga de datos...', 'info', 3000);
                 loadDataOptional();
             });
+        }
+
+        // Descargar reporte Excel
+        const downloadReportBtn = document.getElementById('downloadReportBtn');
+        if (downloadReportBtn) {
+            downloadReportBtn.addEventListener('click', generateExcelReport);
         }
 
     } catch (error) {

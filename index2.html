@@ -222,6 +222,10 @@
                                             title="Eliminar todas las capas del mapa y reiniciar la aplicación">
                                             <i class="bi bi-trash me-1"></i>Limpiar Todo
                                         </button>
+                                        <button id="downloadReportBtn" class="btn btn-success w-100 mt-2" disabled
+                                            title="Descargar reporte Excel con todos los datos analizados">
+                                            <i class="bi bi-download me-1"></i>Descargar Reporte Excel
+                                        </button>
                                         <div class="form-text mt-2">
                                             <small>Esta acción eliminará todas las capas del mapa y permitirá comenzar
                                                 con un nuevo análisis.</small>
@@ -295,6 +299,11 @@
 
     <!-- Bootstrap JS para componentes interactivos -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- Librerías para generación de reportes Excel -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+
     <!-- La lógica principal se carga dinámicamente con control de versión -->
 
     <!-- Modal reutilizable para mostrar mensajes al usuario -->
