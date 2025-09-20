@@ -846,7 +846,6 @@ function initApp() {
                     {
                         type: "Feature",
                         properties: {
-                            CVEGEO: "01001001",
                             ENTIDAD: "Aguascalientes",
                             MUNICIPIO: "Aguascalientes",
                             LOCALIDAD: "Aguascalientes",
@@ -1844,7 +1843,7 @@ function initApp() {
                     const locIndigenasResult = clipLayer(locIndigenasData, "CVEGEO",
                         { pointToLayer: (f, latlng) => L.circleMarker(latlng, { radius: 5, fillColor: '#8000ff', color: '#000', weight: 1, opacity: 1, fillOpacity: 0.8 }) },
                         p => createPopupContent('Loc Indígenas Datos', '🏘️', [
-                            { value: p.CVEGEO || 'Sin CVEGEO', isMain: true },
+                            { value: p.LOCALIDAD || 'Sin Localidad', isMain: true },
                             { label: 'Entidad', value: p.ENTIDAD },
                             { label: 'Municipio', value: p.MUNICIPIO },
                             { label: 'Localidad', value: p.LOCALIDAD },
@@ -1955,7 +1954,7 @@ function initApp() {
                     ramsar: { property: 'RAMSAR', headers: ['Nombre', 'Estado', 'Municipio'] },
                     sitio_arqueologico: { property: 'nombre', headers: ['Nombre', 'Estado', 'Municipio', 'Localidad'] },
                     z_historicos: { property: 'Nombre', headers: ['Nombre', 'Estado', 'Municipio', 'Localidad'] },
-                    loc_indigenas_datos: { property: 'CVEGEO', headers: ['CVEGEO', 'Entidad', 'Municipio', 'Localidad', 'Población Total'] },
+                    loc_indigenas_datos: { property: 'LOCALIDAD', headers: ['Entidad', 'Municipio', 'Localidad', 'Población Total'] },
                     rutaWixarika: { property: 'Name', headers: ['Nombre'] }
                 };
 
