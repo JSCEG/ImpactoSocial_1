@@ -40,6 +40,9 @@ let anpEstatalData = null;      // Áreas Naturales Protegidas Estatales
 let ramsarData = null;          // Sitios Ramsar
 let sitioArqueologicoData = null; // Sitios Arqueológicos
 let zHistoricosData = null;     // Zonas Históricas
+let locIndigenasData = null;    // Localidades Indígenas Datos
+let rutaWixarikaData = null;    // Ruta Wixarika
+let localidadesDatosData = null; // Localidades Datos Adicionales (JSON tabular)
 
 // Variables para las capas filtradas que se muestran en el mapa
 let clippedLocalitiesLayer = null;
@@ -54,6 +57,8 @@ let clippedAnpEstatalLayer = null;
 let clippedRamsarLayer = null;
 let clippedSitioArqueologicoLayer = null;
 let clippedZHistoricosLayer = null;
+let clippedLocIndigenasLayer = null;
+let clippedRutaWixarikaLayer = null;
 
 // Control de capas de Leaflet y utilidades de navegación
 let overlaysControl = null;
@@ -318,7 +323,10 @@ function initApp() {
             anp_estatal: 'https://cdn.sassoapps.com/Gabvy/anp_estatal.geojson',
             ramsar: 'https://cdn.sassoapps.com/Gabvy/ramsar.geojson',
             sitio_arqueologico: 'https://cdn.sassoapps.com/Gabvy/sitio_arqueologico.geojson',
-            z_historicos: 'https://cdn.sassoapps.com/Gabvy/z_historicos.geojson'
+            z_historicos: 'https://cdn.sassoapps.com/Gabvy/z_historicos.geojson',
+            loc_indigenas_datos: 'https://cdn.sassoapps.com/Gabvy/loc_indigenas_datos.geojson',
+            rutaWixarika: 'https://cdn.sassoapps.com/Gabvy/rutaWixarika.geojson',
+            localidadesdatos_solo_datos: 'https://cdn.sassoapps.com/Gabvy/localidadesdatos_solo_datos.json'
         };
 
         // URLs alternativas con proxy CORS (fallback automático)
@@ -334,7 +342,10 @@ function initApp() {
             anp_estatal: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.anp_estatal),
             ramsar: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.ramsar),
             sitio_arqueologico: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.sitio_arqueologico),
-            z_historicos: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.z_historicos)
+            z_historicos: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.z_historicos),
+            loc_indigenas_datos: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.loc_indigenas_datos),
+            rutaWixarika: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.rutaWixarika),
+            localidadesdatos_solo_datos: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.localidadesdatos_solo_datos)
         };
 
         const kmlFileInput = document.getElementById('kmlFile');
@@ -442,6 +453,63 @@ function initApp() {
             }
         }
 
+        /**
+         * Carga datos JSON tabulares (no GeoJSON)
+         */
+        async function loadJsonData(url, name) {
+            try {
+                console.log(`Cargando ${name} desde: ${url}`);
+
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 segundos timeout
+
+                const response = await fetch(url, {
+                    signal: controller.signal,
+                    mode: 'cors',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Cache-Control': 'no-cache'
+                    }
+                });
+
+                clearTimeout(timeoutId);
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                console.log(`${name} cargado exitosamente: ${Array.isArray(data) ? data.length : 'N/A'} registros`);
+                return data;
+
+            } catch (error) {
+                console.error(`Error cargando ${name}:`, error);
+                if (error.name === 'AbortError') {
+                    throw new Error(`Timeout cargando ${name} (15s)`);
+                }
+
+                // Último fallback: usar un proxy CORS público
+                console.warn(`Intentando proxy CORS para ${name}...`);
+                try {
+                    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+                    const proxyResponse = await fetch(proxyUrl, {
+                        headers: { 'Accept': 'application/json' }
+                    });
+
+                    if (proxyResponse.ok) {
+                        const proxyData = await proxyResponse.json();
+                        const data = JSON.parse(proxyData.contents);
+                        console.log(`${name} cargado vía proxy: ${Array.isArray(data) ? data.length : 'N/A'} registros`);
+                        return data;
+                    }
+                } catch (proxyError) {
+                    console.error(`Proxy también falló para ${name}:`, proxyError);
+                }
+
+                throw new Error(`Error cargando ${name}: ${error.message}`);
+            }
+        }
+
         async function loadDataOptional() {
             console.log('[DEBUG] loadDataOptional started');
             try {
@@ -490,6 +558,28 @@ function initApp() {
 
                 updateProgress(60, 'Cargando zonas históricas...');
                 zHistoricosData = await loadSingleLayer(urls.z_historicos, 'Zonas Históricas');
+
+                updateProgress(65, 'Cargando localidades indígenas datos...');
+                locIndigenasData = await loadSingleLayer(urls.loc_indigenas_datos, 'Loc Indígenas Datos');
+
+                updateProgress(70, 'Cargando ruta Wixarika...');
+                rutaWixarikaData = await loadSingleLayer(urls.rutaWixarika, 'Ruta Wixarika');
+
+                updateProgress(75, 'Cargando localidades datos adicionales...');
+                localidadesDatosData = await loadJsonData(urls.localidadesdatos_solo_datos, 'Localidades Datos Adicionales');
+
+                // Merge localidades datos adicionales into localitiesData
+                if (localitiesData && localidadesDatosData) {
+                    console.log('Mezclando datos adicionales de localidades...');
+                    localitiesData.features.forEach(feature => {
+                        const cvegeo = feature.properties.CVEGEO;
+                        const extra = localidadesDatosData.find(d => d.CVEGEO === cvegeo);
+                        if (extra) {
+                            Object.assign(feature.properties, extra);
+                        }
+                    });
+                    console.log('Mezcla completada.');
+                }
 
                 updateProgress(100, 'Todas las capas cargadas exitosamente');
                 console.log("Todas las capas cargadas correctamente.");
@@ -749,6 +839,46 @@ function initApp() {
                 ]
             };
 
+            // Configurar Loc Indígenas Datos
+            locIndigenasData = {
+                type: "FeatureCollection",
+                features: [
+                    {
+                        type: "Feature",
+                        properties: {
+                            CVEGEO: "01001001",
+                            ENTIDAD: "Aguascalientes",
+                            MUNICIPIO: "Aguascalientes",
+                            LOCALIDAD: "Aguascalientes",
+                            POBTOTAL: 863893
+                        },
+                        geometry: {
+                            type: "Point",
+                            coordinates: [-102.3, 21.9]
+                        }
+                    }
+                ]
+            };
+
+            // Configurar Ruta Wixarika
+            rutaWixarikaData = {
+                type: "FeatureCollection",
+                features: [
+                    {
+                        type: "Feature",
+                        properties: {
+                            Name: "Ruta Cultural Wixarika"
+                        },
+                        geometry: {
+                            type: "MultiPolygon",
+                            coordinates: [[[
+                                [-104.0, 21.0], [-103.5, 21.0], [-103.5, 21.5], [-104.0, 21.5], [-104.0, 21.0]
+                            ]]]
+                        }
+                    }
+                ]
+            };
+
             // Inicializar otras capas como vacías
             atlasData = { type: "FeatureCollection", features: [] };
             regionesData = { type: "FeatureCollection", features: [] };
@@ -782,7 +912,9 @@ function initApp() {
                 'anp_estatal': 'ANP Estatales',
                 'ramsar': 'Ramsar',
                 'sitio_arqueologico': 'Sitios Arqueológicos',
-                'z_historicos': 'Zonas Históricas'
+                'z_historicos': 'Zonas Históricas',
+                'loc_indigenas_datos': 'Loc Indígenas Datos',
+                'rutaWixarika': 'Ruta Wixarika'
             };
             return displayNames[layerName] || layerName;
         }
@@ -816,7 +948,9 @@ function initApp() {
                 'anp_estatal': clippedAnpEstatalLayer,
                 'ramsar': clippedRamsarLayer,
                 'sitio_arqueologico': clippedSitioArqueologicoLayer,
-                'z_historicos': clippedZHistoricosLayer
+                'z_historicos': clippedZHistoricosLayer,
+                'loc_indigenas_datos': clippedLocIndigenasLayer,
+                'rutaWixarika': clippedRutaWixarikaLayer
             };
 
             const correspondingLayer = layerMapping[layerName];
@@ -1047,7 +1181,9 @@ function initApp() {
                 anp_estatal: '#008080',
                 ramsar: '#808000',
                 sitio_arqueologico: '#808080',
-                z_historicos: '#400080'
+                z_historicos: '#400080',
+                loc_indigenas_datos: '#8000ff',
+                rutaWixarika: '#ff8000'
             };
 
             // Crear secciones para cada capa
@@ -1066,7 +1202,9 @@ function initApp() {
                         anp_estatal: 'NOMBRE',
                         ramsar: 'RAMSAR',
                         sitio_arqueologico: 'nombre',
-                        z_historicos: 'Nombre'
+                        z_historicos: 'Nombre',
+                        loc_indigenas_datos: 'LOCALIDAD',
+                        rutaWixarika: 'Name'
                     };
 
                     const titleMap = {
@@ -1081,7 +1219,9 @@ function initApp() {
                         anp_estatal: 'ANP Estatales',
                         ramsar: 'Ramsar',
                         sitio_arqueologico: 'Sitios Arqueológicos',
-                        z_historicos: 'Zonas Históricas'
+                        z_historicos: 'Zonas Históricas',
+                        loc_indigenas_datos: 'Loc Indígenas Datos',
+                        rutaWixarika: 'Ruta Wixarika'
                     };
 
                     // Determinar si es la capa de lenguas para tratamiento especial
@@ -1150,11 +1290,11 @@ function initApp() {
          */
         function clearAllLayers() {
             // Remover todas las capas del mapa
-            [kmlLayer, bufferLayer, clippedLocalitiesLayer, clippedAtlasLayer, clippedMunicipiosLayer, clippedRegionesLayer, clippedRanLayer, clippedLenguasLayer, clippedZaPublicoLayer, clippedZaPublicoALayer, clippedAnpEstatalLayer, clippedRamsarLayer, clippedSitioArqueologicoLayer, clippedZHistoricosLayer, highlightLayer]
+            [kmlLayer, bufferLayer, clippedLocalitiesLayer, clippedAtlasLayer, clippedMunicipiosLayer, clippedRegionesLayer, clippedRanLayer, clippedLenguasLayer, clippedZaPublicoLayer, clippedZaPublicoALayer, clippedAnpEstatalLayer, clippedRamsarLayer, clippedSitioArqueologicoLayer, clippedZHistoricosLayer, clippedLocIndigenasLayer, clippedRutaWixarikaLayer, highlightLayer]
                 .forEach(layer => { if (layer) map.removeLayer(layer); });
 
             // Resetear variables de estado
-            kmlLayer = bufferLayer = clippedLocalitiesLayer = clippedAtlasLayer = clippedMunicipiosLayer = clippedRegionesLayer = clippedRanLayer = clippedLenguasLayer = clippedZaPublicoLayer = clippedZaPublicoALayer = clippedAnpEstatalLayer = clippedRamsarLayer = clippedSitioArqueologicoLayer = clippedZHistoricosLayer = highlightLayer = null;
+            kmlLayer = bufferLayer = clippedLocalitiesLayer = clippedAtlasLayer = clippedMunicipiosLayer = clippedRegionesLayer = clippedRanLayer = clippedLenguasLayer = clippedZaPublicoLayer = clippedZaPublicoALayer = clippedAnpEstatalLayer = clippedRamsarLayer = clippedSitioArqueologicoLayer = clippedZHistoricosLayer = clippedLocIndigenasLayer = clippedRutaWixarikaLayer = highlightLayer = null;
             kmlGeoJson = null;
             lastAreaBounds = null;
 
@@ -1398,7 +1538,9 @@ function initApp() {
                     { data: anpEstatalData, name: 'ANP Estatales' },
                     { data: ramsarData, name: 'Ramsar' },
                     { data: sitioArqueologicoData, name: 'Sitios Arqueológicos' },
-                    { data: zHistoricosData, name: 'Zonas Históricas' }
+                    { data: zHistoricosData, name: 'Zonas Históricas' },
+                    { data: locIndigenasData, name: 'Loc Indígenas Datos' },
+                    { data: rutaWixarikaData, name: 'Ruta Wixarika' }
                 ].filter(layer => layer.data && layer.data.features && layer.data.features.length > 0);
 
                 if (availableLayers.length === 0) {
@@ -1456,7 +1598,7 @@ function initApp() {
                 const totalLayers = availableLayers.length;
 
                 // Inicializar todas las capas posibles con arrays vacíos
-                const allLayerNames = ['localidades', 'atlas', 'municipios', 'regiones', 'ran', 'lenguas', 'za_publico', 'za_publico_a', 'anp_estatal', 'ramsar', 'sitio_arqueologico', 'z_historicos'];
+                const allLayerNames = ['localidades', 'atlas', 'municipios', 'regiones', 'ran', 'lenguas', 'za_publico', 'za_publico_a', 'anp_estatal', 'ramsar', 'sitio_arqueologico', 'z_historicos', 'loc_indigenas_datos', 'rutaWixarika'];
                 allLayerNames.forEach(name => {
                     layersData[name] = { features: [] };
                 });
@@ -1696,6 +1838,48 @@ function initApp() {
                     overlaysControl.addOverlay(clippedZHistoricosLayer, "Zonas Históricas");
                 }
 
+                if (locIndigenasData && locIndigenasData.features) {
+                    console.log('[DEBUG] Processing Loc Indígenas Datos data:', locIndigenasData.features.length, 'features');
+                    updateProgress(20 + (processedCount * 60 / totalLayers), 'Procesando loc indígenas datos…');
+                    const locIndigenasResult = clipLayer(locIndigenasData, "CVEGEO",
+                        { pointToLayer: (f, latlng) => L.circleMarker(latlng, { radius: 5, fillColor: '#8000ff', color: '#000', weight: 1, opacity: 1, fillOpacity: 0.8 }) },
+                        p => createPopupContent('Loc Indígenas Datos', '🏘️', [
+                            { value: p.CVEGEO || 'Sin CVEGEO', isMain: true },
+                            { label: 'Entidad', value: p.ENTIDAD },
+                            { label: 'Municipio', value: p.MUNICIPIO },
+                            { label: 'Localidad', value: p.LOCALIDAD },
+                            { label: 'Población Total', value: p.POBTOTAL }
+                        ]), clipArea);
+                    console.log('[DEBUG] Loc Indígenas Datos clipped result:', locIndigenasResult.clipped.length, 'features');
+                    clippedLocIndigenasLayer = locIndigenasResult.layer.addTo(map);
+                    overlaysControl.addOverlay(clippedLocIndigenasLayer, "Loc Indígenas Datos");
+                    layersData.loc_indigenas_datos = { features: locIndigenasResult.clipped };
+                    processedCount++;
+                } else {
+                    console.log('[DEBUG] Loc Indígenas Datos data not available or empty');
+                    clippedLocIndigenasLayer = L.layerGroup().addTo(map);
+                    overlaysControl.addOverlay(clippedLocIndigenasLayer, "Loc Indígenas Datos");
+                }
+
+                if (rutaWixarikaData && rutaWixarikaData.features) {
+                    console.log('[DEBUG] Processing Ruta Wixarika data:', rutaWixarikaData.features.length, 'features');
+                    updateProgress(20 + (processedCount * 60 / totalLayers), 'Procesando ruta Wixarika…');
+                    const rutaWixarikaResult = clipLayer(rutaWixarikaData, "Name",
+                        { style: { color: '#ff8000', weight: 2, fillOpacity: 0.1 } },
+                        p => createPopupContent('Ruta Wixarika', '🛤️', [
+                            { value: p.Name || 'Sin nombre', isMain: true }
+                        ]), clipArea);
+                    console.log('[DEBUG] Ruta Wixarika clipped result:', rutaWixarikaResult.clipped.length, 'features');
+                    clippedRutaWixarikaLayer = rutaWixarikaResult.layer.addTo(map);
+                    overlaysControl.addOverlay(clippedRutaWixarikaLayer, "Ruta Wixarika");
+                    layersData.rutaWixarika = { features: rutaWixarikaResult.clipped };
+                    processedCount++;
+                } else {
+                    console.log('[DEBUG] Ruta Wixarika data not available or empty');
+                    clippedRutaWixarikaLayer = L.layerGroup().addTo(map);
+                    overlaysControl.addOverlay(clippedRutaWixarikaLayer, "Ruta Wixarika");
+                }
+
                 updateLayersDisplay(layersData);
 
                 // Ajustar vista del mapa
@@ -1770,7 +1954,9 @@ function initApp() {
                     anp_estatal: { property: 'NOMBRE', headers: ['Nombre', 'Tipo', 'Categoría DEC', 'Entidad', 'Municipio DEC'] },
                     ramsar: { property: 'RAMSAR', headers: ['Nombre', 'Estado', 'Municipio'] },
                     sitio_arqueologico: { property: 'nombre', headers: ['Nombre', 'Estado', 'Municipio', 'Localidad'] },
-                    z_historicos: { property: 'Nombre', headers: ['Nombre', 'Estado', 'Municipio', 'Localidad'] }
+                    z_historicos: { property: 'Nombre', headers: ['Nombre', 'Estado', 'Municipio', 'Localidad'] },
+                    loc_indigenas_datos: { property: 'CVEGEO', headers: ['CVEGEO', 'Entidad', 'Municipio', 'Localidad', 'Población Total'] },
+                    rutaWixarika: { property: 'Name', headers: ['Nombre'] }
                 };
 
                 Object.entries(layersData).forEach(([layerName, data]) => {
@@ -1913,6 +2099,9 @@ function initApp() {
                 ramsarData = null;
                 sitioArqueologicoData = null;
                 zHistoricosData = null;
+                locIndigenasData = null;
+                rutaWixarikaData = null;
+                localidadesDatosData = null;
 
                 // Reintentar carga
                 showAlert('Reintentando carga de datos...', 'info', 3000);
