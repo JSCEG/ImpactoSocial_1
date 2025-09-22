@@ -46,10 +46,16 @@
             // Cargar archivos en orden: CSS primero, luego JS cuando Leaflet esté listo
             console.log('[DEBUG] Starting to load CSS and scripts');
             loadCss('style2.css');
-            loadScript('togeojson.js');
+
+            // Esperar a que Leaflet esté listo, luego cargar los scripts que dependen de él en orden
             whenLeafletReady(function () {
-                console.log('[DEBUG] Loading index2.js now');
-                loadScript('index2.js');
+                console.log('[DEBUG] Leaflet ready, loading app scripts.');
+                // Cargar togeojson.js primero
+                loadScript('togeojson.js', function () {
+                    console.log('[DEBUG] togeojson.js loaded, loading main app script.');
+                    // Una vez que togeojson.js está listo, cargar index2.js
+                    loadScript('index2.js');
+                });
             });
         })();
     </script>
@@ -161,13 +167,14 @@
                                     <div class="accordion-body">
                                         <label for="areaType" class="form-label">Tipo de área</label>
                                         <select id="areaType" class="form-select mb-2" aria-describedby="areaHelp">
+                                            <option value="exacta">Área exacta (sin buffer)</option>
                                             <option value="nucleo">Área núcleo (con buffer de 500m)</option>
                                             <option value="directa">Área de influencia directa</option>
                                             <option value="indirecta">Área de influencia indirecta</option>
                                         </select>
                                         <div id="areaHelp" class="form-text mb-2">
-                                            <small>El área núcleo incluye un buffer adicional de 500 metros alrededor
-                                                del polígono.</small>
+                                            <small>Selecciona el tipo de área para el análisis. El área núcleo incluye
+                                                un buffer adicional de 500 metros alrededor del polígono.</small>
                                         </div>
                                         <button id="performClipBtn" class="btn btn-success w-100" disabled
                                             title="Iniciar el análisis geoespacial con el área seleccionada">

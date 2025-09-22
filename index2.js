@@ -579,6 +579,7 @@ function initApp() {
                         }
                     });
                     console.log('Mezcla completada.');
+                    console.log('[DEBUG] Localidades merged properties sample:', localitiesData.features[0]?.properties);
                 }
 
                 updateProgress(100, 'Todas las capas cargadas exitosamente');
@@ -1607,15 +1608,19 @@ function initApp() {
                     const locResult = clipLayer(localitiesData, "CVEGEO",
                         { pointToLayer: (f, latlng) => L.circleMarker(latlng, { radius: 6, fillColor: '#008000', color: '#000', weight: 1, opacity: 1, fillOpacity: 0.8 }) },
                         p => createPopupContent('Localidad', '🏘️', [
-                            { value: p.NOM_LOC || p.NOMBRE || 'Sin nombre', isMain: true },
+                            { value: p.NOMGEO || p.NOM_LOC || p.NOMBRE || 'Sin nombre', isMain: true },
                             { label: 'CVEGEO', value: p.CVEGEO },
                             { label: 'Municipio', value: p.NOM_MUN || p.MUNICIPIO },
                             { label: 'Estado', value: p.NOM_ENT || p.ESTADO },
-                            { label: 'Ámbito', value: p.AMBITO }
+                            { label: 'Ámbito', value: p.AMBITO },
+                            { label: 'Población Total', value: p.POBTOT },
+                            { label: 'Población Femenina', value: p.POBFEM },
+                            { label: 'Población Masculina', value: p.POBMAS }
                         ]), clipArea);
                     clippedLocalitiesLayer = locResult.layer.addTo(map);
                     overlaysControl.addOverlay(clippedLocalitiesLayer, "Localidades");
                     layersData.localidades = { features: locResult.clipped };
+                    console.log('[DEBUG] Localidades clipped properties sample:', locResult.clipped[0]?.properties);
                     processedCount++;
                 }
 
@@ -1631,6 +1636,7 @@ function initApp() {
                     clippedAtlasLayer = atlasResult.layer.addTo(map);
                     overlaysControl.addOverlay(clippedAtlasLayer, "Atlas Pueblos Indígenas");
                     layersData.atlas = { features: atlasResult.clipped };
+                    console.log('[DEBUG] Atlas clipped properties sample:', atlasResult.clipped[0]?.properties);
                     processedCount++;
                 } else {
                     // Crear capa vacía para mostrar en el control de capas
@@ -1708,6 +1714,7 @@ function initApp() {
                     clippedLenguasLayer = lenguasResult.layer.addTo(map);
                     overlaysControl.addOverlay(clippedLenguasLayer, "Lenguas Indígenas");
                     layersData.lenguas = { features: lenguasResult.clipped };
+                    console.log('[DEBUG] Lenguas clipped properties sample:', lenguasResult.clipped[0]?.properties);
                     processedCount++;
                 } else {
                     clippedLenguasLayer = L.layerGroup().addTo(map);
