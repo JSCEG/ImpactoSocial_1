@@ -2109,11 +2109,11 @@ function initApp() {
 
                 // Generar hojas para cada capa con datos detallados
                 const layerConfigs = {
-                    localidades: { property: 'CVEGEO', headers: ['CVEGEO', 'Localidad', 'Municipio', 'Estado', 'Ámbito'] },
+                    localidades: { property: 'CVEGEO', headers: ['CVEGEO', 'Localidad', 'Municipio', 'Estado', 'Ámbito', 'Población Total', 'Población Femenina', 'Población Masculina'] },
                     atlas: { property: 'CVEGEO', headers: ['CVEGEO', 'Localidad', 'Municipio'] },
                     municipios: { property: 'CVEGEO', headers: ['CVEGEO', 'Municipio', 'Estado', 'Cabecera'] },
                     regiones: { property: 'Name', headers: ['Nombre', 'Tipo', 'Descripción'] },
-                    ran: { property: 'Clv_Unica', headers: ['Clave', 'Nombre', 'Tipo', 'Estado', 'Municipio'] },
+                    ran: { property: 'Clv_Unica', headers: ['Clv_Unica', 'Municipio', 'Tipo', 'Estado', 'Municipio'] },
                     lenguas: { property: 'Lengua', headers: ['Lengua', 'Localidad', 'Municipio', 'Estado'] },
                     za_publico: { property: 'Zona Arqueológica', headers: ['Nombre', 'Estado', 'Municipio', 'Localidad'] },
                     za_publico_a: { property: 'Zona Arqueológica', headers: ['Nombre', 'Estado', 'Municipio', 'Localidad'] },
@@ -2121,7 +2121,7 @@ function initApp() {
                     ramsar: { property: 'RAMSAR', headers: ['Nombre', 'Estado', 'Municipio'] },
                     sitio_arqueologico: { property: 'nombre', headers: ['Nombre', 'Estado', 'Municipio', 'Localidad'] },
                     z_historicos: { property: 'Nombre', headers: ['Nombre', 'Estado', 'Municipio', 'Localidad'] },
-                    loc_indigenas_datos: { property: 'LOCALIDAD', headers: ['Entidad', 'Municipio', 'Localidad', 'Población Total'] },
+                    loc_indigenas_datos: { property: 'LOCALIDAD', headers: ['Entidad', 'Municipio', 'Localidad', 'Población Total', 'PIHOGARES', 'pPIHOGARES', 'TIPOLOC_PI', 'POB_AFRO', 'pPOB_AFRO', 'TIPOLOC_AF', 'cve_ent', 'cve_mun', 'cve_loc', 'cvegeo'] },
                     rutaWixarika: { property: 'Name', headers: ['Nombre'] }
                 };
 
@@ -2136,16 +2136,16 @@ function initApp() {
                                 config.headers.forEach(header => {
                                     let value = '';
 
-                                    // Mapear headers a propiedades reales
+                                    // Map friendly headers to actual properties
                                     switch (header) {
                                         case 'CVEGEO':
                                             value = feature.properties.CVEGEO || '';
                                             break;
                                         case 'Localidad':
-                                            value = feature.properties.NOM_LOC || feature.properties.nom_loc || feature.properties.LOCALIDAD || '';
+                                            value = feature.properties.NOMGEO || feature.properties.NOM_LOC || feature.properties.nom_loc || feature.properties.LOCALIDAD || '';
                                             break;
                                         case 'Municipio':
-                                            value = feature.properties.NOM_MUN || feature.properties.nom_mun || feature.properties.MUNICIPIO || feature.properties.MUNICIPIOS || '';
+                                            value = feature.properties.NOMGEO || feature.properties.NOM_MUN || feature.properties.nom_mun || feature.properties.MUNICIPIO || feature.properties.MUNICIPIOS || '';
                                             break;
                                         case 'Estado':
                                             value = feature.properties.NOM_ENT || feature.properties.nom_ent || feature.properties.ESTADO || '';
@@ -2156,17 +2156,23 @@ function initApp() {
                                         case 'Cabecera':
                                             value = feature.properties.NOM_CAB || feature.properties.CABECERA || '';
                                             break;
+                                        case 'Población Total':
+                                            value = feature.properties.POBTOT || feature.properties.POBTOTAL || '';
+                                            break;
+                                        case 'Población Femenina':
+                                            value = feature.properties.POBFEM || '';
+                                            break;
+                                        case 'Población Masculina':
+                                            value = feature.properties.POBMAS || '';
+                                            break;
                                         case 'Nombre':
-                                            value = feature.properties[config.property] || feature.properties.NOMBRE || '';
+                                            value = feature.properties[config.property] || feature.properties.NOMBRE || feature.properties.nombre || feature.properties.Name || '';
                                             break;
                                         case 'Tipo':
-                                            value = feature.properties.TIPO || feature.properties.Tipo || '';
+                                            value = feature.properties.TIPO || feature.properties.Tipo || feature.properties.tipo || '';
                                             break;
                                         case 'Descripción':
                                             value = feature.properties.Descripci || feature.properties.DESCRIPCION || '';
-                                            break;
-                                        case 'Clave':
-                                            value = feature.properties.Clv_Unica || '';
                                             break;
                                         case 'Categoría DEC':
                                             value = feature.properties.CAT_DEC || '';
@@ -2176,6 +2182,48 @@ function initApp() {
                                             break;
                                         case 'Municipio DEC':
                                             value = feature.properties.MUN_DEC || '';
+                                            break;
+                                        case 'Clv_Unica':
+                                            value = feature.properties.Clv_Unica || '';
+                                            break;
+                                        case 'Lengua':
+                                            value = feature.properties.Lengua || feature.properties.LENGUA || '';
+                                            break;
+                                        case 'Zona Arqueológica':
+                                            value = feature.properties["Zona Arqueológica"] || '';
+                                            break;
+                                        case 'RAMSAR':
+                                            value = feature.properties.RAMSAR || '';
+                                            break;
+                                        case 'PIHOGARES':
+                                            value = feature.properties.PIHOGARES || '';
+                                            break;
+                                        case 'pPIHOGARES':
+                                            value = feature.properties.pPIHOGARES || '';
+                                            break;
+                                        case 'TIPOLOC_PI':
+                                            value = feature.properties.TIPOLOC_PI || '';
+                                            break;
+                                        case 'POB_AFRO':
+                                            value = feature.properties.POB_AFRO || '';
+                                            break;
+                                        case 'pPOB_AFRO':
+                                            value = feature.properties.pPOB_AFRO || '';
+                                            break;
+                                        case 'TIPOLOC_AF':
+                                            value = feature.properties.TIPOLOC_AF || '';
+                                            break;
+                                        case 'cve_ent':
+                                            value = feature.properties.cve_ent || '';
+                                            break;
+                                        case 'cve_mun':
+                                            value = feature.properties.cve_mun || '';
+                                            break;
+                                        case 'cve_loc':
+                                            value = feature.properties.cve_loc || '';
+                                            break;
+                                        case 'cvegeo':
+                                            value = feature.properties.cvegeo || '';
                                             break;
                                         default:
                                             value = feature.properties[header] || '';
