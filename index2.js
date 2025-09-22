@@ -1027,10 +1027,15 @@ function initApp() {
 
                 // Mostrar popup informativo
                 setTimeout(() => {
+                    let displayName = featureId;
+                    if (layerName === 'localidades' && targetFeatures.length === 1) {
+                        const name = targetFeatures[0].properties.NOMGEO || targetFeatures[0].properties.NOM_LOC || 'Sin nombre';
+                        displayName = `${name} (${featureId})`;
+                    }
                     if (targetFeatures.length === 1) {
-                        showAlert(`📍 Navegando a: ${featureId}`, 'info', 2000);
+                        showAlert(`📍 Navegando a: ${displayName}`, 'info', 2000);
                     } else {
-                        showAlert(`📍 Navegando a ${targetFeatures.length} puntos de: ${featureId}`, 'info', 2000);
+                        showAlert(`📍 Navegando a ${targetFeatures.length} puntos de: ${displayName}`, 'info', 2000);
                     }
                 }, 500);
 
@@ -1076,7 +1081,7 @@ function initApp() {
                     // Ordenar alfabéticamente
                     const sortedLenguas = Array.from(lenguasCount.entries()).sort((a, b) => a[0].localeCompare(b[0]));
 
-                    header.innerHTML = `${title} <span class="badge bg-secondary">${sortedLenguas.length} únicas</span>`;
+                    header.innerHTML = `${title} <span class="badge bg-secondary">${formatNumber(sortedLenguas.length)} únicas</span>`;
 
                     sortedLenguas.forEach(([lengua, count]) => {
                         const li = document.createElement('li');
@@ -1109,17 +1114,24 @@ function initApp() {
                     });
                 } else {
                     // Para otras capas, mostrar todos los elementos
-                    header.innerHTML = `${title} <span class="badge bg-secondary">${features.length}</span>`;
+                    header.innerHTML = `${title} <span class="badge bg-secondary">${formatNumber(features.length)}</span>`;
 
                     features.forEach((f, index) => {
                         if (f.properties[propertyName]) {
                             const li = document.createElement('li');
-                            li.innerHTML = `<span class="color-dot" style="background:${color}"></span>${f.properties[propertyName]}`;
+                            // For localities, show name and key instead of just key
+                            let displayText = f.properties[propertyName];
+                            if (layerName === 'localidades') {
+                                const name = f.properties.NOMGEO || f.properties.NOM_LOC || 'Sin nombre';
+                                const key = f.properties.CVEGEO;
+                                displayText = `${name} (${key})`;
+                            }
+                            li.innerHTML = `<span class="color-dot" style="background:${color}"></span>${displayText}`;
                             li.dataset.featureId = f.properties[propertyName];
                             li.dataset.layerName = layerName;
                             li.setAttribute('role', 'button');
                             li.setAttribute('tabindex', '0');
-                            li.setAttribute('aria-label', `${f.properties[propertyName]} - Clic para navegar`);
+                            li.setAttribute('aria-label', `${displayText} - Clic para navegar`);
 
                             // Agregar evento de navegación
                             li.addEventListener('click', () => {
@@ -1468,10 +1480,15 @@ function initApp() {
 
             fields.forEach(field => {
                 if (field.value && field.value !== 'N/A' && field.value !== '' && field.value !== null && field.value !== undefined) {
+                    let displayValue = field.value;
+                    // Apply thousands separator to population numbers
+                    if (field.label && (field.label.includes('Población') || field.label.includes('POBTOTAL')) && !isNaN(field.value)) {
+                        displayValue = formatNumber(field.value);
+                    }
                     if (field.isMain) {
-                        content += `<strong>${field.value}</strong><br>`;
+                        content += `<strong>${displayValue}</strong><br>`;
                     } else {
-                        content += `<small><strong>${field.label}:</strong> ${field.value}</small><br>`;
+                        content += `<small><strong>${field.label}:</strong> ${displayValue}</small><br>`;
                     }
                 }
             });
@@ -1562,10 +1579,11 @@ function initApp() {
                 const kmlPolygon = kmlGeoJson.features.find(f => f.geometry.type.includes('Polygon'));
                 let clipArea = kmlPolygon;
 
-                // Crear buffer para área núcleo si es necesario
+                // Crear buffer según el tipo de área seleccionado
                 if (areaTypeSelect.value === 'nucleo') {
+                    // Área núcleo: buffer de 500m alrededor del polígono
                     try {
-                        updateProgress(15, 'Generando buffer de 500m…');
+                        updateProgress(15, 'Generando buffer de 500m para área núcleo…');
                         clipArea = turf.buffer(kmlPolygon, 0.5, { units: 'kilometers' });
 
                         if (bufferLayer) map.removeLayer(bufferLayer);
@@ -1580,6 +1598,15 @@ function initApp() {
                         hidePreloader();
                         return;
                     }
+                } else if (areaTypeSelect.value === 'exacta') {
+                    // Área exacta: usar el polígono original sin buffer
+                    updateProgress(15, 'Usando área exacta del polígono…');
+                    clipArea = kmlPolygon;
+                } else {
+                    // Área de influencia directa/indirecta: por ahora usar polígono original
+                    // (puede implementarse lógica específica en el futuro)
+                    updateProgress(15, `Procesando área de influencia ${areaTypeSelect.value === 'directa' ? 'directa' : 'indirecta'}…`);
+                    clipArea = kmlPolygon;
                 }
 
                 // Remover capas anteriores
