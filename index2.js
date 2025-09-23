@@ -17,6 +17,22 @@ let bufferLayer = null; // Capa del buffer de 500m para área núcleo
 let kmlGeoJson = null; // Datos del KML convertidos a GeoJSON
 let lastAreaBounds = null; // Para poder volver a centrar en el área analizada
 
+// Métricas del KML para reportes
+let kmlMetrics = {
+    area: 0, // en km²
+    perimeter: 0, // en km
+    geometryType: 'N/A',
+    bufferUsed: false,
+    bufferRadius: 0,
+    localityDensity: 0, // localidades por km²
+    populationDensity: 0, // población por km²
+    totalPopulation: 0, // población total intersectada
+    intersectsANP: false,
+    intersectsRamsar: false,
+    intersectsZHistoricas: false,
+    intersectsZA: false
+};
+
 // ============================================================================
 // UTILIDADES Y VARIABLES DE DATOS
 // ============================================================================
@@ -25,6 +41,31 @@ let lastAreaBounds = null; // Para poder volver a centrar en el área analizada
 function formatNumber(n) {
     if (n == null || isNaN(n)) return '0';
     try { return n.toLocaleString('es-MX'); } catch (_) { return String(n); }
+}
+
+// Función para corregir problemas de encoding (mojibake) comunes en español
+function fixMojibake(text) {
+    if (!text || typeof text !== 'string') return text;
+
+    // Mapa de caracteres comunes mal codificados (Windows-1252 interpretado como UTF-8)
+    const fixes = {
+        'Ã¡': 'á', 'Ã©': 'é', 'Ã­': 'í', 'Ã³': 'ó', 'Ãº': 'ú',
+        'Ã±': 'ñ', 'Ã¼': 'ü',
+        'Ã': 'Á', 'Ã‰': 'É', 'Ã': 'Í', 'Ã“': 'Ó', 'Ãš': 'Ú',
+        'Ã‘': 'Ñ', 'Ãœ': 'Ü',
+        'Â¿': '¿', 'Â¡': '¡',
+        'â‚¬': '€', 'â€š': '‚', 'â€ž': '„', 'â€¦': '…', 'â€°': '‰',
+        'â€¹': '‹', 'â€º': '›', 'â€': '†', 'â€': '‡', 'â€': '•',
+        'â€': '–', 'â€”': '—', 'â€': '˜', 'â„¢': '™', 'â€': 'š',
+        'â€': '›', 'â€': 'œ', 'â€': 'ž', 'â€': 'Ÿ'
+    };
+
+    let fixed = text;
+    Object.entries(fixes).forEach(([wrong, right]) => {
+        fixed = fixed.replace(new RegExp(wrong, 'g'), right);
+    });
+
+    return fixed;
 }
 
 // Variables para almacenar los datos originales de cada capa geoespacial
@@ -1514,6 +1555,9 @@ function initApp() {
                         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
                     }
                 },
+                accessibility: {
+                    enabled: false
+                },
                 title: {
                     text: null
                 },
@@ -1618,6 +1662,9 @@ function initApp() {
                     style: {
                         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
                     }
+                },
+                accessibility: {
+                    enabled: false
                 },
                 title: {
                     text: null
@@ -1836,6 +1883,17 @@ function initApp() {
                         return;
                     }
 
+                    // Calcular métricas del KML
+                    kmlMetrics.geometryType = kmlPolygon.geometry.type;
+                    try {
+                        kmlMetrics.area = turf.area(kmlPolygon) / 1000000; // Convertir a km²
+                        kmlMetrics.perimeter = turf.length(kmlPolygon, { units: 'kilometers' });
+                    } catch (error) {
+                        console.warn('Error calculando métricas del KML:', error);
+                        kmlMetrics.area = 0;
+                        kmlMetrics.perimeter = 0;
+                    }
+
                     if (kmlLayer) map.removeLayer(kmlLayer);
 
                     kmlLayer = L.geoJSON(kmlPolygon, {
@@ -2006,6 +2064,10 @@ function initApp() {
                         }).addTo(map);
 
                         lastAreaBounds = L.geoJSON(clipArea).getBounds();
+
+                        // Actualizar métricas del buffer
+                        kmlMetrics.bufferUsed = true;
+                        kmlMetrics.bufferRadius = 0.5;
                     } catch (err) {
                         console.error("Error creando buffer:", err);
                         showAlert("No se pudo crear el buffer de 500m.", 'danger');
@@ -2016,11 +2078,15 @@ function initApp() {
                     // Área exacta: usar el polígono original sin buffer
                     updateProgress(15, 'Usando área exacta del polígono…');
                     clipArea = kmlPolygon;
+                    kmlMetrics.bufferUsed = false;
+                    kmlMetrics.bufferRadius = 0;
                 } else {
                     // Área de influencia directa/indirecta: por ahora usar polígono original
                     // (puede implementarse lógica específica en el futuro)
                     updateProgress(15, `Procesando área de influencia ${areaTypeSelect.value === 'directa' ? 'directa' : 'indirecta'}…`);
                     clipArea = kmlPolygon;
+                    kmlMetrics.bufferUsed = false;
+                    kmlMetrics.bufferRadius = 0;
                 }
 
                 // Remover capas anteriores
@@ -2062,6 +2128,19 @@ function initApp() {
                     overlaysControl.addOverlay(clippedLocalitiesLayer, "Localidades");
                     layersData.localidades = { features: locResult.clipped };
                     console.log('[DEBUG] Localidades clipped properties sample:', locResult.clipped[0]?.properties);
+
+                    // Calcular densidades
+                    const totalLocalities = locResult.clipped.length;
+                    let totalPopulation = 0;
+                    locResult.clipped.forEach(f => {
+                        const pop = f.properties.POBTOT || f.properties.POBTOTAL || 0;
+                        totalPopulation += pop;
+                    });
+
+                    kmlMetrics.localityDensity = kmlMetrics.area > 0 ? totalLocalities / kmlMetrics.area : 0;
+                    kmlMetrics.populationDensity = kmlMetrics.area > 0 ? totalPopulation / kmlMetrics.area : 0;
+                    kmlMetrics.totalPopulation = totalPopulation;
+
                     processedCount++;
                 }
 
@@ -2175,6 +2254,7 @@ function initApp() {
                     clippedZaPublicoLayer = zaPublicoResult.layer.addTo(map);
                     overlaysControl.addOverlay(clippedZaPublicoLayer, "Zonas Arqueológicas (Puntos)");
                     layersData.za_publico = { features: zaPublicoResult.clipped };
+                    if (zaPublicoResult.clipped.length > 0) kmlMetrics.intersectsZA = true;
                     processedCount++;
                 } else {
                     clippedZaPublicoLayer = L.layerGroup().addTo(map);
@@ -2194,6 +2274,7 @@ function initApp() {
                     clippedZaPublicoALayer = zaPublicoAResult.layer.addTo(map);
                     overlaysControl.addOverlay(clippedZaPublicoALayer, "Zonas Arqueológicas (Áreas)");
                     layersData.za_publico_a = { features: zaPublicoAResult.clipped };
+                    if (zaPublicoAResult.clipped.length > 0) kmlMetrics.intersectsZA = true;
                     processedCount++;
                 } else {
                     clippedZaPublicoALayer = L.layerGroup().addTo(map);
@@ -2214,6 +2295,7 @@ function initApp() {
                     clippedAnpEstatalLayer = anpEstatalResult.layer.addTo(map);
                     overlaysControl.addOverlay(clippedAnpEstatalLayer, "ANP Estatales");
                     layersData.anp_estatal = { features: anpEstatalResult.clipped };
+                    if (anpEstatalResult.clipped.length > 0) kmlMetrics.intersectsANP = true;
                     processedCount++;
                 } else {
                     clippedAnpEstatalLayer = L.layerGroup().addTo(map);
@@ -2234,6 +2316,7 @@ function initApp() {
                     clippedRamsarLayer = ramsarResult.layer.addTo(map);
                     overlaysControl.addOverlay(clippedRamsarLayer, "Ramsar");
                     layersData.ramsar = { features: ramsarResult.clipped };
+                    if (ramsarResult.clipped.length > 0) kmlMetrics.intersectsRamsar = true;
                     processedCount++;
                 } else {
                     console.log('[DEBUG] Ramsar data not available or empty');
@@ -2278,6 +2361,7 @@ function initApp() {
                     clippedZHistoricosLayer = zHistoricosResult.layer.addTo(map);
                     overlaysControl.addOverlay(clippedZHistoricosLayer, "Zonas Históricas");
                     layersData.z_historicos = { features: zHistoricosResult.clipped };
+                    if (zHistoricosResult.clipped.length > 0) kmlMetrics.intersectsZHistoricas = true;
                     processedCount++;
                 } else {
                     console.log('[DEBUG] Zonas Históricas data not available or empty');
@@ -2380,8 +2464,19 @@ function initApp() {
                 // Agregar resumen de cada capa
                 Object.entries(layersData).forEach(([layerName, data]) => {
                     if (data.features && data.features.length > 0) {
-                        const displayName = getLayerDisplayName(layerName);
-                        summaryData.push([displayName, data.features.length + ' elementos']);
+                        const displayName = fixMojibake(getLayerDisplayName(layerName));
+                        let count = data.features.length;
+                        if (layerName === 'lenguas') {
+                            // Para lenguas, contar únicas
+                            const uniqueLenguas = new Set();
+                            data.features.forEach(f => {
+                                if (f.properties.Lengua || f.properties.LENGUA) {
+                                    uniqueLenguas.add(f.properties.Lengua || f.properties.LENGUA);
+                                }
+                            });
+                            count = uniqueLenguas.size;
+                        }
+                        summaryData.push([displayName, count + ' elementos']);
                     }
                 });
 
@@ -2538,7 +2633,7 @@ function initApp() {
         /**
          * Agrega páginas de análisis detallado por capa al PDF
          */
-        async function addDetailedLayerAnalysis(pdf, layersData, primaryColor, secondaryColor) {
+        async function addDetailedLayerAnalysis(pdf, layersData, primaryColor, secondaryColor, chartImages) {
             const keyLayers = ['lenguas', 'ran', 'ramsar', 'z_historicos', 'sitio_arqueologico'];
 
             for (const layerName of keyLayers) {
@@ -2579,18 +2674,55 @@ function initApp() {
                         }
 
                     } else if (layerName === 'ran') {
-                        // Análisis de RAN
-                        pdf.text('Núcleos Agrarios Nacionales (RAN):', 20, 50);
-                        let yPos = 65;
-                        layersData.ran.features.slice(0, 20).forEach((f, index) => {
-                            const nombre = f.properties.MUNICIPIO || f.properties.Clv_Unica || `RAN ${index + 1}`;
-                            pdf.text(`• ${nombre}`, 25, yPos);
-                            yPos += 8;
+                        // Análisis de RAN - agrupar por nombre único y mostrar conteos
+                        const ranCount = new Map();
+                        const ranKeys = new Map(); // Para almacenar claves únicas por RAN
+
+                        layersData.ran.features.forEach(f => {
+                            const nombre = f.properties.MUNICIPIO || f.properties.Clv_Unica || 'Sin nombre';
+                            const clave = f.properties.Clv_Unica || 'Sin clave';
+
+                            if (!ranCount.has(nombre)) {
+                                ranCount.set(nombre, 0);
+                                ranKeys.set(nombre, new Set());
+                            }
+                            ranCount.set(nombre, ranCount.get(nombre) + 1);
+                            ranKeys.get(nombre).add(clave);
                         });
 
-                        if (layersData.ran.features.length > 20) {
-                            pdf.text(`... y ${layersData.ran.features.length - 20} más`, 25, yPos);
+                        pdf.text('Núcleos Agrarios Nacionales (RAN) - Elementos únicos:', 20, 50);
+                        let yPos = 65;
+                        const sortedRan = Array.from(ranCount.entries()).sort((a, b) => b[1] - a[1]);
+
+                        // Mostrar tabla de RAN únicos
+                        pdf.setFontSize(10);
+                        pdf.text('RAN', 25, yPos);
+                        pdf.text('Conteo', 120, yPos);
+                        pdf.text('Claves', 150, yPos);
+                        yPos += 5;
+                        pdf.line(25, yPos, 185, yPos); // Línea separadora
+                        yPos += 5;
+
+                        sortedRan.slice(0, 12).forEach(([ran, count]) => {
+                            const keys = Array.from(ranKeys.get(ran)).join(', ');
+                            const truncatedKeys = keys.length > 25 ? keys.substring(0, 22) + '...' : keys;
+
+                            pdf.text(ran.length > 20 ? ran.substring(0, 17) + '...' : ran, 25, yPos);
+                            pdf.text(count.toString(), 125, yPos);
+                            pdf.text(truncatedKeys, 150, yPos);
+                            yPos += 6;
+                        });
+
+                        pdf.setFontSize(12);
+                        if (sortedRan.length > 12) {
+                            pdf.text(`... y ${sortedRan.length - 12} RAN únicos más`, 25, yPos);
                         }
+
+                        // Nota sobre total de elementos
+                        yPos += 10;
+                        pdf.setFontSize(10);
+                        pdf.text(`* Total de elementos RAN analizados: ${layersData.ran.features.length}`, 25, yPos);
+                        pdf.text(`* Elementos únicos por nombre: ${sortedRan.length}`, 25, yPos + 6);
 
                     } else if (layerName === 'ramsar') {
                         // Análisis de Ramsar
@@ -2661,11 +2793,82 @@ function initApp() {
                 const primaryColor = [124, 25, 70]; // RGB para #7C1946
                 const secondaryColor = [25, 126, 116]; // RGB para #197E74
 
+                // Inicializar contenedor de imágenes de gráficos
+                let chartImages = {};
+
+                updateProgress(5, 'Generando gráficos...');
+
+                // Asegurar que los gráficos estén generados antes de capturar
+                generateCharts(layersData);
+                await new Promise(resolve => setTimeout(resolve, 2000)); // Esperar renderizado
+
                 updateProgress(10, 'Generando portada...');
+
+                // Calcular páginas del índice
+                const tocPages = [
+                    { title: 'Portada', page: 1 },
+                    { title: 'Índice', page: 2 },
+                    { title: 'Resumen Ejecutivo', page: 3 }
+                ];
+
+                let currentPage = 4; // Después de portada, índice y resumen
+
+                if (layersData.localidades && layersData.localidades.features && layersData.localidades.features.length > 0) {
+                    tocPages.push({ title: 'Análisis de Localidades', page: currentPage++ });
+                }
+
+                // Agregar página para cada capa
+                const allLayers = [
+                    'localidades', 'atlas', 'municipios', 'regiones', 'ran',
+                    'lenguas', 'za_publico', 'za_publico_a', 'anp_estatal',
+                    'ramsar', 'sitio_arqueologico', 'z_historicos', 'loc_indigenas_datos', 'rutaWixarika'
+                ];
+
+                const layerTitles = {
+                    localidades: 'Localidades',
+                    atlas: 'Atlas Pueblos Indígenas',
+                    municipios: 'Municipios',
+                    regiones: 'Regiones Indígenas',
+                    ran: 'RAN',
+                    lenguas: 'Lenguas Indígenas',
+                    za_publico: 'Zonas Arqueológicas (Puntos)',
+                    za_publico_a: 'Zonas Arqueológicas (Áreas)',
+                    anp_estatal: 'ANP Estatales',
+                    ramsar: 'Ramsar',
+                    sitio_arqueologico: 'Sitios Arqueológicos',
+                    z_historicos: 'Zonas Históricas',
+                    loc_indigenas_datos: 'Loc Indígenas Datos',
+                    rutaWixarika: 'Ruta Wixarika'
+                };
+
+                allLayers.forEach(layerName => {
+                    tocPages.push({ title: layerTitles[layerName], page: currentPage++ });
+                });
+
+                // Agregar páginas de análisis detallado adicionales si existen
+                const keyLayers = ['lenguas', 'ran', 'ramsar', 'z_historicos', 'sitio_arqueologico'];
+                keyLayers.forEach(layerName => {
+                    if (layersData[layerName] && layersData[layerName].features && layersData[layerName].features.length > 0) {
+                        const displayName = getLayerDisplayName(layerName);
+                        tocPages.push({ title: `Análisis: ${displayName}`, page: currentPage++ });
+                    }
+                });
+
+                tocPages.push({ title: 'Vista del Mapa', page: currentPage });
 
                 // Página 1: Portada
                 pdf.setFillColor(...primaryColor);
                 pdf.rect(0, 0, 210, 297, 'F');
+
+                // Logos institucionales
+                try {
+                    // Logo Gobierno de México (tamaño reducido)
+                    pdf.addImage('img/logo_gob.png', 'PNG', 20, 20, 30, 23);
+                    // Logo SENER (tamaño reducido)
+                    pdf.addImage('img/logo_sener.png', 'PNG', 160, 20, 30, 23);
+                } catch (logoError) {
+                    console.warn('Error cargando logos:', logoError);
+                }
 
                 // Logo y título
                 pdf.setTextColor(255, 255, 255);
@@ -2689,6 +2892,38 @@ function initApp() {
                 pdf.text(`Archivo KML: ${kmlFileInput?.files[0]?.name || 'No especificado'}`, 105, 145, { align: 'center' });
                 pdf.text(`Tipo de área: ${areaTypeSelect.options[areaTypeSelect.selectedIndex].text}`, 105, 160, { align: 'center' });
 
+                // Mostrar métricas del KML
+                pdf.setFontSize(10);
+                pdf.text(`Área KML: ${formatNumber(kmlMetrics.area)} km²`, 105, 175, { align: 'center' });
+                pdf.text(`Perímetro: ${formatNumber(kmlMetrics.perimeter)} km`, 105, 182, { align: 'center' });
+                pdf.text(`Geometría: ${kmlMetrics.geometryType}`, 105, 189, { align: 'center' });
+                if (kmlMetrics.bufferUsed) {
+                    pdf.text(`Buffer: ${kmlMetrics.bufferRadius} km añadido`, 105, 196, { align: 'center' });
+                }
+                pdf.setFontSize(12);
+
+                // Página 2: Índice
+                pdf.addPage();
+                pdf.setFillColor(255, 255, 255);
+                pdf.rect(0, 0, 210, 297, 'F');
+
+                pdf.setTextColor(...primaryColor);
+                pdf.setFontSize(18);
+                pdf.text('Índice', 20, 30);
+
+                pdf.setTextColor(0, 0, 0);
+                pdf.setFontSize(12);
+                pdf.text('Contenido del Reporte:', 20, 50);
+
+                pdf.setFontSize(11);
+                let tocY = 70;
+                tocPages.forEach(item => {
+                    // Justificación: título a la izquierda, número de página a la derecha
+                    pdf.text(item.title, 25, tocY);
+                    pdf.text(item.page.toString(), 180, tocY);
+                    tocY += 8;
+                });
+
                 updateProgress(20, 'Generando resumen ejecutivo...');
 
                 // Página 2: Resumen Ejecutivo
@@ -2704,19 +2939,83 @@ function initApp() {
                 pdf.setFontSize(12);
                 pdf.text(`Total de elementos encontrados: ${formatNumber(totalElements)}`, 20, 50);
 
-                // Resumen por capas
-                pdf.text('Distribución por capas:', 20, 70);
-                let yPos = 85;
-                Object.entries(layersData).forEach(([layerName, data]) => {
-                    if (data.features && data.features.length > 0) {
-                        const displayName = getLayerDisplayName(layerName);
-                        const count = layerName === 'lenguas' ?
-                            new Set(data.features.map(f => f.properties.Lengua || f.properties.LENGUA)).size :
-                            data.features.length;
-                        pdf.text(`${displayName}: ${formatNumber(count)} elementos`, 25, yPos);
-                        yPos += 8;
+                // KPIs principales
+                pdf.setFontSize(11);
+                pdf.text(`Área del KML: ${formatNumber(kmlMetrics.area)} km²`, 20, 65);
+                pdf.text(`Densidad de localidades: ${formatNumber(kmlMetrics.localityDensity)} loc/km²`, 20, 75);
+                pdf.text(`Población total intersectada: ${formatNumber(kmlMetrics.totalPopulation)} hab.`, 20, 85);
+                pdf.text(`Densidad poblacional: ${formatNumber(kmlMetrics.populationDensity)} hab/km²`, 20, 95);
+
+                // Semáforo de intersecciones clave
+                pdf.text('Intersecciones clave:', 20, 110);
+                pdf.setFontSize(10);
+                const semaforoY = 120;
+                pdf.text('ANP:', 25, semaforoY);
+                pdf.text(kmlMetrics.intersectsANP ? 'Sí' : 'No', 45, semaforoY);
+                pdf.text('Ramsar:', 65, semaforoY);
+                pdf.text(kmlMetrics.intersectsRamsar ? 'Sí' : 'No', 90, semaforoY);
+                pdf.text('Zonas Históricas:', 110, semaforoY);
+                pdf.text(kmlMetrics.intersectsZHistoricas ? 'Sí' : 'No', 150, semaforoY);
+                pdf.text('Zonas Arqueológicas:', 25, semaforoY + 6);
+                pdf.text(kmlMetrics.intersectsZA ? 'Sí' : 'No', 70, semaforoY + 6);
+                pdf.setFontSize(12);
+
+                // Incluir gráfico de distribución de capas si está disponible
+                if (chartImages.layerChart) {
+                    // Dimensiones para mantener proporción (capturado a scale 2, reducimos a tamaño PDF)
+                    const chartWidth = 160;
+                    const chartHeight = 75;
+                    const chartX = (210 - chartWidth) / 2; // Centrado
+                    pdf.addImage(chartImages.layerChart, 'PNG', chartX, 60, chartWidth, chartHeight);
+                    pdf.text('Distribución de Elementos por Capa:', 20, 150);
+                } else {
+                    // Resumen por capas como texto
+                    pdf.text('Distribución por capas:', 20, 70);
+                    let yPos = 85;
+                    Object.entries(layersData).forEach(([layerName, data]) => {
+                        if (data.features && data.features.length > 0) {
+                            const displayName = getLayerDisplayName(layerName);
+                            const count = layerName === 'lenguas' ?
+                                new Set(data.features.map(f => f.properties.Lengua || f.properties.LENGUA)).size :
+                                data.features.length;
+                            pdf.text(`${displayName}: ${formatNumber(count)} elementos`, 25, yPos);
+                            yPos += 8;
+                        }
+                    });
+                }
+
+                updateProgress(25, 'Capturando gráficos...');
+
+                // Capturar gráficos inmediatamente después de generarlos
+                const chartContainers = ['layerChart', 'populationChart'];
+
+                for (const containerId of chartContainers) {
+                    const container = document.getElementById(containerId);
+                    if (container && container.offsetHeight > 0 && container.querySelector('svg')) {
+                        try {
+                            console.log(`Capturando gráfico ${containerId}...`);
+                            const canvas = await html2canvas(container, {
+                                useCORS: true,
+                                allowTaint: false,
+                                scale: 2, // Mayor resolución para mejor calidad
+                                backgroundColor: '#ffffff',
+                                logging: false,
+                                width: container.offsetWidth,
+                                height: container.offsetHeight
+                            });
+                            chartImages[containerId] = canvas.toDataURL('image/png');
+                            console.log(`Gráfico ${containerId} capturado exitosamente`);
+                        } catch (error) {
+                            console.warn(`Error capturando gráfico ${containerId}:`, error);
+                        }
+                    } else {
+                        console.warn(`Contenedor ${containerId} no listo para captura:`, {
+                            exists: !!container,
+                            height: container?.offsetHeight,
+                            hasSvg: !!container?.querySelector('svg')
+                        });
                     }
-                });
+                }
 
                 updateProgress(30, 'Generando análisis de localidades...');
 
@@ -2738,21 +3037,140 @@ function initApp() {
 
                     pdf.setTextColor(0, 0, 0);
                     pdf.setFontSize(12);
-                    pdf.text('Top 10 Localidades por Población Total:', 20, 50);
 
-                    yPos = 65;
-                    localidadesData.forEach((loc, index) => {
-                        const nombre = loc.properties.NOMGEO || loc.properties.NOM_LOC || 'Sin nombre';
-                        const poblacion = formatNumber(loc.properties.POBTOT || 0);
-                        pdf.text(`${index + 1}. ${nombre}: ${poblacion} habitantes`, 25, yPos);
-                        yPos += 8;
-                    });
+                    // Incluir gráfico de población si está disponible
+                    if (chartImages.populationChart) {
+                        // Dimensiones para mantener proporción (ancho:alto ≈ 2.125:1)
+                        const chartWidth = 160;
+                        const chartHeight = 75;
+                        const chartX = (210 - chartWidth) / 2; // Centrado
+                        pdf.addImage(chartImages.populationChart, 'PNG', chartX, 50, chartWidth, chartHeight);
+                        pdf.text('Top 10 Localidades por Población Total:', 20, 140);
+
+                        let yPos = 155;
+                        localidadesData.slice(0, 5).forEach((loc, index) => {
+                            const nombre = loc.properties.NOMGEO || loc.properties.NOM_LOC || 'Sin nombre';
+                            const poblacion = formatNumber(loc.properties.POBTOT || 0);
+                            pdf.text(`${index + 1}. ${nombre}: ${poblacion} hab.`, 25, yPos);
+                            yPos += 8;
+                        });
+                    } else {
+                        pdf.text('Top 10 Localidades por Población Total:', 20, 50);
+
+                        let yPos = 65;
+                        localidadesData.forEach((loc, index) => {
+                            const nombre = loc.properties.NOMGEO || loc.properties.NOM_LOC || 'Sin nombre';
+                            const poblacion = formatNumber(loc.properties.POBTOT || 0);
+                            pdf.text(`${index + 1}. ${nombre}: ${poblacion} habitantes`, 25, yPos);
+                            yPos += 8;
+                        });
+                    }
                 }
 
-                updateProgress(40, 'Generando análisis detallado...');
+                updateProgress(50, 'Generando páginas por capa...');
 
-                // Agregar páginas de análisis detallado para capas clave
-                await addDetailedLayerAnalysis(pdf, layersData, primaryColor, secondaryColor);
+                // Usar las variables ya definidas arriba para el índice
+
+                for (const layerName of allLayers) {
+                    if (layersData[layerName] && layersData[layerName].features && layersData[layerName].features.length > 0) {
+                        pdf.addPage();
+                        pdf.setFillColor(255, 255, 255);
+                        pdf.rect(0, 0, 210, 297, 'F');
+
+                        pdf.setTextColor(...primaryColor);
+                        pdf.setFontSize(16);
+                        pdf.text(layerTitles[layerName], 20, 30);
+
+                        pdf.setTextColor(0, 0, 0);
+                        pdf.setFontSize(12);
+
+                        const features = layersData[layerName].features;
+                        const count = layerName === 'lenguas' ?
+                            new Set(features.map(f => f.properties.Lengua || f.properties.LENGUA)).size :
+                            features.length;
+
+                        pdf.text(`Total de elementos: ${formatNumber(count)}`, 20, 50);
+
+                        // Mostrar Top 10 elementos y nota para ver Excel completo
+                        let yPos = 70;
+                        const maxItems = 10;
+                        const displayFeatures = features.slice(0, maxItems);
+
+                        if (displayFeatures.length > 0) {
+                            pdf.text(`Top ${maxItems} elementos:`, 20, yPos - 5);
+                            yPos += 5;
+
+                            displayFeatures.forEach((feature, index) => {
+                                const props = feature.properties;
+                                let displayText = '';
+
+                                // Obtener texto de display según la capa
+                                switch (layerName) {
+                                    case 'localidades':
+                                        displayText = fixMojibake(props.NOMGEO || props.NOM_LOC || 'Sin nombre');
+                                        break;
+                                    case 'atlas':
+                                        displayText = fixMojibake(props.Localidad || 'Sin localidad');
+                                        break;
+                                    case 'municipios':
+                                        displayText = fixMojibake(props.NOMGEO || props.NOM_MUN || 'Sin municipio');
+                                        break;
+                                    case 'ran':
+                                        displayText = fixMojibake(props.MUNICIPIO || 'Sin municipio');
+                                        break;
+                                    case 'lenguas':
+                                        displayText = fixMojibake(props.Lengua || props.LENGUA || 'Sin lengua');
+                                        break;
+                                    case 'loc_indigenas_datos':
+                                        displayText = fixMojibake(props.LOCALIDAD || 'Sin localidad');
+                                        break;
+                                    default:
+                                        const propertyMap = {
+                                            regiones: 'Name',
+                                            za_publico: 'Zona Arqueológica',
+                                            za_publico_a: 'Zona Arqueológica',
+                                            anp_estatal: 'NOMBRE',
+                                            ramsar: 'RAMSAR',
+                                            sitio_arqueologico: 'nombre',
+                                            z_historicos: 'Nombre',
+                                            rutaWixarika: 'Name'
+                                        };
+                                        displayText = fixMojibake(props[propertyMap[layerName]] || 'Sin nombre');
+                                }
+
+                                pdf.text(`${index + 1}. ${displayText}`, 25, yPos);
+                                yPos += 8;
+                            });
+
+                            if (features.length > maxItems) {
+                                yPos += 5;
+                                pdf.setFontSize(9);
+                                pdf.text(`Nota: ${formatNumber(features.length - maxItems)} elementos adicionales.`, 25, yPos);
+                                pdf.text('Ver listado completo en el reporte Excel descargable.', 25, yPos + 6);
+                                pdf.setFontSize(12);
+                            }
+                        }
+
+                    } else {
+                        // Página con "Sin dato" para capas sin información
+                        pdf.addPage();
+                        pdf.setFillColor(247, 244, 242);
+                        pdf.rect(0, 0, 210, 297, 'F');
+
+                        pdf.setTextColor(...primaryColor);
+                        pdf.setFontSize(16);
+                        pdf.text(layerTitles[layerName], 20, 30);
+
+                        pdf.setTextColor(100, 100, 100);
+                        pdf.setFontSize(14);
+                        pdf.text('Sin dato disponible', 105, 120, { align: 'center' });
+                    }
+                }
+
+                updateProgress(70, 'Generando análisis detallado...');
+
+                // Agregar páginas de análisis detallado para capas clave (si se requieren adicionales)
+                await addDetailedLayerAnalysis(pdf, layersData, primaryColor, secondaryColor, chartImages);
 
                 updateProgress(60, 'Capturando vista del mapa...');
 
@@ -2765,11 +3183,18 @@ function initApp() {
                 pdf.setFontSize(18);
                 pdf.text('Vista del Mapa', 20, 30);
 
-                // Preparar mapa para captura: centrar en área KML
-                if (lastAreaBounds && lastAreaBounds.isValid()) {
+                // Preparar mapa para captura: SIEMPRE centrar en área KML original
+                if (kmlGeoJson && kmlGeoJson.features) {
+                    const kmlBounds = L.geoJSON(kmlGeoJson).getBounds();
+                    if (kmlBounds && kmlBounds.isValid()) {
+                        map.fitBounds(kmlBounds, { padding: [24, 24], maxZoom: 15, animate: false });
+                        // Esperar a que el mapa se renderice completamente
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                    }
+                } else if (lastAreaBounds && lastAreaBounds.isValid()) {
+                    // Fallback a lastAreaBounds si no hay kmlGeoJson
                     map.fitBounds(lastAreaBounds, { padding: [24, 24], maxZoom: 15, animate: false });
-                    // Esperar a que el mapa se renderice
-                    await new Promise(resolve => setTimeout(resolve, 500));
+                    await new Promise(resolve => setTimeout(resolve, 1000));
                 }
 
                 // Capturar screenshot del mapa con timeout
