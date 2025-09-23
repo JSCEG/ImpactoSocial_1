@@ -1423,11 +1423,282 @@ function initApp() {
                 layersContainer.innerHTML = '<p class="mb-0 text-muted">No se encontraron elementos en ninguna capa.</p>';
             }
 
-            // Habilitar/deshabilitar botón de descarga
+            // Habilitar/deshabilitar botones de descarga
             const downloadReportBtn = document.getElementById('downloadReportBtn');
+            const downloadPdfBtn = document.getElementById('downloadPdfBtn');
             if (downloadReportBtn) {
                 downloadReportBtn.disabled = totalElements === 0;
             }
+            if (downloadPdfBtn) {
+                downloadPdfBtn.disabled = totalElements === 0;
+            }
+
+            // Mostrar/ocultar contenedor de gráficos
+            const chartsContainer = document.getElementById('chartsContainer');
+            if (chartsContainer) {
+                if (totalElements > 0) {
+                    chartsContainer.style.display = 'block';
+                    generateCharts(layersData);
+                } else {
+                    chartsContainer.style.display = 'none';
+                }
+            }
+        }
+
+        /**
+         * Genera gráficos con análisis de datos
+         */
+        function generateCharts(layersData) {
+            generateLayerChart(layersData);
+            generatePopulationChart(layersData);
+        }
+
+        /**
+         * Genera gráfico de barras con la distribución de elementos por capa
+         */
+        function generateLayerChart(layersData) {
+            const chartData = [];
+            const layerColors = {
+                localidades: '#008000',
+                atlas: '#ff00ff',
+                municipios: '#0000ff',
+                regiones: '#ffa500',
+                ran: '#ff0000',
+                lenguas: '#00ffff',
+                za_publico: '#800080',
+                za_publico_a: '#800000',
+                anp_estatal: '#008080',
+                ramsar: '#808000',
+                sitio_arqueologico: '#808080',
+                z_historicos: '#400080',
+                loc_indigenas_datos: '#8000ff',
+                rutaWixarika: '#ff8000'
+            };
+
+            const layerNames = {
+                localidades: 'Localidades',
+                atlas: 'Atlas Pueblos Indígenas',
+                municipios: 'Municipios',
+                regiones: 'Regiones Indígenas',
+                ran: 'RAN',
+                lenguas: 'Lenguas Indígenas',
+                za_publico: 'ZA Público',
+                za_publico_a: 'ZA Público A',
+                anp_estatal: 'ANP Estatales',
+                ramsar: 'Ramsar',
+                sitio_arqueologico: 'Sitios Arqueológicos',
+                z_historicos: 'Zonas Históricas',
+                loc_indigenas_datos: 'Loc Indígenas Datos',
+                rutaWixarika: 'Ruta Wixarika'
+            };
+
+            Object.entries(layersData).forEach(([layerName, data]) => {
+                if (data.features && data.features.length > 0) {
+                    const count = layerName === 'lenguas' ?
+                        new Set(data.features.map(f => f.properties.Lengua || f.properties.LENGUA)).size :
+                        data.features.length;
+
+                    chartData.push({
+                        name: layerNames[layerName] || layerName,
+                        y: count,
+                        color: layerColors[layerName] || '#666666'
+                    });
+                }
+            });
+
+            Highcharts.chart('layerChart', {
+                chart: {
+                    type: 'bar',
+                    backgroundColor: 'transparent',
+                    style: {
+                        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+                    }
+                },
+                title: {
+                    text: null
+                },
+                xAxis: {
+                    categories: chartData.map(item => item.name),
+                    labels: {
+                        style: {
+                            color: '#333',
+                            fontSize: '11px'
+                        }
+                    }
+                },
+                yAxis: {
+                    title: {
+                        text: 'Número de Elementos',
+                        style: {
+                            color: '#7C1946',
+                            fontWeight: 'bold'
+                        }
+                    },
+                    labels: {
+                        style: {
+                            color: '#666'
+                        }
+                    }
+                },
+                legend: {
+                    enabled: false
+                },
+                tooltip: {
+                    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                    borderColor: '#7C1946',
+                    borderRadius: 8,
+                    shadow: true,
+                    style: {
+                        color: '#333'
+                    },
+                    formatter: function () {
+                        return `<b>${this.x}</b><br/>Elementos: <b>${this.y.toLocaleString('es-MX')}</b>`;
+                    }
+                },
+                plotOptions: {
+                    bar: {
+                        dataLabels: {
+                            enabled: true,
+                            color: '#333',
+                            style: {
+                                fontSize: '11px',
+                                fontWeight: 'bold'
+                            },
+                            formatter: function () {
+                                return this.y.toLocaleString('es-MX');
+                            }
+                        }
+                    }
+                },
+                series: [{
+                    name: 'Elementos',
+                    data: chartData,
+                    colorByPoint: true
+                }],
+                credits: {
+                    enabled: false
+                },
+                exporting: {
+                    enabled: true,
+                    buttons: {
+                        contextButton: {
+                            menuItems: ['viewFullscreen', 'printChart', 'downloadPNG', 'downloadJPEG', 'downloadPDF', 'downloadSVG']
+                        }
+                    }
+                }
+            });
+        }
+
+        /**
+         * Genera gráfico de barras con top 10 localidades por población
+         */
+        function generatePopulationChart(layersData) {
+            if (!layersData.localidades || !layersData.localidades.features) {
+                return;
+            }
+
+            const populationData = layersData.localidades.features
+                .filter(f => f.properties.POBTOT && f.properties.POBTOT > 0)
+                .sort((a, b) => (b.properties.POBTOT || 0) - (a.properties.POBTOT || 0))
+                .slice(0, 10)
+                .map(f => ({
+                    name: f.properties.NOMGEO || f.properties.NOM_LOC || 'Sin nombre',
+                    y: f.properties.POBTOT,
+                    color: '#7C1946'
+                }));
+
+            if (populationData.length === 0) {
+                return;
+            }
+
+            Highcharts.chart('populationChart', {
+                chart: {
+                    type: 'column',
+                    backgroundColor: 'transparent',
+                    style: {
+                        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+                    }
+                },
+                title: {
+                    text: null
+                },
+                xAxis: {
+                    categories: populationData.map(item => item.name.length > 15 ?
+                        item.name.substring(0, 15) + '...' : item.name),
+                    labels: {
+                        rotation: -45,
+                        style: {
+                            color: '#333',
+                            fontSize: '10px'
+                        }
+                    }
+                },
+                yAxis: {
+                    title: {
+                        text: 'Población Total',
+                        style: {
+                            color: '#7C1946',
+                            fontWeight: 'bold'
+                        }
+                    },
+                    labels: {
+                        style: {
+                            color: '#666'
+                        },
+                        formatter: function () {
+                            return (this.value / 1000).toFixed(0) + 'k';
+                        }
+                    }
+                },
+                legend: {
+                    enabled: false
+                },
+                tooltip: {
+                    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                    borderColor: '#7C1946',
+                    borderRadius: 8,
+                    shadow: true,
+                    style: {
+                        color: '#333'
+                    },
+                    formatter: function () {
+                        return `<b>${this.x}</b><br/>Población: <b>${this.y.toLocaleString('es-MX')}</b>`;
+                    }
+                },
+                plotOptions: {
+                    column: {
+                        dataLabels: {
+                            enabled: true,
+                            color: '#333',
+                            style: {
+                                fontSize: '9px',
+                                fontWeight: 'bold'
+                            },
+                            formatter: function () {
+                                return (this.y / 1000).toFixed(0) + 'k';
+                            },
+                            rotation: -90,
+                            y: -20
+                        }
+                    }
+                },
+                series: [{
+                    name: 'Población',
+                    data: populationData,
+                    color: '#7C1946'
+                }],
+                credits: {
+                    enabled: false
+                },
+                exporting: {
+                    enabled: true,
+                    buttons: {
+                        contextButton: {
+                            menuItems: ['viewFullscreen', 'printChart', 'downloadPNG', 'downloadJPEG', 'downloadPDF', 'downloadSVG']
+                        }
+                    }
+                }
+            });
         }
 
         /**
@@ -1473,10 +1744,20 @@ function initApp() {
             }
             overlaysControl = L.control.layers(null, null, { collapsed: false }).addTo(map);
 
-            // Deshabilitar botón de descarga
+            // Deshabilitar botones de descarga
             const downloadReportBtn = document.getElementById('downloadReportBtn');
+            const downloadPdfBtn = document.getElementById('downloadPdfBtn');
             if (downloadReportBtn) {
                 downloadReportBtn.disabled = true;
+            }
+            if (downloadPdfBtn) {
+                downloadPdfBtn.disabled = true;
+            }
+
+            // Ocultar gráficos
+            const chartsContainer = document.getElementById('chartsContainer');
+            if (chartsContainer) {
+                chartsContainer.style.display = 'none';
             }
         }
 
@@ -2254,6 +2535,339 @@ function initApp() {
             }
         }
 
+        /**
+         * Agrega páginas de análisis detallado por capa al PDF
+         */
+        async function addDetailedLayerAnalysis(pdf, layersData, primaryColor, secondaryColor) {
+            const keyLayers = ['lenguas', 'ran', 'ramsar', 'z_historicos', 'sitio_arqueologico'];
+
+            for (const layerName of keyLayers) {
+                if (layersData[layerName] && layersData[layerName].features && layersData[layerName].features.length > 0) {
+                    pdf.addPage();
+                    pdf.setFillColor(247, 244, 242);
+                    pdf.rect(0, 0, 210, 297, 'F');
+
+                    const displayName = getLayerDisplayName(layerName);
+                    pdf.setTextColor(...primaryColor);
+                    pdf.setFontSize(16);
+                    pdf.text(`Análisis: ${displayName}`, 20, 30);
+
+                    pdf.setTextColor(0, 0, 0);
+                    pdf.setFontSize(12);
+
+                    if (layerName === 'lenguas') {
+                        // Análisis de lenguas indígenas
+                        const lenguasCount = new Map();
+                        layersData.lenguas.features.forEach(f => {
+                            if (f.properties.Lengua || f.properties.LENGUA) {
+                                const lengua = f.properties.Lengua || f.properties.LENGUA;
+                                lenguasCount.set(lengua, (lenguasCount.get(lengua) || 0) + 1);
+                            }
+                        });
+
+                        pdf.text('Distribución de Lenguas Indígenas:', 20, 50);
+                        let yPos = 65;
+                        const sortedLenguas = Array.from(lenguasCount.entries()).sort((a, b) => b[1] - a[1]);
+
+                        sortedLenguas.slice(0, 15).forEach(([lengua, count]) => {
+                            pdf.text(`${lengua}: ${count} puntos`, 25, yPos);
+                            yPos += 8;
+                        });
+
+                        if (sortedLenguas.length > 15) {
+                            pdf.text(`... y ${sortedLenguas.length - 15} lenguas más`, 25, yPos);
+                        }
+
+                    } else if (layerName === 'ran') {
+                        // Análisis de RAN
+                        pdf.text('Núcleos Agrarios Nacionales (RAN):', 20, 50);
+                        let yPos = 65;
+                        layersData.ran.features.slice(0, 20).forEach((f, index) => {
+                            const nombre = f.properties.MUNICIPIO || f.properties.Clv_Unica || `RAN ${index + 1}`;
+                            pdf.text(`• ${nombre}`, 25, yPos);
+                            yPos += 8;
+                        });
+
+                        if (layersData.ran.features.length > 20) {
+                            pdf.text(`... y ${layersData.ran.features.length - 20} más`, 25, yPos);
+                        }
+
+                    } else if (layerName === 'ramsar') {
+                        // Análisis de Ramsar
+                        pdf.text('Sitios Ramsar:', 20, 50);
+                        let yPos = 65;
+                        layersData.ramsar.features.forEach(f => {
+                            const nombre = f.properties.RAMSAR || 'Sin nombre';
+                            const estado = f.properties.ESTADO || '';
+                            const municipio = f.properties.MUNICIPIOS || '';
+                            pdf.text(`• ${nombre} (${estado}, ${municipio})`, 25, yPos);
+                            yPos += 8;
+                        });
+
+                    } else if (layerName === 'z_historicos') {
+                        // Análisis de zonas históricas
+                        pdf.text('Zonas Históricas:', 20, 50);
+                        let yPos = 65;
+                        layersData.z_historicos.features.slice(0, 15).forEach(f => {
+                            const nombre = f.properties.Nombre || 'Sin nombre';
+                            const estado = f.properties.ESTADO || '';
+                            const municipio = f.properties.MUNICIPIO || '';
+                            pdf.text(`• ${nombre}`, 25, yPos);
+                            pdf.setFontSize(10);
+                            pdf.text(`  ${estado}, ${municipio}`, 30, yPos + 5);
+                            pdf.setFontSize(12);
+                            yPos += 12;
+                        });
+
+                        if (layersData.z_historicos.features.length > 15) {
+                            pdf.text(`... y ${layersData.z_historicos.features.length - 15} más`, 25, yPos);
+                        }
+
+                    } else if (layerName === 'sitio_arqueologico') {
+                        // Análisis de sitios arqueológicos
+                        pdf.text('Sitios Arqueológicos:', 20, 50);
+                        let yPos = 65;
+                        layersData.sitio_arqueologico.features.slice(0, 15).forEach(f => {
+                            const nombre = f.properties.nombre || 'Sin nombre';
+                            const estado = f.properties.nom_ent || '';
+                            const municipio = f.properties.nom_mun || '';
+                            pdf.text(`• ${nombre}`, 25, yPos);
+                            pdf.setFontSize(10);
+                            pdf.text(`  ${estado}, ${municipio}`, 30, yPos + 5);
+                            pdf.setFontSize(12);
+                            yPos += 12;
+                        });
+
+                        if (layersData.sitio_arqueologico.features.length > 15) {
+                            pdf.text(`... y ${layersData.sitio_arqueologico.features.length - 15} más`, 25, yPos);
+                        }
+                    }
+                }
+            }
+        }
+
+        /**
+         * Genera y descarga un reporte PDF completo con gráficos y datos
+         */
+        async function generatePdfReport() {
+            try {
+                showPreloader();
+                updateProgress(0, 'Preparando datos del reporte...');
+
+                const { jsPDF } = window.jspdf;
+                const pdf = new jsPDF('p', 'mm', 'a4');
+
+                // Configuración de colores institucionales
+                const primaryColor = [124, 25, 70]; // RGB para #7C1946
+                const secondaryColor = [25, 126, 116]; // RGB para #197E74
+
+                updateProgress(10, 'Generando portada...');
+
+                // Página 1: Portada
+                pdf.setFillColor(...primaryColor);
+                pdf.rect(0, 0, 210, 297, 'F');
+
+                // Logo y título
+                pdf.setTextColor(255, 255, 255);
+                pdf.setFontSize(24);
+                pdf.text('Evaluación de Proyecto KML', 105, 80, { align: 'center' });
+
+                pdf.setFontSize(16);
+                pdf.text('Geovisualizador de Áreas de Interés', 105, 100, { align: 'center' });
+
+                // Información del proyecto
+                pdf.setFontSize(12);
+                const currentDate = new Date().toLocaleDateString('es-MX', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+
+                pdf.text(`Fecha: ${currentDate}`, 105, 130, { align: 'center' });
+                pdf.text(`Archivo KML: ${kmlFileInput?.files[0]?.name || 'No especificado'}`, 105, 145, { align: 'center' });
+                pdf.text(`Tipo de área: ${areaTypeSelect.options[areaTypeSelect.selectedIndex].text}`, 105, 160, { align: 'center' });
+
+                updateProgress(20, 'Generando resumen ejecutivo...');
+
+                // Página 2: Resumen Ejecutivo
+                pdf.addPage();
+                pdf.setFillColor(247, 244, 242); // #F7F4F2
+                pdf.rect(0, 0, 210, 297, 'F');
+
+                pdf.setTextColor(...primaryColor);
+                pdf.setFontSize(18);
+                pdf.text('Resumen Ejecutivo', 20, 30);
+
+                pdf.setTextColor(0, 0, 0);
+                pdf.setFontSize(12);
+                pdf.text(`Total de elementos encontrados: ${formatNumber(totalElements)}`, 20, 50);
+
+                // Resumen por capas
+                pdf.text('Distribución por capas:', 20, 70);
+                let yPos = 85;
+                Object.entries(layersData).forEach(([layerName, data]) => {
+                    if (data.features && data.features.length > 0) {
+                        const displayName = getLayerDisplayName(layerName);
+                        const count = layerName === 'lenguas' ?
+                            new Set(data.features.map(f => f.properties.Lengua || f.properties.LENGUA)).size :
+                            data.features.length;
+                        pdf.text(`${displayName}: ${formatNumber(count)} elementos`, 25, yPos);
+                        yPos += 8;
+                    }
+                });
+
+                updateProgress(30, 'Generando análisis de localidades...');
+
+                // Página 3: Análisis de Localidades
+                if (layersData.localidades && layersData.localidades.features && layersData.localidades.features.length > 0) {
+                    pdf.addPage();
+                    pdf.setFillColor(255, 255, 255);
+                    pdf.rect(0, 0, 210, 297, 'F');
+
+                    pdf.setTextColor(...primaryColor);
+                    pdf.setFontSize(18);
+                    pdf.text('Análisis de Localidades', 20, 30);
+
+                    // Top 10 localidades por población
+                    const localidadesData = layersData.localidades.features
+                        .filter(f => f.properties.POBTOT)
+                        .sort((a, b) => (b.properties.POBTOT || 0) - (a.properties.POBTOT || 0))
+                        .slice(0, 10);
+
+                    pdf.setTextColor(0, 0, 0);
+                    pdf.setFontSize(12);
+                    pdf.text('Top 10 Localidades por Población Total:', 20, 50);
+
+                    yPos = 65;
+                    localidadesData.forEach((loc, index) => {
+                        const nombre = loc.properties.NOMGEO || loc.properties.NOM_LOC || 'Sin nombre';
+                        const poblacion = formatNumber(loc.properties.POBTOT || 0);
+                        pdf.text(`${index + 1}. ${nombre}: ${poblacion} habitantes`, 25, yPos);
+                        yPos += 8;
+                    });
+                }
+
+                updateProgress(40, 'Generando análisis detallado...');
+
+                // Agregar páginas de análisis detallado para capas clave
+                await addDetailedLayerAnalysis(pdf, layersData, primaryColor, secondaryColor);
+
+                updateProgress(60, 'Capturando vista del mapa...');
+
+                // Página del Mapa (número variable después de análisis)
+                pdf.addPage();
+                pdf.setFillColor(255, 255, 255);
+                pdf.rect(0, 0, 210, 297, 'F');
+
+                pdf.setTextColor(...primaryColor);
+                pdf.setFontSize(18);
+                pdf.text('Vista del Mapa', 20, 30);
+
+                // Preparar mapa para captura: centrar en área KML
+                if (lastAreaBounds && lastAreaBounds.isValid()) {
+                    map.fitBounds(lastAreaBounds, { padding: [24, 24], maxZoom: 15, animate: false });
+                    // Esperar a que el mapa se renderice
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
+
+                // Capturar screenshot del mapa con timeout
+                const mapElement = document.getElementById('map');
+                if (mapElement) {
+                    try {
+                        const canvas = await Promise.race([
+                            html2canvas(mapElement, {
+                                useCORS: true,
+                                allowTaint: false,
+                                scale: 0.8,
+                                width: 800,
+                                height: 600,
+                                timeout: 15000
+                            }),
+                            new Promise((_, reject) =>
+                                setTimeout(() => reject(new Error('Timeout')), 15000)
+                            )
+                        ]);
+
+                        const imgData = canvas.toDataURL('image/png');
+                        pdf.addImage(imgData, 'PNG', 10, 40, 190, 142);
+
+                        // Agregar leyenda de capas activas
+                        pdf.setTextColor(...primaryColor);
+                        pdf.setFontSize(12);
+                        pdf.text('Capas activas en el mapa:', 20, 190);
+
+                        pdf.setTextColor(0, 0, 0);
+                        pdf.setFontSize(10);
+                        let legendY = 200;
+                        const layerColors = {
+                            localidades: '#008000',
+                            atlas: '#ff00ff',
+                            municipios: '#0000ff',
+                            regiones: '#ffa500',
+                            ran: '#ff0000',
+                            lenguas: '#00ffff',
+                            za_publico: '#800080',
+                            za_publico_a: '#800000',
+                            anp_estatal: '#008080',
+                            ramsar: '#808000',
+                            sitio_arqueologico: '#808080',
+                            z_historicos: '#400080',
+                            loc_indigenas_datos: '#8000ff',
+                            rutaWixarika: '#ff8000'
+                        };
+
+                        Object.entries(layersData).forEach(([layerName, data]) => {
+                            if (data.features && data.features.length > 0) {
+                                const displayName = getLayerDisplayName(layerName);
+                                const count = layerName === 'lenguas' ?
+                                    new Set(data.features.map(f => f.properties.Lengua || f.properties.LENGUA)).size :
+                                    data.features.length;
+                                // Dibujar punto de color
+                                pdf.setFillColor(layerColors[layerName] || '#666666');
+                                pdf.circle(23, legendY - 2, 1.5, 'F');
+                                pdf.setFillColor(0, 0, 0);
+                                pdf.text(`${displayName}: ${formatNumber(count)} elementos`, 30, legendY);
+                                legendY += 6;
+                            }
+                        });
+                    } catch (error) {
+                        console.warn('Error capturando mapa:', error);
+                        pdf.setTextColor(100, 100, 100);
+                        pdf.setFontSize(12);
+                        pdf.text('Vista del mapa no disponible', 105, 120, { align: 'center' });
+                    }
+                }
+
+                updateProgress(80, 'Finalizando reporte...');
+
+                // Pie de página en todas las páginas
+                const pageCount = pdf.getNumberOfPages();
+                for (let i = 1; i <= pageCount; i++) {
+                    pdf.setPage(i);
+                    pdf.setTextColor(100, 100, 100);
+                    pdf.setFontSize(8);
+                    pdf.text('Geovisualizador de Áreas de Interés - Gobierno de México', 105, 285, { align: 'center' });
+                    pdf.text(`Página ${i} de ${pageCount}`, 190, 285, { align: 'right' });
+                }
+
+                updateProgress(100, 'Descargando archivo...');
+
+                // Descargar archivo
+                const fileName = `reporte_evaluacion_${new Date().toISOString().split('T')[0]}.pdf`;
+                pdf.save(fileName);
+
+                hidePreloader();
+                showAlert(`Reporte PDF generado exitosamente: ${fileName}`, 'success', 4000);
+
+            } catch (error) {
+                console.error('Error generando reporte PDF:', error);
+                hidePreloader();
+                showAlert('Error al generar el reporte PDF. Intenta nuevamente.', 'danger', 4000);
+            }
+        }
+
         // ====================================================================
         // EVENTOS Y ENLACES
         // ====================================================================
@@ -2327,6 +2941,12 @@ function initApp() {
         const downloadReportBtn = document.getElementById('downloadReportBtn');
         if (downloadReportBtn) {
             downloadReportBtn.addEventListener('click', generateExcelReport);
+        }
+
+        // Descargar reporte PDF
+        const downloadPdfBtn = document.getElementById('downloadPdfBtn');
+        if (downloadPdfBtn) {
+            downloadPdfBtn.addEventListener('click', generatePdfReport);
         }
 
     } catch (error) {

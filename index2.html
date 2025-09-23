@@ -215,27 +215,39 @@
                                 </div>
                             </div>
 
-                            <!-- Paso 4: Reiniciar para nuevo análisis -->
+                            <!-- Paso 4: Ver resultados y reportes -->
                             <div class="accordion-item">
-                                <h2 class="accordion-header" id="headingClear">
+                                <h2 class="accordion-header" id="headingResults">
                                     <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
-                                        data-bs-target="#collapseClear" aria-expanded="false"
-                                        aria-controls="collapseClear">4) Limpiar Mapa</button>
+                                        data-bs-target="#collapseResults" aria-expanded="false"
+                                        aria-controls="collapseResults">4) Resultados y Reportes</button>
                                 </h2>
-                                <div id="collapseClear" class="accordion-collapse collapse"
-                                    aria-labelledby="headingClear" data-bs-parent="#controlsAccordion">
+                                <div id="collapseResults" class="accordion-collapse collapse"
+                                    aria-labelledby="headingResults" data-bs-parent="#controlsAccordion">
                                     <div class="accordion-body">
-                                        <button id="clearMap" class="btn btn-outline-danger w-100"
-                                            title="Eliminar todas las capas del mapa y reiniciar la aplicación">
-                                            <i class="bi bi-trash me-1"></i>Limpiar Todo
-                                        </button>
-                                        <button id="downloadReportBtn" class="btn btn-success w-100 mt-2" disabled
-                                            title="Descargar reporte Excel con todos los datos analizados">
-                                            <i class="bi bi-download me-1"></i>Descargar Reporte Excel
-                                        </button>
+                                        <div id="chartsContainer" style="display: none;">
+                                            <h6 class="text-primary mb-3">📊 Distribución de Elementos por Capa</h6>
+                                            <div id="layerChart" style="height: 300px;"></div>
+                                            <h6 class="text-primary mb-3 mt-4">🏘️ Top 10 Localidades por Población</h6>
+                                            <div id="populationChart" style="height: 300px;"></div>
+                                        </div>
+                                        <div class="d-grid gap-2 mt-3">
+                                            <button id="downloadPdfBtn" class="btn btn-primary" disabled
+                                                title="Descargar reporte PDF completo con gráficos y datos">
+                                                <i class="bi bi-file-earmark-pdf me-1"></i>Descargar Reporte PDF
+                                            </button>
+                                            <button id="downloadReportBtn" class="btn btn-success" disabled
+                                                title="Descargar reporte Excel con todos los datos analizados">
+                                                <i class="bi bi-file-earmark-excel me-1"></i>Descargar Reporte Excel
+                                            </button>
+                                            <button id="clearMap" class="btn btn-outline-danger"
+                                                title="Eliminar todas las capas del mapa y reiniciar la aplicación">
+                                                <i class="bi bi-trash me-1"></i>Limpiar Todo
+                                            </button>
+                                        </div>
                                         <div class="form-text mt-2">
-                                            <small>Esta acción eliminará todas las capas del mapa y permitirá comenzar
-                                                con un nuevo análisis.</small>
+                                            <small>Descargue reportes completos o limpie el mapa para comenzar un nuevo
+                                                análisis.</small>
                                         </div>
                                     </div>
                                 </div>
@@ -310,6 +322,15 @@
     <!-- Librerías para generación de reportes Excel -->
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+
+    <!-- Librerías para gráficos Highcharts -->
+    <script src="https://code.highcharts.com/highcharts.js"></script>
+    <script src="https://code.highcharts.com/modules/exporting.js"></script>
+    <script src="https://code.highcharts.com/modules/export-data.js"></script>
+
+    <!-- Librerías para generación de PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 
     <!-- La lógica principal se carga dinámicamente con control de versión -->
 
