@@ -8,30 +8,29 @@
  */
 
 // ============================================================================
-// VARIABLES PRINCIPALES DE LA APLICACIÓN
+// VARIABLES PRINCIPALES DE LA APLICACIÓN MULTI-KML
 // ============================================================================
 
 let map; // El mapa principal de Leaflet
-let kmlLayer = null; // Capa que muestra el polígono KML subido
-let bufferLayer = null; // Capa del buffer de 500m para área núcleo
-let kmlGeoJson = null; // Datos del KML convertidos a GeoJSON
-let lastAreaBounds = null; // Para poder volver a centrar en el área analizada
 
-// Métricas del KML para reportes
-let kmlMetrics = {
-    area: 0, // en km²
-    perimeter: 0, // en km
-    geometryType: 'N/A',
-    bufferUsed: false,
-    bufferRadius: 0,
-    localityDensity: 0, // localidades por km²
-    populationDensity: 0, // población por km²
-    totalPopulation: 0, // población total intersectada
-    intersectsANP: false,
-    intersectsRamsar: false,
-    intersectsZHistoricas: false,
-    intersectsZA: false
-};
+// Gestión de múltiples KMLs
+let kmlLayers = new Map(); // id -> { layer, geoJson, bounds, metrics, clippedLayers, color, name, areaType, isActive, isAnalyzed }
+let kmlCounter = 0; // Para asignar IDs únicos a cada KML
+let activeKmlId = null; // KML actualmente seleccionado para vista detallada
+
+// Colores únicos para cada KML (máximo 10)
+const kmlColors = [
+    '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
+    '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9'
+];
+
+// Configuración global
+let globalAreaType = 'nucleo'; // Tipo de área por defecto
+let autoAnalyze = false; // Análisis automático al cargar
+
+// Variables para reportes globales
+let combinedAnalysis = null; // Análisis combinado cuando se solicita
+let combinedMode = false; // Si estamos en modo análisis combinado
 
 // ============================================================================
 // UTILIDADES Y VARIABLES DE DATOS
@@ -66,6 +65,55 @@ function fixMojibake(text) {
     });
 
     return fixed;
+}
+
+// --------------------------------------------------------------------------
+// Fallback global: helper para construir popups (asegura disponibilidad
+// en contextos donde exista una versión con scope limitado).
+// Se mantiene el mismo contrato que en index2: (title, icon, fields[])
+// Cada field: { label?: string, value: any, isMain?: boolean }
+// --------------------------------------------------------------------------
+if (typeof window !== 'undefined' && typeof window.createPopupContent !== 'function') {
+    window.createPopupContent = function (title, icon, fields) {
+        try {
+            let content = `
+                <div class="popup-content">
+                    <h6 class="popup-title">${icon} ${title}</h6>
+                    <div class="popup-info">
+            `;
+
+            (fields || []).forEach(field => {
+                const val = field && 'value' in field ? field.value : undefined;
+                if (val !== undefined && val !== null && val !== '' && val !== 'N/A') {
+                    let displayValue = val;
+                    // Separador de miles para campos de población comunes
+                    if (field && field.label && (field.label.includes('Población') || field.label.includes('POBTOTAL')) && !isNaN(val)) {
+                        displayValue = formatNumber(val);
+                    }
+                    if (field && field.isMain) {
+                        content += `<strong>${displayValue}</strong><br>`;
+                    } else {
+                        const label = (field && field.label) ? field.label : '';
+                        content += `<small><strong>${label}${label ? ':' : ''}</strong> ${displayValue}</small><br>`;
+                    }
+                }
+            });
+
+            content += `
+                    </div>
+                </div>
+            `;
+
+            return content;
+        } catch (_) {
+            // En caso de cualquier error, retornar un popup mínimo para no romper UX
+            return `
+                <div class="popup-content">
+                    <h6 class="popup-title">${icon || ''} ${title || 'Detalle'}</h6>
+                </div>
+            `;
+        }
+    };
 }
 
 // Variables para almacenar los datos originales de cada capa geoespacial
@@ -105,6 +153,10 @@ let clippedRutaWixarikaLayer = null;
 let layersControl = null;
 let featureLayersById = new Map();  // Para poder navegar a elementos específicos
 let highlightLayer = null;          // Para resaltar elementos seleccionados
+
+// Grupos globales por capa temática para evitar duplicados en el control
+const overlayGroupsByKey = {};       // { layerKey: L.FeatureGroup }
+const overlayDisplayNameByKey = {};  // { layerKey: displayName }
 
 // Variables para el reporte Excel
 let totalElements = 0;              // Total de elementos encontrados
@@ -312,19 +364,15 @@ function updateProgress(percent, message) {
 // ============================================================================
 
 /**
- * Inicializa la aplicación: configura el mapa, enlaces de eventos y carga inicial
+ * Inicializa la aplicación multi-KML: configura el mapa, enlaces de eventos y carga inicial
  */
 function initApp() {
-    console.log('[DEBUG] initApp started');
+    console.log('[DEBUG] initApp v3 started');
     try {
         const MAP_CONTAINER_ID = 'map';
         const PRELOADER_ID = 'preloader';
         const PRELOADER_BAR_ID = 'preProgressBar';
-        // Layer switches integrados en las cards
-        const CENTER_MAP_BTN_ID = 'center-map-btn';
-        const SEARCH_INPUT_ID = 'search-input';
-        const SEARCH_BTN_ID = 'search-btn';
-        const SEARCH_RESULTS_ID = 'search-results';
+
         console.log('[DEBUG] Checking preloader state');
         // Solo ocultar preloader si no hay operaciones en curso
         if (!document.getElementById('preloader')?.style.display || document.getElementById('preloader').style.display === 'none') {
@@ -336,146 +384,163 @@ function initApp() {
         // CONFIGURACIÓN DEL MAPA BASE CON MAPTILER
         // ====================================================================
 
-        const initialView = {
-            center: [24.1, -102],
-            zoom: 5
-        };
-
-        // MapTiler API Keys
-        const mapTilerKeys = {
-            personal: 'jAAFQsMBZ9a6VIm2dCwg',  // Tu API key
-            amigo: 'xRR3xCujdkUjxkDqlNTG'     // API key del amigo
-        };
-
-        // Verificar disponibilidad de MapTiler SDK
-        function checkMapTilerSDK() {
-            if (typeof L.maptiler !== 'undefined' && L.maptiler.maptilerLayer) {
-                console.log('MapTiler SDK disponible');
-                return true;
-            } else {
-                console.warn('MapTiler SDK no disponible');
-                return false;
+        try {
+            // Verificar que el contenedor del mapa existe
+            const mapContainer = document.getElementById(MAP_CONTAINER_ID);
+            if (!mapContainer) {
+                throw new Error(`Map container with id '${MAP_CONTAINER_ID}' not found`);
             }
-        }
 
-        // Función para crear MapTiler layer usando SDK o fallback con API key específica
-        function createMapTilerLayer(styleId, apiKeyType, fallbackUrl, attribution, name) {
-            const apiKey = mapTilerKeys[apiKeyType];
+            const initialView = {
+                center: [24.1, -102],
+                zoom: 5
+            };
 
-            if (checkMapTilerSDK()) {
-                try {
-                    // Usar el SDK de MapTiler (método recomendado)
-                    const layer = L.maptiler.maptilerLayer({
-                        apiKey: apiKey,
-                        style: styleId,
-                        maxZoom: 18 // Asegurar maxZoom para clusters
-                    });
+            // MapTiler API Keys
+            const mapTilerKeys = {
+                personal: 'jAAFQsMBZ9a6VIm2dCwg',  // Tu API key
+                amigo: 'xRR3xCujdkUjxkDqlNTG'     // API key del amigo
+            };
 
-                    // Configurar maxZoom manualmente si no está definido
-                    if (!layer.options) layer.options = {};
-                    if (!layer.options.maxZoom) layer.options.maxZoom = 18;
-
-                    console.log(`${name} creado con MapTiler SDK usando key ${apiKeyType}`);
-                    return layer;
-                } catch (error) {
-                    console.warn(`Error creando ${name} con SDK:`, error);
+            // Verificar disponibilidad de MapTiler SDK
+            function checkMapTilerSDK() {
+                if (typeof L.maptiler !== 'undefined' && L.maptiler.maptilerLayer) {
+                    console.log('MapTiler SDK disponible');
+                    return true;
+                } else {
+                    console.warn('MapTiler SDK no disponible');
+                    return false;
                 }
             }
 
-            // Fallback a tile layer estándar
-            console.log(`${name} usando fallback`);
-            return L.tileLayer(fallbackUrl, {
-                attribution: attribution,
-                maxZoom: 18
-            });
-        }
+            // Función para crear MapTiler layer usando SDK o fallback con API key específica
+            function createMapTilerLayer(styleId, apiKeyType, fallbackUrl, attribution, name) {
+                const apiKey = mapTilerKeys[apiKeyType];
 
-        // Tu mapa personalizado de MapTiler
-        const MiMapaPersonalizado = createMapTilerLayer(
-            '0198a42c-5e08-77a1-9773-763ee4e12b32', // Tu style ID
-            'personal', // Usar tu API key
-            'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-            '&copy; <a href="https://www.maptiler.com/">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-            'Mi Mapa Personalizado'
-        );
+                if (checkMapTilerSDK()) {
+                    try {
+                        // Usar el SDK de MapTiler (método recomendado)
+                        const layer = L.maptiler.maptilerLayer({
+                            apiKey: apiKey,
+                            style: styleId,
+                            maxZoom: 18 // Asegurar maxZoom para clusters
+                        });
 
-        // Mapas originales del amigo con su API key
-        const SenerLightOriginal = createMapTilerLayer(
-            '0198a9af-dc7c-79d3-8316-a80767ad1d0f', // Style ID original del amigo
-            'amigo', // Usar API key del amigo
-            'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-            '&copy; <a href="https://www.maptiler.com/">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-            'SENER Light Original'
-        );
+                        // Configurar maxZoom manualmente si no está definido
+                        if (!layer.options) layer.options = {};
+                        if (!layer.options.maxZoom) layer.options.maxZoom = 18;
 
-        const SenerDarkOriginal = createMapTilerLayer(
-            '0198a9f0-f135-7991-aaec-bea71681556e', // Style ID original del amigo
-            'amigo', // Usar API key del amigo
-            'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-            '&copy; <a href="https://www.maptiler.com/">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-            'SENER Dark Original'
-        );
+                        console.log(`${name} creado con MapTiler SDK usando key ${apiKeyType}`);
+                        return layer;
+                    } catch (error) {
+                        console.warn(`Error creando ${name} con SDK:`, error);
+                    }
+                }
 
-        // Google Satellite Layer (fallback)
-        const GoogleSatellite = L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
-            attribution: '&copy; Google',
-            maxZoom: 20
-        });
-
-        const baseMaps = {
-            'SENER Azul': MiMapaPersonalizado,
-            'SENER Light': SenerLightOriginal,
-            'SENER Oscuro': SenerDarkOriginal,
-            'Google Satellite': GoogleSatellite
-        };
-
-        // Definir límites aproximados de México para restringir navegación
-        const mexicoBounds = L.latLngBounds([
-            [14.0, -118.0], // Suroeste (aprox. Chiapas / Pacífico)
-            [33.5, -86.0]   // Noreste (frontera norte / Golfo)
-        ]);
-
-        map = L.map(MAP_CONTAINER_ID, {
-            center: initialView.center,
-            zoom: initialView.zoom,
-            minZoom: 4,
-            maxZoom: 18,
-            maxBounds: mexicoBounds,
-            maxBoundsViscosity: 0.9,
-            layers: [baseMaps['SENER Oscuro']]
-        });
-
-        // Evitar hacer zoom out más allá del marco continental relevante
-        map.on('zoomend', () => {
-            if (map.getZoom() < 4) map.setZoom(4);
-        });
-
-        // Ajustar vista para asegurar bounds al iniciar (si se desea ver todo México)
-        map.fitBounds(mexicoBounds.pad(-0.15));
-
-        /**
-         * Asegurar que el mapa calcule su tamaño correctamente
-         */
-        (function ensureMapSized(attempt = 0) {
-            if (!map) return;
-
-            const el = document.getElementById('map');
-            const ready = el && el.clientHeight > 40;
-            map.invalidateSize();
-
-            if (!ready && attempt < 10) {
-                setTimeout(() => ensureMapSized(attempt + 1), 150);
+                // Fallback a tile layer estándar
+                console.log(`${name} usando fallback`);
+                return L.tileLayer(fallbackUrl, {
+                    attribution: attribution,
+                    maxZoom: 18
+                });
             }
-        })();
 
-        window.addEventListener('load', () => {
-            setTimeout(() => map && map.invalidateSize(), 100);
-        });
+            // Tu mapa personalizado de MapTiler
+            const MiMapaPersonalizado = createMapTilerLayer(
+                '0198a42c-5e08-77a1-9773-763ee4e12b32', // Tu style ID
+                'personal', // Usar tu API key
+                'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+                '&copy; <a href="https://www.maptiler.com/">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                'Mi Mapa Personalizado'
+            );
 
-        layersControl = L.control.layers(baseMaps, {}, { collapsed: false }).addTo(map);
+            // Mapas originales del amigo con su API key
+            const SenerLightOriginal = createMapTilerLayer(
+                '0198a9af-dc7c-79d3-8316-a80767ad1d0f', // Style ID original del amigo
+                'amigo', // Usar API key del amigo
+                'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+                '&copy; <a href="https://www.maptiler.com/">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                'SENER Light Original'
+            );
 
-        // Guardar referencia al control de capas para sincronización
-        window.layersControl = layersControl;
+            const SenerDarkOriginal = createMapTilerLayer(
+                '0198a9f0-f135-7991-aaec-bea71681556e', // Style ID original del amigo
+                'amigo', // Usar API key del amigo
+                'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+                '&copy; <a href="https://www.maptiler.com/">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                'SENER Dark Original'
+            );
+
+            // Google Satellite Layer (fallback)
+            const GoogleSatellite = L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+                attribution: '&copy; Google',
+                maxZoom: 20
+            });
+
+            const baseMaps = {
+                'SENER Azul': MiMapaPersonalizado,
+                'SENER Light': SenerLightOriginal,
+                'SENER Oscuro': SenerDarkOriginal,
+                'Google Satellite': GoogleSatellite
+            };
+
+            // Definir límites aproximados de México para restringir navegación
+            const mexicoBounds = L.latLngBounds([
+                [14.0, -118.0], // Suroeste (aprox. Chiapas / Pacífico)
+                [33.5, -86.0]   // Noreste (frontera norte / Golfo)
+            ]);
+
+            map = L.map(MAP_CONTAINER_ID, {
+                center: initialView.center,
+                zoom: initialView.zoom,
+                minZoom: 4,
+                maxZoom: 18,
+                maxBounds: mexicoBounds,
+                maxBoundsViscosity: 0.9,
+                layers: [baseMaps['SENER Oscuro']]
+            });
+
+            // Evitar hacer zoom out más allá del marco continental relevante
+            map.on('zoomend', () => {
+                if (map.getZoom() < 4) map.setZoom(4);
+            });
+
+            // Ajustar vista para asegurar bounds al iniciar (si se desea ver todo México)
+            map.fitBounds(mexicoBounds.pad(-0.15));
+
+            /**
+             * Asegurar que el mapa calcule su tamaño correctamente
+             */
+            (function ensureMapSized(attempt = 0) {
+                if (!map) return;
+
+                const el = document.getElementById('map');
+                const ready = el && el.clientHeight > 40;
+                map.invalidateSize();
+
+                if (!ready && attempt < 10) {
+                    setTimeout(() => ensureMapSized(attempt + 1), 150);
+                }
+            })();
+
+            window.addEventListener('load', () => {
+                setTimeout(() => map && map.invalidateSize(), 100);
+            });
+
+            // Crear un único control de capas global y reutilizarlo
+            if (!layersControl) {
+                layersControl = L.control.layers(baseMaps, {}, { collapsed: false }).addTo(map);
+            } else {
+                try { map.addControl(layersControl); } catch (_) { }
+            }
+
+            // Guardar referencia al control de capas para sincronización
+            window.layersControl = layersControl;
+
+        } catch (mapError) {
+            console.error('Error initializing map:', mapError);
+            throw new Error('Failed to initialize map: ' + mapError.message);
+        }
 
         // ====================================================================
         // CONFIGURACIÓN DE DATOS Y ELEMENTOS DEL DOM
@@ -519,20 +584,142 @@ function initApp() {
             localidadesdatos_solo_datos: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.localidadesdatos_solo_datos)
         };
 
+        // Elementos del DOM para multi-KML
         const kmlFileInput = document.getElementById('kmlFile');
         const uploadKmlBtn = document.getElementById('uploadKmlBtn');
-        const performClipBtn = document.getElementById('performClipBtn');
-        const clearMapBtn = document.getElementById('clearMap');
-        const areaTypeSelect = document.getElementById('areaType');
-        const centerKmlBtn = document.getElementById('centerKmlBtn');
-        const resetViewBtn = document.getElementById('resetViewBtn');
-        const layersContainer = document.getElementById('layersContainer');
+        const areasList = document.getElementById('areasList');
+        const areasCountBadge = document.getElementById('areasCountBadge');
+        const analyzeAllBtn = document.getElementById('analyzeAllBtn');
+        const clearAllAreasBtn = document.getElementById('clearAllAreasBtn');
+        // Controles globales antiguos (pueden no existir tras rediseño de UI)
+        const globalAreaTypeSelect = document.getElementById('globalAreaType') || null;
+        const autoAnalyzeCheck = document.getElementById('autoAnalyzeCheck') || null;
+        // Nuevos elementos para análisis por área en la sección 3
+        const kmlSelect = document.getElementById('kmlSelect');
+        const analyzeSelectedBtn = document.getElementById('analyzeSelectedBtn');
+        const kmlResultsContainer = document.getElementById('kmlResultsContainer');
+        const kmlSummaryEl = document.getElementById('kmlSummary');
+        const kmlChartsContainer = document.getElementById('kmlChartsContainer');
+        const kmlLayerChartEl = document.getElementById('kmlLayerChart');
+        const kmlPopulationChartEl = document.getElementById('kmlPopulationChart');
         const reloadDataBtn = document.getElementById('reloadDataBtn');
+        const clearMapBtn = document.getElementById('clearMap');
+        // Per-area Excel button removed; we keep a single export entry point
 
-        // Estado inicial: limpiar input KML y deshabilitar botones hasta que se carguen datos
+        // Estado inicial: limpiar input KML
         if (kmlFileInput) kmlFileInput.value = '';
-        if (uploadKmlBtn) uploadKmlBtn.disabled = true;
-        if (performClipBtn) performClipBtn.disabled = true;
+
+        // Poblar y sincronizar el selector de áreas
+        function refreshKmlSelect() {
+            if (!kmlSelect) return;
+            const current = kmlSelect.value;
+            kmlSelect.innerHTML = '<option value="" selected>— Selecciona un área —</option>';
+            kmlLayers.forEach((entry, id) => {
+                const opt = document.createElement('option');
+                opt.value = id;
+                opt.textContent = entry.name + (entry.isAnalyzed ? ' ✓' : '');
+                kmlSelect.appendChild(opt);
+            });
+            // Restaurar selección si es posible
+            if (current && kmlLayers.has(current)) {
+                kmlSelect.value = current;
+            }
+            analyzeSelectedBtn && (analyzeSelectedBtn.disabled = !kmlSelect.value);
+        }
+
+        function renderKmlResultsPanel(kmlEntry) {
+            if (!kmlResultsContainer) return;
+            if (!kmlEntry || !kmlEntry.isAnalyzed) {
+                kmlResultsContainer.innerHTML = '<p class="text-muted mb-0">Selecciona un área analizada para ver sus resultados por capas.</p>';
+                if (kmlChartsContainer) kmlChartsContainer.style.display = 'none';
+                if (kmlSummaryEl) kmlSummaryEl.innerHTML = '';
+                // Single export button remains in Section 4
+                return;
+            }
+
+            // Construir lista por capas como en index2, usando createLayerSection ya existente
+            const colors = {
+                localidades: '#008000', atlas: '#ff00ff', municipios: '#0000ff', regiones: '#ffa500', ran: '#ff0000',
+                lenguas: '#00ffff', za_publico: '#800080', za_publico_a: '#800000', anp_estatal: '#008080', ramsar: '#808000',
+                sitio_arqueologico: '#808080', z_historicos: '#400080', loc_indigenas_datos: '#8000ff', rutaWixarika: '#ff8000'
+            };
+            const titles = {
+                localidades: 'Localidades', atlas: 'Atlas Pueblos Indígenas', municipios: 'Municipios', regiones: 'Regiones Indígenas', ran: 'RAN',
+                lenguas: 'Lenguas Indígenas', za_publico: 'Zonas Arqueológicas (Puntos)', za_publico_a: 'Zonas Arqueológicas (Áreas)', anp_estatal: 'ANP Estatales', ramsar: 'Ramsar',
+                sitio_arqueologico: 'Sitios Arqueológicos', z_historicos: 'Zonas Históricas', loc_indigenas_datos: 'Loc Indígenas Datos', rutaWixarika: 'Ruta Wixarika'
+            };
+            const propsKey = {
+                localidades: 'CVEGEO', atlas: 'CVEGEO', municipios: 'CVEGEO', regiones: 'Name', ran: 'Clv_Unica', lenguas: 'Lengua',
+                za_publico: 'Zona Arqueológica', za_publico_a: 'Zona Arqueológica', anp_estatal: 'NOMBRE', ramsar: 'RAMSAR', sitio_arqueologico: 'nombre',
+                z_historicos: 'Nombre', loc_indigenas_datos: 'LOCALIDAD', rutaWixarika: 'Name'
+            };
+
+            const container = document.createElement('div');
+            container.className = 'layers-container';
+            const results = kmlEntry.results || {};
+            // Summary header
+            if (kmlSummaryEl) {
+                const m = kmlEntry.metrics || {};
+                const layersFound = Object.keys(results).length;
+                kmlSummaryEl.innerHTML = `
+                    <div class="d-flex flex-wrap gap-2 align-items-center">
+                        <span class="badge bg-primary">Área: ${formatNumber(m.area || 0)} km²</span>
+                        <span class="badge bg-secondary">Capas: ${layersFound}</span>
+                        <span class="badge bg-success">Elementos: ${formatNumber(m.totalElements || 0)}</span>
+                        ${m.totalPopulation ? `<span class=\"badge bg-warning text-dark\">Población: ${formatNumber(m.totalPopulation)}</span>` : ''}
+                    </div>`;
+            }
+            Object.entries(results).forEach(([layerName, data]) => {
+                if (!data || !data.features || data.features.length === 0) return;
+                const section = createLayerSection(
+                    titles[layerName] || layerName,
+                    data.features,
+                    propsKey[layerName] || 'id',
+                    colors[layerName] || '#666',
+                    layerName === 'lenguas',
+                    layerName
+                );
+                container.appendChild(section);
+            });
+            if (!container.childNodes.length) {
+                kmlResultsContainer.innerHTML = '<p class="text-muted mb-0">No se encontraron elementos en ninguna capa para esta área.</p>';
+            } else {
+                kmlResultsContainer.innerHTML = '';
+                kmlResultsContainer.appendChild(container);
+            }
+
+            // Gráficos por área reaprovechando generadores existentes con IDs específicos
+            try {
+                if (kmlChartsContainer) kmlChartsContainer.style.display = 'block';
+                // Dibujar en contenedores específicos de la sección 3
+                generateLayerChartIn('kmlLayerChart', { ...results });
+                generatePopulationChartIn('kmlPopulationChart', { localidades: results.localidades });
+            } catch (e) { console.warn('Charts render warning:', e); }
+
+            // Per-area export button was removed; use the unified Excel export instead
+        }
+
+        // Eventos del selector
+        if (kmlSelect) {
+            kmlSelect.addEventListener('change', () => {
+                analyzeSelectedBtn && (analyzeSelectedBtn.disabled = !kmlSelect.value);
+                const entry = kmlLayers.get(kmlSelect.value);
+                renderKmlResultsPanel(entry);
+            });
+        }
+        if (analyzeSelectedBtn) {
+            analyzeSelectedBtn.addEventListener('click', async () => {
+                const id = kmlSelect && kmlSelect.value;
+                if (!id) return;
+                await analyzeSingleArea(id);
+                const entry = kmlLayers.get(id);
+                renderKmlResultsPanel(entry);
+                refreshKmlSelect();
+                // Habilitar Excel global si hay alguna analizada
+                const downloadReportBtn = document.getElementById('downloadReportBtn');
+                if (downloadReportBtn) downloadReportBtn.disabled = Array.from(kmlLayers.values()).every(k => !k.isAnalyzed);
+            });
+        }
 
         // ====================================================================
         // FUNCIONES DE MANEJO DE DATOS GEOESPACIALES
@@ -1596,24 +1783,7 @@ function initApp() {
 
             // Habilitar/deshabilitar botones de descarga
             const downloadReportBtn = document.getElementById('downloadReportBtn');
-            const downloadPdfBtn = document.getElementById('downloadPdfBtn');
-            if (downloadReportBtn) {
-                downloadReportBtn.disabled = totalElements === 0;
-            }
-            if (downloadPdfBtn) {
-                downloadPdfBtn.disabled = totalElements === 0;
-            }
-
-            // Mostrar/ocultar contenedor de gráficos
-            const chartsContainer = document.getElementById('chartsContainer');
-            if (chartsContainer) {
-                if (totalElements > 0) {
-                    chartsContainer.style.display = 'block';
-                    generateCharts(layersData);
-                } else {
-                    chartsContainer.style.display = 'none';
-                }
-            }
+            // PDF deshabilitado por solicitud; dejar botón sin handler si aún existe
         }
 
         /**
@@ -1915,11 +2085,8 @@ function initApp() {
             totalElements = 0;
             layersData = {};
 
-            // Recrear control de capas
-            if (layersControl) {
-                map.removeControl(layersControl);
-            }
-            layersControl = L.control.layers(baseMaps, overlayMaps, { collapsed: true }).addTo(map);
+            // No recrear el control; mantener uno global
+            try { if (layersControl) map.addControl(layersControl); } catch (_) { }
 
             // Deshabilitar botones de descarga
             const downloadReportBtn = document.getElementById('downloadReportBtn');
@@ -1936,6 +2103,13 @@ function initApp() {
             if (chartsContainer) {
                 chartsContainer.style.display = 'none';
             }
+
+            // Hook para mantener sincronizado el selector
+            const prevUpdateAreasList = updateAreasList;
+            updateAreasList = function () {
+                prevUpdateAreasList();
+                refreshKmlSelect();
+            };
         }
 
         // ====================================================================
@@ -2227,7 +2401,12 @@ function initApp() {
                 if (layersControl) {
                     map.removeControl(layersControl);
                 }
-                layersControl = L.control.layers(null, null, { collapsed: false }).addTo(map);
+                // Evitar reinstanciar el control; solo asegurar que esté en el mapa
+                if (layersControl) {
+                    try { map.addControl(layersControl); } catch (_) { }
+                } else {
+                    layersControl = L.control.layers(baseMaps, {}, { collapsed: false }).addTo(map);
+                }
 
                 // Procesar solo las capas que estén disponibles
                 const layersData = {};
@@ -3398,27 +3577,14 @@ function initApp() {
                 if (activateAllLayers) {
                     updateProgress(65, 'Activando todas las capas para captura...');
 
-                    // Activar todas las capas disponibles
-                    const layerMapping = {
-                        localidades: clippedLocalitiesLayer,
-                        atlas: clippedAtlasLayer,
-                        municipios: clippedMunicipiosLayer,
-                        regiones: clippedRegionesLayer,
-                        ran: clippedRanLayer,
-                        lenguas: clippedLenguasLayer,
-                        za_publico: clippedZaPublicoLayer,
-                        za_publico_a: clippedZaPublicoALayer,
-                        anp_estatal: clippedAnpEstatalLayer,
-                        ramsar: clippedRamsarLayer,
-                        sitio_arqueologico: clippedSitioArqueologicoLayer,
-                        z_historicos: clippedZHistoricosLayer,
-                        loc_indigenas_datos: clippedLocIndigenasLayer,
-                        rutaWixarika: clippedRutaWixarikaLayer
-                    };
-
-                    Object.entries(layerMapping).forEach(([layerName, layer]) => {
-                        if (layer && !map.hasLayer(layer)) {
-                            map.addLayer(layer);
+                    // Activar todas las capas clipped de todos los KMLs analizados
+                    kmlLayers.forEach(kmlEntry => {
+                        if (kmlEntry.clippedLayers) {
+                            Object.values(kmlEntry.clippedLayers).forEach(layer => {
+                                if (layer && !map.hasLayer(layer)) {
+                                    map.addLayer(layer);
+                                }
+                            });
                         }
                     });
 
@@ -3550,45 +3716,61 @@ function initApp() {
         }
 
         // ====================================================================
-        // EVENTOS Y ENLACES
+        // EVENTOS Y ENLACES PARA MULTI-KML
         // ====================================================================
 
-        // Habilitar botón de subida cuando se selecciona archivo
-        if (kmlFileInput) kmlFileInput.addEventListener('change', () => {
-            if (uploadKmlBtn) uploadKmlBtn.disabled = kmlFileInput.files.length === 0;
-        });
-
-        // Procesar archivo KML
-        if (uploadKmlBtn) uploadKmlBtn.addEventListener('click', () => {
-            if (kmlFileInput && kmlFileInput.files[0]) {
-                processKmlFile(kmlFileInput.files[0]);
-            }
-        });
-
-        // Realizar recorte
-        if (performClipBtn) performClipBtn.addEventListener('click', performClipping);
-
-        // Limpiar mapa
-        if (clearMapBtn) clearMapBtn.addEventListener('click', clearAllLayers);
-
-        // Centrar en KML
-        if (centerKmlBtn) {
-            centerKmlBtn.addEventListener('click', () => {
-                if (kmlLayer) {
-                    const bounds = kmlLayer.getBounds();
-                    if (bounds && bounds.isValid()) {
-                        map.fitBounds(bounds, { padding: [24, 24], maxZoom: 15, animate: true, duration: 0.6 });
-                    }
+        // Habilitar/deshabilitar botón de subida según archivos seleccionados
+        if (kmlFileInput) {
+            kmlFileInput.addEventListener('change', (e) => {
+                const hasFiles = e.target.files && e.target.files.length > 0;
+                if (uploadKmlBtn) {
+                    uploadKmlBtn.disabled = !hasFiles;
                 }
             });
         }
 
-        // Restaurar vista del área
-        if (resetViewBtn) {
-            resetViewBtn.addEventListener('click', () => {
-                if (lastAreaBounds && lastAreaBounds.isValid()) {
-                    map.fitBounds(lastAreaBounds, { padding: [24, 24], maxZoom: 15, animate: true, duration: 0.6 });
+        // Procesar múltiples archivos KML
+        if (uploadKmlBtn) {
+            uploadKmlBtn.addEventListener('click', () => {
+                const files = Array.from(kmlFileInput.files);
+                if (files.length === 0) {
+                    showAlert('Selecciona al menos un archivo KML', 'warning');
+                    return;
                 }
+                if (files.length > 10) {
+                    showAlert('Máximo 10 archivos KML permitidos', 'warning');
+                    return;
+                }
+                processMultipleKmlFiles(files);
+            });
+        }
+
+        // Analizar todas las áreas activas
+        if (analyzeAllBtn) {
+            analyzeAllBtn.addEventListener('click', () => {
+                analyzeAllActiveAreas();
+            });
+        }
+
+        // Limpiar todas las áreas
+        if (clearAllAreasBtn) {
+            clearAllAreasBtn.addEventListener('click', () => {
+                clearAllAreas();
+            });
+        }
+
+        // Cambiar configuración global
+        if (globalAreaTypeSelect) {
+            globalAreaTypeSelect.addEventListener('change', (e) => {
+                globalAreaType = e.target.value;
+                showAlert('Configuración global actualizada', 'info', 2000);
+            });
+        }
+
+        // Toggle análisis automático
+        if (autoAnalyzeCheck) {
+            autoAnalyzeCheck.addEventListener('change', (e) => {
+                autoAnalyze = e.target.checked;
             });
         }
 
@@ -3618,51 +3800,1597 @@ function initApp() {
             });
         }
 
-        // Descargar reporte Excel
-        const downloadReportBtn = document.getElementById('downloadReportBtn');
-        if (downloadReportBtn) {
-            downloadReportBtn.addEventListener('click', generateExcelReport);
+        // Limpiar mapa
+        if (clearMapBtn) {
+            clearMapBtn.addEventListener('click', clearAllLayers);
         }
 
-        // Descargar reporte PDF
+        // =============================
+        // MODAL DE SELECCIÓN DE ÁREAS PARA EXCEL (ÚNICO BOTÓN)
+        // =============================
+        function openExcelSelectionModal() {
+            const analyzed = Array.from(kmlLayers.values()).filter(k => k.isAnalyzed);
+            if (analyzed.length === 0) {
+                showAlert('No hay áreas analizadas para exportar', 'warning');
+                return;
+            }
+
+            const modalId = 'excelSelectionModal';
+            let modalEl = document.getElementById(modalId);
+            if (modalEl) modalEl.remove();
+
+            modalEl = document.createElement('div');
+            modalEl.className = 'modal fade';
+            modalEl.id = modalId;
+            modalEl.tabIndex = -1;
+            modalEl.innerHTML = `
+                <div class="modal-dialog modal-dialog-scrollable">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Exportar a Excel</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            <p class="mb-2">Selecciona una o varias áreas analizadas:</p>
+                            <div class="d-flex gap-2 mb-2">
+                                <button class="btn btn-sm btn-outline-primary" id="excelSelectAll">Seleccionar todo</button>
+                                <button class="btn btn-sm btn-outline-secondary" id="excelSelectNone">Deseleccionar</button>
+                            </div>
+                            <div id="excelAreasList" class="list-group"></div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                            <button type="button" class="btn btn-success" id="excelConfirmBtn">Generar Excel</button>
+                        </div>
+                    </div>
+                </div>`;
+            document.body.appendChild(modalEl);
+
+            const areasList = modalEl.querySelector('#excelAreasList');
+            analyzed.forEach(k => {
+                const item = document.createElement('label');
+                item.className = 'list-group-item d-flex align-items-center gap-2';
+                item.innerHTML = `
+                    <input class=\"form-check-input\" type=\"checkbox\" value=\"${k.id}\">\n            <span>${k.name}</span>\n            <span class=\"ms-auto small text-muted\">${formatNumber(k.metrics?.area || 0)} km² · ${formatNumber(k.metrics?.totalElements || 0)} elementos</span>`;
+                areasList.appendChild(item);
+            });
+
+            const bsModal = new bootstrap.Modal(modalEl);
+            modalEl.addEventListener('hidden.bs.modal', () => {
+                // limpieza DOM del modal dinámico
+                modalEl.remove();
+            });
+            bsModal.show();
+
+            modalEl.querySelector('#excelSelectAll').onclick = () => {
+                modalEl.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
+            };
+            modalEl.querySelector('#excelSelectNone').onclick = () => {
+                modalEl.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+            };
+            modalEl.querySelector('#excelConfirmBtn').onclick = () => {
+                const selected = Array.from(modalEl.querySelectorAll('input[type="checkbox"]:checked')).map(cb => cb.value);
+                if (selected.length === 0) {
+                    showAlert('Selecciona al menos un área', 'info');
+                    return;
+                }
+                // Evitar warning de aria-hidden con foco retenido
+                if (document.activeElement && document.activeElement.blur) {
+                    document.activeElement.blur();
+                }
+                bsModal.hide();
+                generateExcelForAreas(selected);
+            };
+        }
+
+        function generateExcelForAreas(ids) {
+            if (ids.length === 1) {
+                return generateAreaExcelReport(ids[0]);
+            }
+
+            try {
+                const workbook = XLSX.utils.book_new();
+
+                const header = ['Área', 'Superficie (km²)', 'Población', 'Elementos', 'Densidad (hab/km²)'];
+                const rows = [header];
+                let totalArea = 0, totalPop = 0, totalElems = 0;
+                ids.forEach(id => {
+                    const k = kmlLayers.get(id);
+                    if (!k) return;
+                    const m = k.metrics || {};
+                    rows.push([k.name, m.area || 0, m.totalPopulation || 0, m.totalElements || 0, m.populationDensity || 0]);
+                    totalArea += m.area || 0;
+                    totalPop += m.totalPopulation || 0;
+                    totalElems += m.totalElements || 0;
+                });
+                rows.push(['TOTAL', totalArea, totalPop, totalElems, totalArea > 0 ? totalPop / totalArea : 0]);
+                const resumenSheet = XLSX.utils.aoa_to_sheet(rows);
+                XLSX.utils.book_append_sheet(workbook, resumenSheet, 'Resumen');
+
+                // Una hoja por área con conteos por capa
+                ids.forEach(id => {
+                    const k = kmlLayers.get(id);
+                    if (!k) return;
+                    const results = k.results || {};
+                    const table = [['Capa', 'Elementos']];
+                    Object.entries(results).forEach(([layerName, data]) => {
+                        const count = (data?.features || []).length;
+                        table.push([getLayerDisplayName(layerName), count]);
+                    });
+                    const sheet = XLSX.utils.aoa_to_sheet(table);
+                    XLSX.utils.book_append_sheet(workbook, sheet, k.name.substring(0, 31));
+                });
+
+                const fileName = `reporte_excel_${new Date().toISOString().split('T')[0]}.xlsx`;
+                XLSX.writeFile(workbook, fileName);
+                showAlert(`Reporte Excel generado: ${fileName}`, 'success', 3500);
+            } catch (e) {
+                console.error('Error generando Excel:', e);
+                showAlert('Error al generar el Excel', 'danger', 4000);
+            }
+        }
+
+        // Descargar reporte Excel (único botón): abrir modal de selección de áreas
+        const downloadReportBtn = document.getElementById('downloadReportBtn');
+        if (downloadReportBtn) {
+            downloadReportBtn.addEventListener('click', openExcelSelectionModal);
+        }
+
+        // Descargar reporte PDF global
         const downloadPdfBtn = document.getElementById('downloadPdfBtn');
         if (downloadPdfBtn) {
             downloadPdfBtn.addEventListener('click', () => {
-                // Mostrar modal para elegir si descargar con todas las capas o solo las activas
                 showModal({
-                    title: 'Opciones del Reporte PDF',
+                    title: 'Opciones del Reporte PDF Global',
                     message: `
                         <p>¿Cómo deseas generar el reporte PDF?</p>
                         <div class="form-check">
-                            <input class="form-check-input" type="radio" name="pdfLayersOption" id="pdfAllLayers" value="all" checked>
-                            <label class="form-check-label" for="pdfAllLayers">
-                                <strong>Con todas las capas activas</strong><br>
-                                <small class="text-muted">Se activarán automáticamente todas las capas antes de generar el reporte</small>
+                            <input class="form-check-input" type="radio" name="pdfGlobalOption" id="pdfGlobalAll" value="all" checked>
+                            <label class="form-check-label" for="pdfGlobalAll">
+                                <strong>Reporte completo de todas las áreas</strong><br>
+                                <small class="text-muted">Incluye análisis detallado de cada área por separado</small>
                             </label>
                         </div>
                         <div class="form-check mt-2">
-                            <input class="form-check-input" type="radio" name="pdfLayersOption" id="pdfCurrentLayers" value="current">
-                            <label class="form-check-label" for="pdfCurrentLayers">
-                                <strong>Con capas actualmente visibles</strong><br>
-                                <small class="text-muted">Solo se mostrarán las capas que están activas en el mapa</small>
-                            </label>
+                            <input class="form-check-input" type="radio" name="pdfGlobalOption" id="pdfGlobalCombined" value="combined">
+                                <label class="form-check-label" for="pdfGlobalCombined">
+                                    <strong>Análisis combinado</strong><br>
+                                    <small class="text-muted">Unifica todas las áreas para análisis global</small>
+                                </label>
                         </div>
                     `,
                     okText: 'Generar Reporte',
                     onOk: () => {
-                        const selectedOption = document.querySelector('input[name="pdfLayersOption"]:checked').value;
-                        generatePdfReport(selectedOption === 'all');
+                        const selectedOption = document.querySelector('input[name="pdfGlobalOption"]:checked').value;
+                        if (selectedOption === 'combined') {
+                            generateCombinedPdfReport();
+                        } else {
+                            generateGlobalPdfReport();
+                        }
                     }
                 });
             });
         }
 
     } catch (error) {
-        console.error('Error inicializando aplicación:', error);
-        console.log('[DEBUG] Error in initApp, about to show error alert');
-        showAlert('Error al inicializar la aplicación. Recarga la página.', 'danger', 8000);
+        console.error('Error inicializando aplicación v3:', error);
+        console.log('[DEBUG] Error in initApp v3, about to show error alert');
+        const errorMessage = error.message ? `Error al inicializar la aplicación: ${error.message}` : 'Error al inicializar la aplicación. Recarga la página.';
+        showAlert(errorMessage, 'danger', 8000);
     }
-    console.log('[DEBUG] initApp completed');
+    console.log('[DEBUG] initApp v3 completed');
+}
+
+// ============================================================================
+// FUNCIONES PARA GESTIÓN MULTI-KML
+// ============================================================================
+
+/**
+ * Valida que un archivo sea un KML válido
+ */
+function validateKmlFile(file) {
+    if (!file) {
+        return false;
+    }
+
+    if (!file.name.toLowerCase().endsWith('.kml')) {
+        return false;
+    }
+
+    if (file.size > 50 * 1024 * 1024) { // 50MB máximo
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * Procesa un archivo KML individual y retorna sus datos
+ */
+async function processKmlFile(file) {
+    return new Promise((resolve, reject) => {
+        if (!validateKmlFile(file)) {
+            reject(new Error('Archivo KML inválido'));
+            return;
+        }
+
+        const reader = new FileReader();
+
+        reader.onload = function (e) {
+            try {
+                const kmlText = e.target.result;
+
+                if (!kmlText || kmlText.trim().length === 0) {
+                    reject(new Error('El archivo KML está vacío'));
+                    return;
+                }
+
+                const kmlDom = new DOMParser().parseFromString(kmlText, 'text/xml');
+
+                const parseError = kmlDom.querySelector('parsererror');
+                if (parseError) {
+                    reject(new Error('El archivo KML contiene errores de formato XML'));
+                    return;
+                }
+
+                const geoJson = toGeoJSON.kml(kmlDom);
+
+                if (!geoJson || !geoJson.features || geoJson.features.length === 0) {
+                    reject(new Error('El archivo KML no contiene geometrías válidas'));
+                    return;
+                }
+
+                const kmlPolygon = geoJson.features.find(f =>
+                    f.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon')
+                );
+
+                if (!kmlPolygon) {
+                    reject(new Error('El archivo KML no contiene un polígono válido'));
+                    return;
+                }
+
+                // Calcular bounds
+                const bounds = L.geoJSON(geoJson).getBounds();
+
+                resolve({
+                    geoJson: geoJson,
+                    bounds: bounds,
+                    polygon: kmlPolygon
+                });
+
+            } catch (error) {
+                console.error('Error procesando KML:', error);
+                reject(error);
+            }
+        };
+
+        reader.onerror = function () {
+            reject(new Error('Error al leer el archivo'));
+        };
+
+        reader.readAsText(file);
+    });
+}
+
+// Variantes que permiten dibujar en otro contenedor
+function generateLayerChartIn(containerId, layersData) {
+    const chartData = [];
+    const layerColors = {
+        localidades: '#008000', atlas: '#ff00ff', municipios: '#0000ff', regiones: '#ffa500', ran: '#ff0000', lenguas: '#00ffff',
+        za_publico: '#800080', za_publico_a: '#800000', anp_estatal: '#008080', ramsar: '#808000', sitio_arqueologico: '#808080',
+        z_historicos: '#400080', loc_indigenas_datos: '#8000ff', rutaWixarika: '#ff8000'
+    };
+    const layerNames = {
+        localidades: 'Localidades', atlas: 'Atlas Pueblos Indígenas', municipios: 'Municipios', regiones: 'Regiones Indígenas', ran: 'RAN', lenguas: 'Lenguas Indígenas',
+        za_publico: 'ZA Público', za_publico_a: 'ZA Público A', anp_estatal: 'ANP Estatales', ramsar: 'Ramsar', sitio_arqueologico: 'Sitios Arqueológicos',
+        z_historicos: 'Zonas Históricas', loc_indigenas_datos: 'Loc Indígenas Datos', rutaWixarika: 'Ruta Wixarika'
+    };
+    Object.entries(layersData || {}).forEach(([layerName, data]) => {
+        if (data && data.features && data.features.length > 0) {
+            const count = layerName === 'lenguas' ? new Set(data.features.map(f => f.properties.Lengua || f.properties.LENGUA)).size : data.features.length;
+            chartData.push({ name: layerNames[layerName] || layerName, y: count, color: layerColors[layerName] || '#666666' });
+        }
+    });
+    Highcharts.chart(containerId, {
+        chart: { type: 'bar', backgroundColor: 'transparent', style: { fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' } },
+        accessibility: { enabled: false }, title: { text: null },
+        xAxis: { categories: chartData.map(i => i.name), labels: { style: { color: '#333', fontSize: '11px' } } },
+        yAxis: { title: { text: 'Número de Elementos', style: { color: '#7C1946', fontWeight: 'bold' } }, labels: { style: { color: '#666' } } },
+        legend: { enabled: false },
+        tooltip: { backgroundColor: 'rgba(255,255,255,0.95)', borderColor: '#7C1946', borderRadius: 8, shadow: true, style: { color: '#333' }, formatter: function () { return `<b>${this.x}</b><br/>Elementos: <b>${this.y.toLocaleString('es-MX')}</b>`; } },
+        plotOptions: { bar: { dataLabels: { enabled: true, color: '#333', style: { fontSize: '11px', fontWeight: 'bold' }, formatter: function () { return this.y.toLocaleString('es-MX'); } } } },
+        series: [{ name: 'Elementos', data: chartData, colorByPoint: true }], credits: { enabled: false }, exporting: { enabled: true, buttons: { contextButton: { menuItems: ['viewFullscreen', 'printChart', 'downloadPNG', 'downloadJPEG', 'downloadPDF', 'downloadSVG'] } } }
+    });
+}
+
+function generatePopulationChartIn(containerId, layersData) {
+    const locs = (layersData && layersData.localidades && layersData.localidades.features) ? layersData.localidades.features : [];
+    const populationData = locs
+        .filter(f => f.properties.POBTOT && f.properties.POBTOT > 0)
+        .sort((a, b) => (b.properties.POBTOT || 0) - (a.properties.POBTOT || 0))
+        .slice(0, 10)
+        .map(f => ({ name: f.properties.NOMGEO || f.properties.NOM_LOC || 'Sin nombre', y: f.properties.POBTOT, color: '#7C1946' }));
+    if (populationData.length === 0) {
+        try { document.getElementById(containerId).innerHTML = '<div class="text-muted small">Sin datos de población.</div>'; } catch (_) { }
+        return;
+    }
+    Highcharts.chart(containerId, {
+        chart: { type: 'column', backgroundColor: 'transparent', style: { fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' } },
+        accessibility: { enabled: false }, title: { text: null },
+        xAxis: { categories: populationData.map(item => item.name.length > 15 ? item.name.substring(0, 15) + '...' : item.name), labels: { rotation: -45, style: { color: '#333', fontSize: '10px' } } },
+        yAxis: { title: { text: 'Población Total', style: { color: '#7C1946', fontWeight: 'bold' } }, labels: { style: { color: '#666' }, formatter: function () { return (this.value / 1000).toFixed(0) + 'k'; } } },
+        legend: { enabled: false }, tooltip: { backgroundColor: 'rgba(255,255,255,0.95)', borderColor: '#7C1946', borderRadius: 8, shadow: true, style: { color: '#333' }, formatter: function () { return `<b>${this.x}</b><br/>Población: <b>${this.y.toLocaleString('es-MX')}</b>`; } },
+        plotOptions: { column: { dataLabels: { enabled: true, color: '#333', style: { fontSize: '9px', fontWeight: 'bold' }, formatter: function () { return (this.y / 1000).toFixed(0) + 'k'; }, rotation: -90, y: -20 } } },
+        series: [{ name: 'Población', data: populationData, color: '#7C1946' }], credits: { enabled: false }, exporting: { enabled: true, buttons: { contextButton: { menuItems: ['viewFullscreen', 'printChart', 'downloadPNG', 'downloadJPEG', 'downloadPDF', 'downloadSVG'] } } }
+    });
+}
+
+/**
+ * Procesa múltiples archivos KML y los agrega al sistema
+ */
+async function processMultipleKmlFiles(files) {
+    if (files.length + kmlLayers.size > 10) {
+        showAlert(`No puedes agregar ${files.length} archivos. Máximo 10 KMLs total.`, 'warning');
+        return;
+    }
+
+    showPreloader();
+    updateProgress(0, 'Procesando archivos KML...');
+
+    try {
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            updateProgress((i / files.length) * 100, `Procesando ${file.name}...`);
+
+            await addKmlToSystem(file);
+        }
+
+        updateProgress(100, 'Todos los KMLs procesados');
+        showAlert(`${files.length} archivo(s) KML agregado(s) exitosamente`, 'success');
+
+        // Análisis automático si está activado
+        if (autoAnalyze && kmlLayers.size > 0) {
+            setTimeout(() => analyzeAllActiveAreas(), 1000);
+        }
+
+    } catch (error) {
+        console.error('Error procesando múltiples KMLs:', error);
+        showAlert('Error al procesar algunos archivos KML', 'danger');
+    }
+
+    hidePreloader();
+}
+
+/**
+ * Agrega un KML individual al sistema
+ */
+async function addKmlToSystem(file) {
+    try {
+        const kmlId = `kml_${++kmlCounter}`;
+        const color = kmlColors[kmlLayers.size % kmlColors.length];
+
+        // Procesar archivo KML
+        const kmlData = await processKmlFile(file);
+        const geoJson = kmlData.geoJson;
+        const bounds = kmlData.bounds;
+        const polygon = kmlData.polygon;
+
+        // Crear capa visual usando solo el polígono
+        const layer = L.geoJSON(polygon, {
+            style: {
+                color: color,
+                weight: 3,
+                opacity: 0.8,
+                fillColor: color,
+                fillOpacity: 0.2
+            }
+        });
+
+        // Agregar al mapa
+        layer.addTo(map);
+
+        // Crear entrada en el sistema
+        const kmlEntry = {
+            id: kmlId,
+            name: file.name.replace('.kml', '').replace('.kmz', ''),
+            file: file,
+            layer: layer,
+            geoJson: geoJson,
+            bounds: bounds,
+            color: color,
+            areaType: globalAreaType,
+            isActive: true,
+            isAnalyzed: false,
+            metrics: null,
+            clippedLayers: {},
+            createdAt: new Date()
+        };
+
+        kmlLayers.set(kmlId, kmlEntry);
+
+        // Actualizar UI
+        updateAreasList();
+        updateAreasCount();
+
+        console.log(`KML ${kmlId} agregado: ${file.name}`);
+        return kmlId;
+
+    } catch (error) {
+        console.error('Error agregando KML:', error);
+        throw error;
+    }
+}
+
+/**
+ * Actualiza la lista visual de áreas cargadas
+ */
+function updateAreasList() {
+    const areasList = document.getElementById('areasList');
+    if (!areasList) return;
+
+    if (kmlLayers.size === 0) {
+        areasList.innerHTML = '<p class="text-muted small mb-0">No hay áreas cargadas. Sube archivos KML para comenzar.</p>';
+        return;
+    }
+
+    let html = '';
+    kmlLayers.forEach((kmlEntry, kmlId) => {
+        const statusIcon = kmlEntry.isAnalyzed ? '✅' : '⏳';
+        const statusText = kmlEntry.isAnalyzed ? 'Analizada' : 'Pendiente';
+        const metrics = kmlEntry.metrics;
+
+        html += `
+            <div class="area-item card mb-2" data-kml-id="${kmlId}">
+                <div class="card-body p-2">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div class="d-flex align-items-center">
+                            <div class="color-indicator me-2" style="background-color: ${kmlEntry.color}; width: 12px; height: 12px; border-radius: 50%;"></div>
+                            <div>
+                                <h6 class="mb-0 small">${kmlEntry.name}</h6>
+                                <small class="text-muted">${statusIcon} ${statusText}</small>
+                            </div>
+                        </div>
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn btn-outline-primary btn-sm" onclick="centerOnArea('${kmlId}')" title="Centrar en área">
+                                <i class="bi bi-crosshair"></i>
+                            </button>
+                            <button class="btn btn-outline-success btn-sm" onclick="analyzeSingleArea('${kmlId}')" title="Analizar área" ${kmlEntry.isAnalyzed ? 'disabled' : ''}>
+                                <i class="bi bi-play"></i>
+                            </button>
+                            <button class="btn btn-outline-danger btn-sm" onclick="removeArea('${kmlId}')" title="Remover área">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                    ${metrics ? `
+                        <div class="mt-2 small text-muted">
+                            📏 ${formatNumber(metrics.area)} km² | 👥 ${formatNumber(metrics.totalPopulation)} hab.
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+    });
+
+    areasList.innerHTML = html;
+}
+
+/**
+ * Actualiza el contador de áreas
+ */
+function updateAreasCount() {
+    const badge = document.getElementById('areasCountBadge');
+    if (badge) {
+        badge.textContent = `${kmlLayers.size}/10`;
+    }
+
+    // Habilitar/deshabilitar botones según estado
+    const analyzeAllBtn = document.getElementById('analyzeAllBtn');
+    const hasUnanalyzed = Array.from(kmlLayers.values()).some(kml => !kml.isAnalyzed);
+
+    if (analyzeAllBtn) {
+        analyzeAllBtn.disabled = !hasUnanalyzed;
+    }
+}
+
+/**
+ * Centra el mapa en un área específica
+ */
+function centerOnArea(kmlId) {
+    const kmlEntry = kmlLayers.get(kmlId);
+    if (kmlEntry && kmlEntry.bounds && kmlEntry.bounds.isValid()) {
+        map.fitBounds(kmlEntry.bounds, {
+            padding: [24, 24],
+            maxZoom: 15,
+            animate: true,
+            duration: 0.6
+        });
+        showAlert(`Centrando en: ${kmlEntry.name}`, 'info', 2000);
+    }
+}
+
+/**
+ * Remueve un área del sistema
+ */
+function removeArea(kmlId) {
+    const kmlEntry = kmlLayers.get(kmlId);
+    if (!kmlEntry) return;
+
+    // Remover del mapa
+    if (kmlEntry.layer && map.hasLayer(kmlEntry.layer)) {
+        map.removeLayer(kmlEntry.layer);
+    }
+
+    // Remover capas clipped
+    Object.entries(kmlEntry.clippedLayers || {}).forEach(([layerKey, layer]) => {
+        if (layer) {
+            try {
+                // Quitar del grupo temático si existe
+                const group = overlayGroupsByKey[layerKey];
+                if (group && typeof group.removeLayer === 'function') {
+                    group.removeLayer(layer);
+                }
+                // Asegurar que no quede en el mapa suelto
+                if (map.hasLayer(layer)) {
+                    map.removeLayer(layer);
+                }
+            } catch (_) { /* noop */ }
+        }
+    });
+
+    // Remover del sistema
+    kmlLayers.delete(kmlId);
+
+    // Actualizar UI
+    updateAreasList();
+    updateAreasCount();
+
+    showAlert(`Área removida: ${kmlEntry.name}`, 'info', 2000);
+}
+
+/**
+ * Limpia todas las áreas
+ */
+function clearAllAreas() {
+    showModal({
+        title: 'Confirmar eliminación',
+        message: '¿Estás seguro de que quieres eliminar todas las áreas cargadas?',
+        okText: 'Eliminar Todo',
+        onOk: () => {
+            // Remover todas las capas del mapa
+            kmlLayers.forEach(kmlEntry => {
+                if (kmlEntry.layer && map.hasLayer(kmlEntry.layer)) {
+                    map.removeLayer(kmlEntry.layer);
+                }
+                Object.values(kmlEntry.clippedLayers || {}).forEach(layer => {
+                    if (layer && map.hasLayer(layer)) {
+                        map.removeLayer(layer);
+                    }
+                });
+            });
+
+            // Limpiar sistema
+            kmlLayers.clear();
+            kmlCounter = 0;
+            activeKmlId = null;
+
+            // Vaciar grupos globales pero mantenerlos registrados
+            Object.values(overlayGroupsByKey).forEach(group => {
+                try { group.clearLayers(); } catch (_) { }
+            });
+
+            // Actualizar UI
+            updateAreasList();
+            updateAreasCount();
+
+            showAlert('Todas las áreas han sido eliminadas', 'info', 2000);
+        }
+    });
+}
+
+/**
+ * Analiza una sola área
+ */
+async function analyzeSingleArea(kmlId) {
+    const kmlEntry = kmlLayers.get(kmlId);
+    if (!kmlEntry || kmlEntry.isAnalyzed) return;
+
+    try {
+        // Pedir configuración al usuario para este análisis
+        const config = await openAnalysisConfigDialog({ scope: 'single', areaName: kmlEntry.name, defaults: { areaType: kmlEntry.areaType } });
+        if (!config) {
+            return; // cancelado por el usuario
+        }
+
+        // Mostrar preloader hasta después de confirmar configuración
+        showPreloader();
+        updateProgress(0, `Analizando ${kmlEntry.name}...`);
+
+        // Realizar análisis geoespacial
+        const analysisResult = await performAreaAnalysis(kmlEntry, config);
+
+        // Actualizar entrada
+        kmlEntry.isAnalyzed = true;
+        kmlEntry.metrics = analysisResult.metrics;
+        kmlEntry.clippedLayers = analysisResult.clippedLayers;
+
+        // Actualizar UI
+        updateAreasList();
+        updateAreasCount();
+        // Render section 3 panel if current selection matches
+        const kmlSelect = document.getElementById('kmlSelect');
+        if (kmlSelect && kmlSelect.value === kmlId) {
+            renderKmlResultsPanel(kmlEntry);
+        }
+        // Enable global Excel button
+        const downloadReportBtn = document.getElementById('downloadReportBtn');
+        if (downloadReportBtn) downloadReportBtn.disabled = false;
+
+        showAlert(`Análisis completado: ${kmlEntry.name}`, 'success', 3000);
+
+    } catch (error) {
+        console.error('Error analizando área:', error);
+        showAlert(`Error analizando ${kmlEntry.name}`, 'danger');
+    } finally {
+        hidePreloader();
+    }
+}
+
+/**
+ * Analiza todas las áreas activas no analizadas
+ */
+async function analyzeAllActiveAreas() {
+    const unanalyzedAreas = Array.from(kmlLayers.values()).filter(kml => kml.isActive && !kml.isAnalyzed);
+
+    if (unanalyzedAreas.length === 0) {
+        showAlert('Todas las áreas ya están analizadas', 'info');
+        return;
+    }
+
+    try {
+        // Configuración global para el análisis masivo
+        const globalConfig = await openAnalysisConfigDialog({ scope: 'bulk', areaName: `${unanalyzedAreas.length} áreas`, defaults: {} });
+        if (!globalConfig) {
+            return; // cancelado por el usuario
+        }
+
+        // Mostrar preloader después de confirmar configuración
+        showPreloader();
+
+        for (let i = 0; i < unanalyzedAreas.length; i++) {
+            const kmlEntry = unanalyzedAreas[i];
+            updateProgress((i / unanalyzedAreas.length) * 100, `Analizando ${kmlEntry.name}...`);
+
+            const analysisResult = await performAreaAnalysis(kmlEntry, globalConfig);
+
+            kmlEntry.isAnalyzed = true;
+            kmlEntry.metrics = analysisResult.metrics;
+            kmlEntry.clippedLayers = analysisResult.clippedLayers;
+        }
+
+        updateProgress(100, 'Análisis completado');
+        updateAreasList();
+        updateAreasCount();
+        // If a selection exists, re-render its panel
+        const kmlSelectEl = document.getElementById('kmlSelect');
+        if (kmlSelectEl && kmlSelectEl.value) {
+            const selected = kmlLayers.get(kmlSelectEl.value);
+            renderKmlResultsPanel(selected);
+        }
+        // Enable global Excel
+        const downloadReportBtn2 = document.getElementById('downloadReportBtn');
+        if (downloadReportBtn2) downloadReportBtn2.disabled = false;
+
+        showAlert(`${unanalyzedAreas.length} área(s) analizadas exitosamente`, 'success', 4000);
+
+    } catch (error) {
+        console.error('Error en análisis masivo:', error);
+        showAlert('Error durante el análisis masivo', 'danger');
+    } finally {
+        hidePreloader();
+    }
+}
+
+/**
+ * Realiza el análisis geoespacial de un área específica
+ */
+/**
+ * Realiza el análisis geoespacial de un área específica
+ * @param {object} kmlEntry - entrada del área en kmlLayers
+ * @param {object} options - configuración del análisis { areaType, bufferKm, layers }
+ */
+async function performAreaAnalysis(kmlEntry, options = {}) {
+    console.log(`Analizando área: ${kmlEntry.name}`);
+
+    try {
+        const T = await ensureTurf();
+        updateProgress(10, 'Preparando análisis geoespacial...');
+
+        // Obtener el área a analizar (KML + buffer si es necesario)
+        let analysisArea = kmlEntry.geoJson;
+        let bufferLayer = null;
+
+        // Determinar tipo de área y buffer
+        const areaType = options.areaType || kmlEntry.areaType || 'exacta';
+        const bufferKm = typeof options.bufferKm === 'number' ? options.bufferKm : 0.5;
+
+        if (areaType === 'nucleo') {
+            updateProgress(20, 'Generando buffer de 500m...');
+            const buffered = T.buffer(analysisArea, bufferKm, { units: 'kilometers' });
+            analysisArea = buffered;
+
+            // Agregar buffer al mapa
+            bufferLayer = L.geoJSON(buffered, {
+                style: {
+                    color: kmlEntry.color,
+                    weight: 1,
+                    opacity: 0.3,
+                    fillColor: kmlEntry.color,
+                    fillOpacity: 0.1,
+                    dashArray: '5, 10'
+                }
+            }).addTo(map);
+        }
+
+        const results = {};
+        let totalFound = 0;
+        let progressStep = 0;
+        const totalSteps = 14; // Número de capas posibles
+
+        // Capas seleccionadas
+        const selectedLayers = options.layers || {
+            localidades: true, atlas: true, municipios: true, regiones: true, ran: true, lenguas: true,
+            za_publico: true, za_publico_a: true, anp_estatal: true, ramsar: true,
+            sitio_arqueologico: true, z_historicos: true, loc_indigenas_datos: true, rutaWixarika: true
+        };
+
+        // Función helper para procesar una capa
+        const processLayer = async (layerData, layerName, displayName) => {
+            if (!layerData || !layerData.features) return;
+
+            progressStep++;
+            const progress = 20 + (progressStep / totalSteps) * 60;
+            updateProgress(progress, `Procesando ${displayName}...`);
+
+            const intersectedFeatures = [];
+
+            // Procesar en lotes para mejor rendimiento
+            const batchSize = 50;
+            const features = layerData.features;
+
+            for (let i = 0; i < features.length; i += batchSize) {
+                const batch = features.slice(i, Math.min(i + batchSize, features.length));
+
+                for (const feature of batch) {
+                    if (feature.geometry && T.booleanIntersects(feature, analysisArea)) {
+                        intersectedFeatures.push(feature);
+                    }
+                }
+
+                // Pequeña pausa para no bloquear la UI
+                if (i % (batchSize * 4) === 0) {
+                    await new Promise(resolve => setTimeout(resolve, 1));
+                }
+            }
+
+            if (intersectedFeatures.length > 0) {
+                results[layerName] = {
+                    features: intersectedFeatures,
+                    count: intersectedFeatures.length,
+                    displayName: displayName
+                };
+                totalFound += intersectedFeatures.length;
+
+                // Definir simbología y popups como en index2
+                let options = {};
+                let popupFormatter = null;
+                switch (layerName) {
+                    case 'localidades':
+                        options = {
+                            pointToLayer: (f, latlng) => L.circleMarker(latlng, { radius: 6, fillColor: '#008000', color: '#000', weight: 1, opacity: 1, fillOpacity: 0.8 })
+                        };
+                        popupFormatter = (p) => createPopupContent('Localidad', '🏘️', [
+                            { value: p.NOMGEO || p.NOM_LOC || p.NOMBRE || 'Sin nombre', isMain: true },
+                            { label: 'CVEGEO', value: p.CVEGEO },
+                            { label: 'Municipio', value: p.NOM_MUN || p.MUNICIPIO },
+                            { label: 'Estado', value: p.NOM_ENT || p.ESTADO },
+                            { label: 'Ámbito', value: p.AMBITO },
+                            { label: 'Población Total', value: p.POBTOT || p.POBTOTAL },
+                            { label: 'Población Femenina', value: p.POBFEM },
+                            { label: 'Población Masculina', value: p.POBMAS }
+                        ]);
+                        break;
+                    case 'atlas':
+                        options = {
+                            pointToLayer: (f, latlng) => L.circleMarker(latlng, { radius: 5, fillColor: '#ff00ff', color: '#000', weight: 1, opacity: 1, fillOpacity: 0.8 })
+                        };
+                        popupFormatter = (p) => createPopupContent('Atlas Pueblos Indígenas', '🏛️', [
+                            { value: p.Localidad || p.CVEGEO || 'Sin nombre', isMain: true },
+                            { label: 'CVEGEO', value: p.CVEGEO },
+                            { label: 'Municipio', value: p.NOM_MUN || p.MUNICIPIO }
+                        ]);
+                        break;
+                    case 'municipios':
+                        options = { style: { color: '#0000ff', weight: 2, fillOpacity: 0.1 } };
+                        popupFormatter = (p) => createPopupContent('Municipio', '🏛️', [
+                            { value: p.NOMGEO || p.NOM_MUN || p.NOMBRE || p.MUNICIPIO || 'Sin nombre', isMain: true },
+                            { label: 'CVEGEO', value: p.CVEGEO },
+                            { label: 'Estado', value: p.NOM_ENT || p.ESTADO },
+                            { label: 'Cabecera', value: p.NOM_CAB || p.CABECERA }
+                        ]);
+                        break;
+                    case 'regiones':
+                        options = { style: { color: '#ffa500', weight: 2, fillOpacity: 0.1 } };
+                        popupFormatter = (p) => createPopupContent('Región Indígena', '🌄', [
+                            { value: p.Name || p.NOMBRE || 'Sin nombre', isMain: true },
+                            { label: 'Tipo', value: p.Tipo || p.TIPO },
+                            { label: 'Descripción', value: p.Descripci || p.DESCRIPCION }
+                        ]);
+                        break;
+                    case 'ran':
+                        options = { style: { color: '#ff0000', weight: 2, fillOpacity: 0.1 } };
+                        popupFormatter = (p) => createPopupContent('RAN', '🌾', [
+                            { value: p.MUNICIPIO || p.Clv_Unica || 'Sin nombre', isMain: true },
+                            { label: 'Clv_Unica', value: p.Clv_Unica },
+                            { label: 'Tipo', value: p.tipo || p.Tipo },
+                            { label: 'Estado', value: p.Estado || p.ESTADO },
+                            { label: 'Municipio', value: p.Municipio || p.MUNICIPIO }
+                        ]);
+                        break;
+                    case 'lenguas':
+                        options = {
+                            pointToLayer: (f, latlng) => L.circleMarker(latlng, { radius: 5, fillColor: '#00ffff', color: '#000', weight: 1, opacity: 1, fillOpacity: 0.8 })
+                        };
+                        popupFormatter = (p) => createPopupContent('Lengua Indígena', '🗣️', [
+                            { value: p.Lengua || p.LENGUA || 'Sin especificar', isMain: true },
+                            { label: 'Localidad', value: p.NOM_LOC || p.LOCALIDAD },
+                            { label: 'Municipio', value: p.NOM_MUN || p.MUNICIPIO },
+                            { label: 'Estado', value: p.NOM_ENT || p.ESTADO }
+                        ]);
+                        break;
+                    case 'za_publico':
+                        options = {
+                            pointToLayer: (f, latlng) => L.circleMarker(latlng, { radius: 6, fillColor: '#800080', color: '#000', weight: 1, opacity: 1, fillOpacity: 0.8 })
+                        };
+                        popupFormatter = (p) => createPopupContent('ZA Público', '🏞️', [
+                            { value: p["Zona Arqueológica"] || 'Sin nombre', isMain: true },
+                            { label: 'Estado', value: p.ESTADO },
+                            { label: 'Municipio', value: p.MUNICIPIO },
+                            { label: 'Localidad', value: p.LOCALIDAD }
+                        ]);
+                        break;
+                    case 'za_publico_a':
+                        options = { style: { color: '#800000', weight: 2, fillOpacity: 0.1 } };
+                        popupFormatter = (p) => createPopupContent('ZA Público A', '🏞️', [
+                            { value: p["Zona Arqueológica"] || 'Sin nombre', isMain: true },
+                            { label: 'Estado', value: p.ESTADO },
+                            { label: 'Municipio', value: p.MUNICIPIO },
+                            { label: 'Localidad', value: p.LOCALIDAD }
+                        ]);
+                        break;
+                    case 'anp_estatal':
+                        options = { style: { color: '#008080', weight: 2, fillOpacity: 0.1 } };
+                        popupFormatter = (p) => createPopupContent('ANP Estatal', '🌿', [
+                            { value: p.NOMBRE || 'Sin nombre', isMain: true },
+                            { label: 'Tipo', value: p.TIPO },
+                            { label: 'Categoría DEC', value: p.CAT_DEC },
+                            { label: 'Entidad', value: p.ENTIDAD },
+                            { label: 'Municipio DEC', value: p.MUN_DEC }
+                        ]);
+                        break;
+                    case 'ramsar':
+                        options = { style: { color: '#808000', weight: 2, fillOpacity: 0.1 } };
+                        popupFormatter = (p) => createPopupContent('Sitio Ramsar', '🦆', [
+                            { value: p.RAMSAR || 'Sin nombre', isMain: true },
+                            { label: 'Estado', value: p.ESTADO },
+                            { label: 'Municipio', value: p.MUNICIPIOS }
+                        ]);
+                        break;
+                    case 'sitio_arqueologico':
+                        options = {
+                            pointToLayer: (f, latlng) => L.circleMarker(latlng, { radius: 5, fillColor: '#808080', color: '#000', weight: 1, opacity: 1, fillOpacity: 0.8 })
+                        };
+                        popupFormatter = (p) => createPopupContent('Sitio Arqueológico', '🏛️', [
+                            { value: p.nombre || 'Sin nombre', isMain: true },
+                            { label: 'Estado', value: p.nom_ent },
+                            { label: 'Municipio', value: p.nom_mun },
+                            { label: 'Localidad', value: p.nom_loc }
+                        ]);
+                        break;
+                    case 'z_historicos':
+                        options = { style: { color: '#400080', weight: 2, fillOpacity: 0.1 } };
+                        popupFormatter = (p) => createPopupContent('Zona Histórica', '🏰', [
+                            { value: p.Nombre || 'Sin nombre', isMain: true },
+                            { label: 'Estado', value: p.ESTADO },
+                            { label: 'Municipio', value: p.MUNICIPIO },
+                            { label: 'Localidad', value: p.LOCALIDAD }
+                        ]);
+                        break;
+                    case 'loc_indigenas_datos':
+                        options = {
+                            pointToLayer: (f, latlng) => L.circleMarker(latlng, { radius: 5, fillColor: '#8000ff', color: '#000', weight: 1, opacity: 1, fillOpacity: 0.8 })
+                        };
+                        popupFormatter = (p) => createPopupContent('Loc Indígenas Datos', '🏘️', [
+                            { value: p.LOCALIDAD || 'Sin Localidad', isMain: true },
+                            { label: 'Entidad', value: p.ENTIDAD },
+                            { label: 'Municipio', value: p.MUNICIPIO },
+                            { label: 'Localidad', value: p.LOCALIDAD },
+                            { label: 'Población Total', value: p.POBTOTAL }
+                        ]);
+                        break;
+                    case 'rutaWixarika':
+                        options = { style: { color: '#ff8000', weight: 2, fillOpacity: 0.1 } };
+                        popupFormatter = (p) => createPopupContent('Ruta Wixarika', '🛤️', [
+                            { value: p.Name || 'Sin nombre', isMain: true }
+                        ]);
+                        break;
+                    default:
+                        options = { style: { color: kmlEntry.color || '#197E74', weight: 2, fillOpacity: 0.3 } };
+                        popupFormatter = (p) => `
+                            <div class="popup-content">
+                                <strong>${p.NOMBRE || p.nombre || p.Name || p.name || 'Elemento'}</strong><br/>
+                                <small>Capa: ${displayName}</small>
+                            </div>`;
+                }
+
+                const mapLayer = L.geoJSON(intersectedFeatures, {
+                    ...options,
+                    onEachFeature: (feature, layer) => {
+                        if (popupFormatter) {
+                            const props = feature.properties || {};
+                            const html = popupFormatter(props);
+                            layer.bindPopup(html);
+                        }
+                    }
+                });
+
+                // Agregar a un FeatureGroup global por temática
+                if (!overlayGroupsByKey[layerName]) {
+                    overlayGroupsByKey[layerName] = L.featureGroup().addTo(map);
+                    overlayDisplayNameByKey[layerName] = displayName;
+                    // Registrar UNA sola vez en el control de capas
+                    if (layersControl) {
+                        try { layersControl.addOverlay(overlayGroupsByKey[layerName], displayName); } catch (_) { }
+                    }
+                }
+                mapLayer.addTo(overlayGroupsByKey[layerName]);
+
+                // Almacenar referencia de la capa
+                if (!kmlEntry.clippedLayers) kmlEntry.clippedLayers = {};
+                kmlEntry.clippedLayers[layerName] = mapLayer;
+            }
+        };
+
+        // Procesar todas las capas disponibles
+        if (selectedLayers.localidades) await processLayer(localitiesData, 'localidades', 'Localidades');
+        if (selectedLayers.atlas) await processLayer(atlasData, 'atlas', 'Atlas Pueblos Indígenas');
+        if (selectedLayers.municipios) await processLayer(municipiosData, 'municipios', 'Municipios');
+        if (selectedLayers.regiones) await processLayer(regionesData, 'regiones', 'Regiones Indígenas');
+        if (selectedLayers.ran) await processLayer(ranData, 'ran', 'Registro Agrario Nacional');
+        if (selectedLayers.lenguas) await processLayer(lenguasData, 'lenguas', 'Lenguas Indígenas');
+        if (selectedLayers.za_publico) await processLayer(zaPublicoData, 'za_publico', 'Zonas Arqueológicas (Puntos)');
+        if (selectedLayers.za_publico_a) await processLayer(zaPublicoAData, 'za_publico_a', 'Zonas Arqueológicas (Áreas)');
+        if (selectedLayers.anp_estatal) await processLayer(anpEstatalData, 'anp_estatal', 'ANP Estatal');
+        if (selectedLayers.ramsar) await processLayer(ramsarData, 'ramsar', 'Ramsar');
+        if (selectedLayers.sitio_arqueologico) await processLayer(sitioArqueologicoData, 'sitio_arqueologico', 'Sitios Arqueológicos');
+        if (selectedLayers.z_historicos) await processLayer(zHistoricosData, 'z_historicos', 'Zonas Históricas');
+        if (selectedLayers.loc_indigenas_datos) await processLayer(locIndigenasData, 'loc_indigenas_datos', 'Loc Indígenas Datos');
+        if (selectedLayers.rutaWixarika) await processLayer(rutaWixarikaData, 'rutaWixarika', 'Ruta Wixarika');
+
+        // Almacenar resultados y métricas
+        kmlEntry.results = results;
+        // Calcular métricas básicas
+        let areaKm2 = 0;
+        try { areaKm2 = T.area(analysisArea) / 1_000_000; } catch { areaKm2 = 0; }
+        let totalPopulation = 0;
+        if (results.localidades && results.localidades.features) {
+            for (const f of results.localidades.features) {
+                const p = f.properties || {};
+                totalPopulation += (p.POBTOT || p.POBTOTAL || 0);
+            }
+        }
+        kmlEntry.metrics = {
+            area: areaKm2,
+            totalPopulation: totalPopulation,
+            populationDensity: areaKm2 > 0 ? totalPopulation / areaKm2 : 0,
+            totalElements: totalFound,
+            layersFound: Object.keys(results).length,
+            areaType: areaType,
+            bufferUsed: areaType === 'nucleo',
+            bufferRadius: areaType === 'nucleo' ? bufferKm : 0,
+            analysisDate: new Date().toISOString()
+        };
+        kmlEntry.isAnalyzed = true;
+
+        // Almacenar buffer si se creó
+        if (bufferLayer && !kmlEntry.clippedLayers) {
+            kmlEntry.clippedLayers = {};
+        }
+        if (bufferLayer) {
+            kmlEntry.clippedLayers.buffer = bufferLayer;
+        }
+
+        updateProgress(90, 'Finalizando análisis...');
+
+        // Ajustar vista del mapa si hay resultados
+        if (totalFound > 0) {
+            // Calcular bounds combinados del KML y resultados
+            const allLayers = [kmlEntry.layer];
+            if (bufferLayer) allLayers.push(bufferLayer);
+            Object.values(kmlEntry.clippedLayers || {}).forEach(layer => {
+                if (layer !== bufferLayer) allLayers.push(layer);
+            });
+
+            const group = new L.featureGroup(allLayers);
+            map.fitBounds(group.getBounds(), { padding: [20, 20], maxZoom: 14 });
+        }
+
+        updateProgress(100, 'Análisis completado');
+
+        // Mostrar resumen
+        const message = totalFound > 0
+            ? `Análisis completado para "${kmlEntry.name}":<br/>
+               • ${formatNumber(totalFound)} elementos encontrados<br/>
+               • ${Object.keys(results).length} capas con intersecciones<br/>
+               • Tipo de área: ${kmlEntry.areaType}`
+            : `Análisis completado para "${kmlEntry.name}": No se encontraron elementos en el área especificada.`;
+
+        showAlert(message, totalFound > 0 ? 'success' : 'info', 5000);
+
+        return { metrics: kmlEntry.metrics, clippedLayers: kmlEntry.clippedLayers, results };
+
+    } catch (error) {
+        console.error('Error en performAreaAnalysis:', error);
+        showAlert(`Error analizando "${kmlEntry.name}": ${error.message}`, 'danger');
+        throw error;
+    }
+}
+
+/**
+ * Muestra un modal de configuración para el análisis y devuelve la selección del usuario
+ * @param {{scope:'single'|'bulk', areaName:string, defaults?:object}} params
+ * @returns {Promise<null|{areaType:string, bufferKm:number, layers:Record<string,boolean>}>}
+ */
+function openAnalysisConfigDialog(params = { scope: 'single', areaName: '', defaults: {} }) {
+    return new Promise(resolve => {
+        const scope = params.scope || 'single';
+        const defaults = params.defaults || {};
+        // Crear contenedor si no existe
+        let modalEl = document.getElementById('analysisConfigModal');
+        if (!modalEl) {
+            modalEl = document.createElement('div');
+            modalEl.id = 'analysisConfigModal';
+            modalEl.className = 'modal fade';
+            modalEl.tabIndex = -1;
+            modalEl.innerHTML = `
+                                <div class="modal-dialog modal-lg modal-dialog-centered">
+                                    <div class="modal-content">
+                                        <div class="modal-header">
+                                            <h5 class="modal-title">Configuración de Análisis</h5>
+                                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                        </div>
+                                        <div class="modal-body">
+                                            <p class="text-muted mb-3">Definir configuración para analizar: <strong id="ac-area-name"></strong></p>
+                                            <div class="row g-3">
+                                                <div class="col-md-4">
+                                                    <label class="form-label">Tipo de área</label>
+                                                    <select id="ac-area-type" class="form-select">
+                                                        <option value="exacta">Exacta</option>
+                                                        <option value="nucleo">Núcleo (buffer)</option>
+                                                        <option value="directa">Influencia directa</option>
+                                                        <option value="indirecta">Influencia indirecta</option>
+                                                    </select>
+                                                </div>
+                                                <div class="col-md-4" id="ac-buffer-group">
+                                                    <label class="form-label">Buffer (km)</label>
+                                                    <input id="ac-buffer-km" type="number" class="form-control" step="0.1" min="0" value="0.5" />
+                                                </div>
+                                            </div>
+                                            <hr/>
+                                            <label class="form-label">Capas a incluir</label>
+                                            <div class="row row-cols-2 row-cols-md-3 g-2" id="ac-layers"></div>
+                                        </div>
+                                        <div class="modal-footer">
+                                            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                            <button type="button" class="btn btn-primary" id="ac-apply-btn">Analizar</button>
+                                        </div>
+                                    </div>
+                                </div>`;
+            document.body.appendChild(modalEl);
+        }
+
+        // Poblar contenido dinámico
+        modalEl.querySelector('#ac-area-name').textContent = params.areaName || '';
+        const areaTypeSel = modalEl.querySelector('#ac-area-type');
+        const bufferGroup = modalEl.querySelector('#ac-buffer-group');
+        const bufferInput = modalEl.querySelector('#ac-buffer-km');
+        areaTypeSel.value = defaults.areaType || 'exacta';
+        bufferInput.value = defaults.bufferKm != null ? defaults.bufferKm : 0.5;
+        bufferGroup.style.display = areaTypeSel.value === 'nucleo' ? '' : 'none';
+        areaTypeSel.onchange = () => {
+            bufferGroup.style.display = areaTypeSel.value === 'nucleo' ? '' : 'none';
+        };
+
+        const layerList = [
+            ['localidades', 'Localidades'], ['atlas', 'Atlas Pueblos Indígenas'], ['municipios', 'Municipios'],
+            ['regiones', 'Regiones Indígenas'], ['ran', 'RAN'], ['lenguas', 'Lenguas Indígenas'],
+            ['za_publico', 'Zonas Arqueológicas (Puntos)'], ['za_publico_a', 'Zonas Arqueológicas (Áreas)'], ['anp_estatal', 'ANP Estatal'],
+            ['ramsar', 'Ramsar'], ['sitio_arqueologico', 'Sitios Arqueológicos'], ['z_historicos', 'Zonas Históricas'],
+            ['loc_indigenas_datos', 'Loc Indígenas Datos'], ['rutaWixarika', 'Ruta Wixarika']
+        ];
+        const acLayers = modalEl.querySelector('#ac-layers');
+        acLayers.innerHTML = '';
+        const selectedDefaults = defaults.layers || {};
+        layerList.forEach(([key, label]) => {
+            const id = `ac-layer-${key}`;
+            const wrapper = document.createElement('div');
+            wrapper.className = 'form-check';
+            wrapper.innerHTML = `
+                            <input class="form-check-input" type="checkbox" id="${id}" ${selectedDefaults[key] === false ? '' : 'checked'}>
+                            <label class="form-check-label" for="${id}">${label}</label>`;
+            acLayers.appendChild(wrapper);
+        });
+
+        const bsModal = new bootstrap.Modal(modalEl, { backdrop: 'static', keyboard: true });
+        let pendingResult = null; // se resolverá en hidden según acción (null si cancelar)
+        const cleanup = () => {
+            const applyBtn = modalEl.querySelector('#ac-apply-btn');
+            if (applyBtn) applyBtn.onclick = null;
+            modalEl.removeEventListener('hidden.bs.modal', onHidden);
+        };
+        const onHidden = () => {
+            cleanup();
+            resolve(pendingResult);
+        };
+        modalEl.addEventListener('hidden.bs.modal', onHidden, { once: true });
+
+        modalEl.querySelector('#ac-apply-btn').onclick = () => {
+            const layersSelection = {};
+            layerList.forEach(([key]) => {
+                const cb = modalEl.querySelector(`#ac-layer-${key}`);
+                layersSelection[key] = !!cb?.checked;
+            });
+            pendingResult = {
+                areaType: areaTypeSel.value,
+                bufferKm: parseFloat(bufferInput.value) || 0,
+                layers: layersSelection
+            };
+            // Mover foco fuera del modal antes de ocultarlo para evitar warning de aria-hidden
+            try {
+                const focused = modalEl.querySelector(':focus');
+                if (focused && typeof focused.blur === 'function') focused.blur();
+            } catch (_) { /* noop */ }
+            bsModal.hide();
+        };
+
+        bsModal.show();
+    });
+}
+
+/**
+ * Obtiene el estilo para una capa específica
+ */
+function getLayerStyle(layerName, baseColor) {
+    const styles = {
+        localidades: {
+            radius: 6,
+            color: baseColor,
+            weight: 2,
+            opacity: 0.8,
+            fillColor: baseColor,
+            fillOpacity: 0.6
+        },
+        municipios: {
+            color: baseColor,
+            weight: 2,
+            opacity: 0.7,
+            fillColor: baseColor,
+            fillOpacity: 0.1
+        },
+        default: {
+            color: baseColor,
+            weight: 2,
+            opacity: 0.8,
+            fillColor: baseColor,
+            fillOpacity: 0.3
+        }
+    };
+
+    return styles[layerName] || styles.default;
+}
+
+/**
+ * Crea contenido de popup para una feature (versión multi-capa)
+ */
+function buildPopupContent(feature, layerName) {
+    const props = feature.properties;
+
+    switch (layerName) {
+        case 'localidades':
+            return `
+                <div class="popup-content">
+                    <strong>${props.NOMGEO || props.NOM_LOC || props.NOMBRE || 'Sin nombre'}</strong><br>
+                    <small><strong>CVEGEO:</strong> ${props.CVEGEO || 'N/A'}</small><br>
+                    <strong>Municipio:</strong> ${props.NOM_MUN || 'N/A'}<br>
+                    <strong>Estado:</strong> ${props.NOM_ENT || 'N/A'}<br>
+                    <strong>Población:</strong> ${formatNumber(props.POBTOT || props.POBTOTAL || 0)}<br>
+                    <strong>Ámbito:</strong> ${props.AMBITO || 'N/A'}
+                </div>
+            `;
+        case 'atlas':
+            return `
+                <div class="popup-content">
+                    <strong>${props.NOMBRE || props.nombre || 'Pueblo Indígena'}</strong><br>
+                    <strong>Tipo:</strong> ${props.TIPO || 'N/A'}<br>
+                    <strong>Familia:</strong> ${props.FAMILIA || 'N/A'}
+                </div>
+            `;
+        case 'municipios':
+            return `
+                <div class="popup-content">
+                    <strong>${props.NOMGEO || props.NOM_MUN || props.NOMBRE || 'Sin nombre'}</strong><br>
+                    <strong>Estado:</strong> ${props.NOM_ENT || 'N/A'}<br>
+                    <strong>Clave:</strong> ${props.CVEGEO || props.CVE_MUN || 'N/A'}
+                </div>
+            `;
+        case 'regiones':
+            return `
+                <div class="popup-content">
+                    <strong>${props.NOMBRE || props.nombre || 'Región Indígena'}</strong><br>
+                    <strong>Estado:</strong> ${props.ESTADO || props.NOM_ENT || 'N/A'}
+                </div>
+            `;
+        case 'lenguas':
+            return `
+                <div class="popup-content">
+                    <strong>${props.NOMBRE || props.nombre || 'Lengua Indígena'}</strong><br>
+                    <strong>Familia:</strong> ${props.FAMILIA || 'N/A'}<br>
+                    <strong>Grupo:</strong> ${props.GRUPO || 'N/A'}
+                </div>
+            `;
+        case 'anp_estatal':
+        case 'ramsar':
+        case 'sitio_arqueologico':
+        case 'z_historicos':
+            return `
+                <div class="popup-content">
+                    <strong>${props.NOMBRE || props.nombre || props.Name || 'Área Protegida'}</strong><br>
+                    <strong>Tipo:</strong> ${props.TIPO || props.CATEGORIA || 'N/A'}
+                </div>
+            `;
+        default:
+            const name = props.NOMBRE || props.nombre || props.Name || props.name || 'Sin nombre';
+            return `
+                <div class="popup-content">
+                    <strong>${name}</strong><br>
+                    <small>Capa: ${layerName}</small>
+                </div>
+            `;
+    }
+}
+
+// ============================================================================
+// FUNCIONES DE REPORTES GLOBALES
+// ============================================================================
+
+/**
+ * Genera reporte Excel global con todas las áreas
+ */
+function generateGlobalExcelReport() {
+    if (kmlLayers.size === 0) {
+        showAlert('No hay áreas para reportar', 'warning');
+        return;
+    }
+
+    try {
+        const workbook = XLSX.utils.book_new();
+
+        // Hoja de resumen global
+        const summaryData = [
+            ['Resumen Global de Análisis Multi-Área'],
+            ['Fecha de generación', new Date().toLocaleString('es-MX')],
+            ['Total de áreas analizadas', kmlLayers.size],
+            [''],
+            ['Área', 'Archivo KML', 'Superficie (km²)', 'Población Total', 'Elementos Totales', 'Densidad Poblacional']
+        ];
+
+        let totalArea = 0;
+        let totalPopulation = 0;
+        let totalElements = 0;
+
+        kmlLayers.forEach((kmlEntry, kmlId) => {
+            if (kmlEntry.metrics) {
+                const metrics = kmlEntry.metrics;
+                summaryData.push([
+                    kmlEntry.name,
+                    kmlEntry.file.name,
+                    metrics.area,
+                    metrics.totalPopulation,
+                    metrics.totalElements,
+                    metrics.populationDensity
+                ]);
+
+                totalArea += metrics.area;
+                totalPopulation += metrics.totalPopulation;
+                totalElements += metrics.totalElements;
+            }
+        });
+
+        // Totales
+        summaryData.push([''], ['TOTALES', '', totalArea, totalPopulation, totalElements, '']);
+
+        const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
+        XLSX.utils.book_append_sheet(workbook, summarySheet, 'Resumen_Global');
+
+        // Hoja por cada área
+        kmlLayers.forEach((kmlEntry, kmlId) => {
+            if (kmlEntry.metrics && Object.keys(kmlEntry.clippedLayers).length > 0) {
+                const areaData = [
+                    [`Análisis: ${kmlEntry.name}`],
+                    ['Capa', 'Elementos encontrados', 'Detalles'],
+                    ['']
+                ];
+
+                Object.entries(kmlEntry.clippedLayers).forEach(([layerName, layer]) => {
+                    if (layer && layer.getLayers) {
+                        const count = layer.getLayers().length;
+                        areaData.push([getLayerDisplayName(layerName), count, 'Ver datos detallados']);
+                    }
+                });
+
+                const areaSheet = XLSX.utils.aoa_to_sheet(areaData);
+                const sheetName = kmlEntry.name.substring(0, 31); // Excel limita nombres a 31 caracteres
+                XLSX.utils.book_append_sheet(workbook, areaSheet, sheetName);
+            }
+        });
+
+        // Descargar archivo
+        const fileName = `reporte_multi_area_${new Date().toISOString().split('T')[0]}.xlsx`;
+        XLSX.writeFile(workbook, fileName);
+
+        showAlert(`Reporte Excel global generado: ${fileName}`, 'success', 4000);
+
+    } catch (error) {
+        console.error('Error generando reporte Excel global:', error);
+        showAlert('Error al generar el reporte Excel global', 'danger', 4000);
+    }
+}
+
+/**
+ * Genera reporte PDF global con todas las áreas
+ */
+async function generateGlobalPdfReport() {
+    if (kmlLayers.size === 0) {
+        showAlert('No hay áreas para reportar', 'warning');
+        return;
+    }
+
+    try {
+        showPreloader();
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF('p', 'mm', 'a4');
+
+        const primaryColor = [124, 25, 70];
+        const secondaryColor = [25, 126, 116];
+
+        // Portada
+        pdf.setFillColor(...primaryColor);
+        pdf.rect(0, 0, 210, 297, 'F');
+
+        pdf.setTextColor(255, 255, 255);
+        pdf.setFontSize(24);
+        pdf.text('Análisis Multi-Área', 105, 80, { align: 'center' });
+
+        pdf.setFontSize(16);
+        pdf.text('Geovisualizador v3', 105, 100, { align: 'center' });
+
+        pdf.setFontSize(12);
+        const currentDate = new Date().toLocaleDateString('es-MX', {
+            year: 'numeric', month: 'long', day: 'numeric',
+            hour: '2-digit', minute: '2-digit'
+        });
+        pdf.text(`Fecha: ${currentDate}`, 105, 130, { align: 'center' });
+        pdf.text(`Áreas analizadas: ${kmlLayers.size}`, 105, 145, { align: 'center' });
+
+        // Índice
+        pdf.addPage();
+        pdf.setFillColor(255, 255, 255);
+        pdf.rect(0, 0, 210, 297, 'F');
+
+        pdf.setTextColor(...primaryColor);
+        pdf.setFontSize(18);
+        pdf.text('Índice', 20, 30);
+
+        pdf.setTextColor(0, 0, 0);
+        pdf.setFontSize(12);
+        pdf.text('Contenido del Reporte:', 20, 50);
+
+        let pageNum = 3;
+        const tocEntries = [
+            { title: 'Resumen Ejecutivo', page: pageNum++ }
+        ];
+
+        kmlLayers.forEach((kmlEntry) => {
+            tocEntries.push({ title: `Análisis: ${kmlEntry.name}`, page: pageNum++ });
+        });
+
+        tocEntries.push({ title: 'Vista General del Mapa', page: pageNum });
+
+        pdf.setFontSize(11);
+        let tocY = 70;
+        tocEntries.forEach(item => {
+            pdf.text(item.title, 25, tocY);
+            pdf.text(item.page.toString(), 180, tocY);
+            tocY += 8;
+        });
+
+        // Resumen Ejecutivo
+        pdf.addPage();
+        pdf.setFillColor(247, 244, 242);
+        pdf.rect(0, 0, 210, 297, 'F');
+
+        pdf.setTextColor(...primaryColor);
+        pdf.setFontSize(18);
+        pdf.text('Resumen Ejecutivo', 20, 30);
+
+        pdf.setTextColor(0, 0, 0);
+        pdf.setFontSize(12);
+
+        let totalArea = 0;
+        let totalPopulation = 0;
+        let totalElements = 0;
+
+        kmlLayers.forEach(kmlEntry => {
+            if (kmlEntry.metrics) {
+                totalArea += kmlEntry.metrics.area;
+                totalPopulation += kmlEntry.metrics.totalPopulation;
+                totalElements += kmlEntry.metrics.totalElements;
+            }
+        });
+
+        pdf.text(`Total de áreas analizadas: ${kmlLayers.size}`, 20, 50);
+        pdf.text(`Superficie total: ${formatNumber(totalArea)} km²`, 20, 65);
+        pdf.text(`Población total intersectada: ${formatNumber(totalPopulation)} hab.`, 20, 80);
+        pdf.text(`Elementos totales encontrados: ${formatNumber(totalElements)}`, 20, 95);
+
+        // Página por cada área
+        kmlLayers.forEach((kmlEntry) => {
+            pdf.addPage();
+            pdf.setFillColor(255, 255, 255);
+            pdf.rect(0, 0, 210, 297, 'F');
+
+            pdf.setTextColor(...primaryColor);
+            pdf.setFontSize(16);
+            pdf.text(`Análisis: ${kmlEntry.name}`, 20, 30);
+
+            if (kmlEntry.metrics) {
+                const metrics = kmlEntry.metrics;
+                pdf.setTextColor(0, 0, 0);
+                pdf.setFontSize(12);
+
+                pdf.text(`Archivo: ${kmlEntry.file.name}`, 20, 50);
+                pdf.text(`Superficie: ${formatNumber(metrics.area)} km²`, 20, 65);
+                pdf.text(`Población total: ${formatNumber(metrics.totalPopulation)} hab.`, 20, 80);
+                pdf.text(`Elementos encontrados: ${formatNumber(metrics.totalElements)}`, 20, 95);
+
+                // Mostrar capas con datos
+                let yPos = 115;
+                pdf.text('Capas con intersecciones:', 20, yPos);
+                yPos += 15;
+
+                Object.entries(kmlEntry.clippedLayers).forEach(([layerName, layer]) => {
+                    if (layer && layer.getLayers) {
+                        const count = layer.getLayers().length;
+                        pdf.text(`${getLayerDisplayName(layerName)}: ${count} elementos`, 25, yPos);
+                        yPos += 8;
+                    }
+                });
+            } else {
+                pdf.setTextColor(100, 100, 100);
+                pdf.setFontSize(14);
+                pdf.text('Área no analizada', 105, 120, { align: 'center' });
+            }
+        });
+
+        // Pie de página en todas las páginas
+        const pageCount = pdf.getNumberOfPages();
+        for (let i = 1; i <= pageCount; i++) {
+            pdf.setPage(i);
+            pdf.setTextColor(100, 100, 100);
+            pdf.setFontSize(8);
+            pdf.text('Geovisualizador Multi-Área v3 - Gobierno de México', 105, 285, { align: 'center' });
+            pdf.text(`Página ${i} de ${pageCount}`, 190, 285, { align: 'right' });
+        }
+
+        updateProgress(100, 'Descargando reporte...');
+        const fileName = `reporte_multi_area_${new Date().toISOString().split('T')[0]}.pdf`;
+        pdf.save(fileName);
+
+        hidePreloader();
+        showAlert(`Reporte PDF global generado: ${fileName}`, 'success', 4000);
+
+    } catch (error) {
+        console.error('Error generando reporte PDF global:', error);
+        hidePreloader();
+        showAlert('Error al generar el reporte PDF global', 'danger', 4000);
+    }
+}
+
+/**
+ * Genera análisis combinado de todas las áreas
+ */
+async function generateCombinedPdfReport() {
+    showAlert('Análisis combinado próximamente disponible', 'info');
+    // TODO: Implementar análisis combinado
+}
+
+// Exponer funciones globales para la UI
+window.centerOnArea = centerOnArea;
+window.analyzeSingleArea = analyzeSingleArea;
+window.removeArea = removeArea;
+window.generateGlobalExcelReport = generateGlobalExcelReport;
+window.generateGlobalPdfReport = generateGlobalPdfReport;
+window.generateCombinedPdfReport = generateCombinedPdfReport;
+
+// =============================
+// REPORTE EXCEL POR ÁREA (SECCIÓN 3)
+// =============================
+function generateAreaExcelReport(kmlId) {
+    const kmlEntry = kmlLayers.get(kmlId);
+    if (!kmlEntry || !kmlEntry.isAnalyzed) {
+        showAlert('Selecciona un área analizada para exportar', 'warning');
+        return;
+    }
+
+    try {
+        const workbook = XLSX.utils.book_new();
+
+        // Resumen del área
+        const m = kmlEntry.metrics || {};
+        const summary = [
+            [`Análisis del Área: ${kmlEntry.name}`],
+            ['Archivo KML', kmlEntry.file?.name || ''],
+            ['Fecha de análisis', new Date(m.analysisDate || Date.now()).toLocaleString('es-MX')],
+            ['Tipo de área', m.areaType || kmlEntry.areaType || ''],
+            ['Buffer aplicado', m.bufferUsed ? `${m.bufferRadius} km` : 'No'],
+            ['Superficie (km²)', m.area || 0],
+            ['Población Total', m.totalPopulation || 0],
+            ['Elementos Totales', m.totalElements || 0],
+            ['Capas con resultados', m.layersFound || (kmlEntry.results ? Object.keys(kmlEntry.results).length : 0)]
+        ];
+        const summarySheet = XLSX.utils.aoa_to_sheet(summary);
+        XLSX.utils.book_append_sheet(workbook, summarySheet, 'Resumen');
+
+        // Hoja por capa
+        const results = kmlEntry.results || {};
+        Object.entries(results).forEach(([layerName, data]) => {
+            const display = getLayerDisplayName(layerName);
+            const features = data?.features || [];
+            if (features.length === 0) return;
+
+            // Derivar columnas de propiedades presentes
+            const columns = new Set();
+            features.forEach(f => Object.keys(f.properties || {}).forEach(k => columns.add(k)));
+            const headers = Array.from(columns);
+            if (headers.length === 0) headers.push('id');
+
+            const rows = [headers];
+            features.forEach(f => {
+                const row = headers.map(h => (f.properties || {})[h] ?? '');
+                rows.push(row);
+            });
+
+            const sheet = XLSX.utils.aoa_to_sheet(rows);
+            XLSX.utils.book_append_sheet(workbook, sheet, display.substring(0, 31));
+        });
+
+        const fileName = `reporte_area_${kmlEntry.name.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.xlsx`;
+        XLSX.writeFile(workbook, fileName);
+        showAlert(`Reporte del área generado: ${fileName}`, 'success', 3500);
+    } catch (e) {
+        console.error('Error generando Excel del área:', e);
+        showAlert('Error al generar el Excel del área', 'danger', 4000);
+    }
 }
 
 // Inicializar cuando el DOM esté listo
@@ -3671,3 +5399,4 @@ if (document.readyState === 'loading') {
 } else {
     initApp();
 }
+

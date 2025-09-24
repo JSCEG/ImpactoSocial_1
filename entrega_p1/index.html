@@ -6,53 +6,111 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Geovisualizador de Áreas de Interés</title>
 
-    <!-- Bootstrap CSS (para diseño mobile-first y componentes) -->
+    <!-- Bootstrap CSS para el diseño responsive y componentes -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 
     <!-- Leaflet CSS -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css" />
 
-    <!-- Estilos propios (sobrescribe Bootstrap cuando sea necesario) se cargan con versión para evitar caché -->
-    <!-- Cache-busting loader: actualiza APP_VERSION para invalidar caché de style.css, togeojson.js e index.js -->
+    <!-- Simple-DataTables CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/simple-datatables@latest/dist/style.css" rel="stylesheet" type="text/css">
+
+    <!-- MapTiler SDK CSS -->
+    <link href="https://cdn.maptiler.com/maptiler-sdk-js/v3.6.1/maptiler-sdk.css" rel="stylesheet" />
+
+    <!-- Leaflet Locate Control CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet.locatecontrol/dist/L.Control.Locate.min.css" />
+
+    <!-- Sistema de versionado para evitar problemas de caché en producción -->
+    <!-- Cambiar APP_VERSION cuando se actualicen los archivos CSS/JS -->
     <script>
+        // Versión de la app para control de caché
         window.APP_VERSION = '20250807-1';
+
+        // Cargador inteligente que añade versión a los archivos para evitar caché
         (function () {
             function withV(url) { return url + (url.indexOf('?') > -1 ? '&' : '?') + 'v=' + encodeURIComponent(window.APP_VERSION); }
             function loadCss(href) { var l = document.createElement('link'); l.rel = 'stylesheet'; l.href = withV(href); document.head.appendChild(l); }
             function loadScript(src, cb) { var s = document.createElement('script'); s.src = withV(src); s.onload = function () { cb && cb(); }; document.head.appendChild(s); }
+
+            // Espera a que Leaflet esté listo antes de cargar la app principal
             function whenLeafletReady(cb, tries) {
-                tries = tries || 100; // ~10-15s
+                tries = tries || 100;
+                console.log(`[DEBUG] Checking Leaflet readiness, tries left: ${tries}`);
                 (function wait() {
-                    if (window.L && typeof window.L.map === 'function') { cb(); return; }
-                    if (--tries <= 0) { cb(); return; }
+                    if (window.L && typeof window.L.map === 'function') {
+                        console.log('[DEBUG] Leaflet is ready, loading index2.js');
+                        cb();
+                        return;
+                    }
+                    if (--tries <= 0) {
+                        console.log('[DEBUG] Leaflet timeout reached, loading index2.js anyway');
+                        cb();
+                        return;
+                    }
                     setTimeout(wait, 120);
                 })();
             }
-            // Cargar CSS propio versionado
+
+            // Cargar archivos en orden: CSS primero, luego JS cuando Leaflet esté listo
+            console.log('[DEBUG] Starting to load CSS and scripts');
             loadCss('style.css');
-            // Cargar togeojson versionado y esperar a Leaflet para cargar la app
-            loadScript('togeojson.js');
-            whenLeafletReady(function () { loadScript('index.js'); });
+
+            // Esperar a que Leaflet esté listo, luego cargar los scripts que dependen de él en orden
+            whenLeafletReady(function () {
+                console.log('[DEBUG] Leaflet ready, loading app scripts.');
+                // Cargar togeojson.js primero
+                loadScript('togeojson.js', function () {
+                    console.log('[DEBUG] togeojson.js loaded, loading main app script.');
+                    // Una vez que togeojson.js está listo, cargar index2.js
+                    loadScript('index2.js');
+                });
+            });
         })();
     </script>
 
-    <!-- Bootstrap Icons para redes sociales en el footer -->
+    <!-- Bootstrap Icons para iconos del footer y botones -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
 
-    <!-- Librerías JS de mapas y utilidades -->
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Leaflet JS (debe cargarse primero) -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo" crossorigin=""></script>
+    <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
+
+    <!-- MapTiler SDK (versión correcta) -->
+    <script src="https://cdn.maptiler.com/maptiler-sdk-js/v3.6.1/maptiler-sdk.umd.min.js"></script>
+    <script src="https://cdn.maptiler.com/leaflet-maptilersdk/v4.1.0/leaflet-maptilersdk.umd.min.js"></script>
+
+    <!-- Leaflet Locate Control (después de Leaflet) -->
+    <script src="https://cdn.jsdelivr.net/npm/leaflet.locatecontrol/dist/L.Control.Locate.min.js"></script>
+
+    <!-- Simple-DataTables JS -->
+    <script src="https://cdn.jsdelivr.net/npm/simple-datatables@latest" type="text/javascript"></script>
+
+    <!-- Leaflet.EasyPrint JS -->
+    <script src="https://cdn.jsdelivr.net/npm/leaflet-easyprint@2.1.9/dist/bundle.min.js"></script>
+
+    <!-- Librerías adicionales para funcionalidad de mapas -->
     <script src="https://cdn.jsdelivr.net/npm/leaflet-omnivore@0.3.4/leaflet-omnivore.min.js"></script>
     <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+
+    <!-- NOTA TÉCNICA: Los navegadores Chrome/Edge/Brave pueden tener problemas de CORS
+          al cargar datos GeoJSON externos. Firefox funciona mejor. El código incluye
+          fallbacks automáticos y datos de ejemplo para desarrollo. -->
 </head>
 
 <body class="bg-body">
-    <!-- Preloader: se muestra mientras se cargan datos/mapa -->
+    <!-- Pantalla de carga con barra de progreso -->
     <div id="preloader" hidden
         class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center bg-white"
         style="z-index: 2050; display: none;">
         <div class="text-center">
             <img src="img/mujer.png" alt="Cargando" style="max-height: 120px; object-fit: contain;" class="mb-3">
             <div class="spinner-border text-primary" role="status" aria-label="Cargando"></div>
+            <p class="mt-3 mb-0">Procesando…</p>
             <div class="progress mt-3 mx-auto" style="height: 10px; width: min(80vw, 420px);">
                 <div id="preProgressBar" class="progress-bar bg-success" role="progressbar" style="width: 0%;"
                     aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div>
@@ -61,7 +119,7 @@
         </div>
     </div>
 
-    <!-- Navbar con logos (header institucional) -->
+    <!-- Header institucional con logos del gobierno -->
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm">
         <div class="container-fluid">
             <a class="navbar-brand d-flex align-items-center" href="#">
@@ -81,20 +139,20 @@
         </div>
     </nav>
 
-    <!-- Contenedor de alertas Bootstrap (se inyectan por JS) -->
+    <!-- Contenedor para mostrar alertas y notificaciones -->
     <div id="alertContainer" class="position-fixed top-0 start-50 translate-middle-x mt-3"
         style="z-index: 2100; width: min(92vw, 720px);"></div>
 
-    <!-- Contenido principal: mobile-first -->
+    <!-- Contenido principal con diseño responsive -->
     <main class="container-fluid py-3">
         <div class="row g-3">
-            <!-- Panel de controles: ocupa todo en móvil y se vuelve sidebar en pantallas grandes -->
+            <!-- Panel de controles: sidebar en desktop, full width en móvil -->
             <section class="col-12 col-lg-4 col-xl-3">
                 <div class="card shadow-sm">
                     <div class="card-body">
                         <h2 class="h5 card-title">Controles</h2>
                         <div class="accordion" id="controlsAccordion">
-                            <!-- 1. Cargar KML -->
+                            <!-- Paso 1: Subir archivo KML con el área de interés -->
                             <div class="accordion-item">
                                 <h2 class="accordion-header" id="headingKml">
                                     <button class="accordion-button" type="button" data-bs-toggle="collapse"
@@ -119,29 +177,34 @@
                                             title="Centrar el mapa en el área del KML cargado">
                                             <i class="bi bi-crosshair me-1"></i>Centrar en KML
                                         </button>
+                                        <button id="reloadDataBtn" class="btn btn-outline-info w-100 mt-2"
+                                            title="Reintentar carga de datos desde servidor">
+                                            <i class="bi bi-arrow-clockwise me-1"></i>Recargar Datos
+                                        </button>
                                     </div>
                                 </div>
                             </div>
 
-                            <!-- 2. Recorte -->
+                            <!-- Paso 2: Realizar análisis geoespacial -->
                             <div class="accordion-item">
                                 <h2 class="accordion-header" id="headingClip">
                                     <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
                                         data-bs-target="#collapseClip" aria-expanded="false"
-                                        aria-controls="collapseClip">2) Recorte de Localidades</button>
+                                        aria-controls="collapseClip">2) Recorte de Capas</button>
                                 </h2>
                                 <div id="collapseClip" class="accordion-collapse collapse" aria-labelledby="headingClip"
                                     data-bs-parent="#controlsAccordion">
                                     <div class="accordion-body">
                                         <label for="areaType" class="form-label">Tipo de área</label>
                                         <select id="areaType" class="form-select mb-2" aria-describedby="areaHelp">
+                                            <option value="exacta">Área exacta (sin buffer)</option>
                                             <option value="nucleo">Área núcleo (con buffer de 500m)</option>
                                             <option value="directa">Área de influencia directa</option>
                                             <option value="indirecta">Área de influencia indirecta</option>
                                         </select>
                                         <div id="areaHelp" class="form-text mb-2">
-                                            <small>El área núcleo incluye un buffer adicional de 500 metros alrededor
-                                                del polígono.</small>
+                                            <small>Selecciona el tipo de área para el análisis. El área núcleo incluye
+                                                un buffer adicional de 500 metros alrededor del polígono.</small>
                                         </div>
                                         <button id="performClipBtn" class="btn btn-success w-100" disabled
                                             title="Iniciar el análisis geoespacial con el área seleccionada">
@@ -155,13 +218,13 @@
                                 </div>
                             </div>
 
-                            <!-- 3. Lista de CVEGEO -->
+                            <!-- Paso 3: Ver resultados del análisis -->
                             <div class="accordion-item">
                                 <h2 class="accordion-header" id="headingList">
                                     <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
                                         data-bs-target="#collapseList" aria-expanded="false"
                                         aria-controls="collapseList">
-                                        3) Localidades encontradas
+                                        3) Total de elementos en capas analizadas
                                         <span id="foundCountBadge" class="badge bg-secondary ms-2">0</span>
                                     </button>
                                 </h2>
@@ -171,34 +234,50 @@
                                         <div id="summaryCounts"
                                             class="d-flex align-items-center justify-content-between small mb-2">
                                             <span>Criterio actual: <strong id="currentCriteria">—</strong></span>
-                                            <span>Total: <strong id="totalFound">0</strong></span>
+                                            <span>Total elementos: <strong id="totalFound">0</strong></span>
                                         </div>
-                                        <p class="mb-2">Claves Geoestadísticas (CVEGEO) y colores en el mapa:</p>
-                                        <div id="cvegeoList" class="border rounded p-2 bg-light small">
-                                            <p class="mb-0 text-muted">Sube un KML y realiza el recorte para ver la
-                                                lista.</p>
+                                        <p class="mb-2">Elementos encontrados por capa:</p>
+                                        <div id="layersContainer" class="border rounded p-2 bg-light small">
+                                            <p class="mb-0 text-muted">Sube un KML y realiza el recorte para ver las
+                                                capas.</p>
                                         </div>
                                     </div>
                                 </div>
                             </div>
 
-                            <!-- 4. Limpiar -->
+                            <!-- Paso 4: Ver resultados y reportes -->
                             <div class="accordion-item">
-                                <h2 class="accordion-header" id="headingClear">
+                                <h2 class="accordion-header" id="headingResults">
                                     <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
-                                        data-bs-target="#collapseClear" aria-expanded="false"
-                                        aria-controls="collapseClear">4) Limpiar Mapa</button>
+                                        data-bs-target="#collapseResults" aria-expanded="false"
+                                        aria-controls="collapseResults">4) Resultados y Reportes</button>
                                 </h2>
-                                <div id="collapseClear" class="accordion-collapse collapse"
-                                    aria-labelledby="headingClear" data-bs-parent="#controlsAccordion">
+                                <div id="collapseResults" class="accordion-collapse collapse"
+                                    aria-labelledby="headingResults" data-bs-parent="#controlsAccordion">
                                     <div class="accordion-body">
-                                        <button id="clearMap" class="btn btn-outline-danger w-100"
-                                            title="Eliminar todas las capas del mapa y reiniciar la aplicación">
-                                            <i class="bi bi-trash me-1"></i>Limpiar Todo
-                                        </button>
+                                        <div id="chartsContainer" style="display: none;">
+                                            <h6 class="text-primary mb-3">📊 Distribución de Elementos por Capa</h6>
+                                            <div id="layerChart" style="height: 300px;"></div>
+                                            <h6 class="text-primary mb-3 mt-4">🏘️ Top 10 Localidades por Población</h6>
+                                            <div id="populationChart" style="height: 300px;"></div>
+                                        </div>
+                                        <div class="d-grid gap-2 mt-3">
+                                            <button id="downloadPdfBtn" class="btn btn-primary" disabled
+                                                title="Descargar reporte PDF completo con gráficos y datos">
+                                                <i class="bi bi-file-earmark-pdf me-1"></i>Descargar Reporte PDF
+                                            </button>
+                                            <button id="downloadReportBtn" class="btn btn-success" disabled
+                                                title="Descargar reporte Excel con todos los datos analizados">
+                                                <i class="bi bi-file-earmark-excel me-1"></i>Descargar Reporte Excel
+                                            </button>
+                                            <button id="clearMap" class="btn btn-outline-danger"
+                                                title="Eliminar todas las capas del mapa y reiniciar la aplicación">
+                                                <i class="bi bi-trash me-1"></i>Limpiar Todo
+                                            </button>
+                                        </div>
                                         <div class="form-text mt-2">
-                                            <small>Esta acción eliminará todas las capas del mapa y permitirá comenzar
-                                                con un nuevo análisis.</small>
+                                            <small>Descargue reportes completos o limpie el mapa para comenzar un nuevo
+                                                análisis.</small>
                                         </div>
                                     </div>
                                 </div>
@@ -208,7 +287,7 @@
                 </div>
             </section>
 
-            <!-- Mapa: ocupa todo el ancho en móvil -->
+            <!-- Área principal del mapa interactivo -->
             <section class="col-12 col-lg-8 col-xl-9">
                 <div class="card shadow-sm h-100">
                     <div class="card-body p-2 p-md-3">
@@ -219,7 +298,7 @@
         </div>
     </main>
 
-    <!-- Footer institucional -->
+    <!-- Footer institucional estilo gob.mx -->
     <footer class="gov-footer mt-4 pt-4 text-white">
         <div class="container-fluid px-4">
             <div class="row gy-4">
@@ -267,11 +346,25 @@
         <div class="footer-pattern"></div>
     </footer>
 
-    <!-- Bootstrap JS (componentes como navbar/accordion) -->
+    <!-- Bootstrap JS para componentes interactivos -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-    <!-- Lógica de la app se inyecta vía loader con versión (ver APP_VERSION en <head>) -->
 
-    <!-- Modal genérico para avisos (usado en recorte) -->
+    <!-- Librerías para generación de reportes Excel -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+
+    <!-- Librerías para gráficos Highcharts -->
+    <script src="https://code.highcharts.com/highcharts.js"></script>
+    <script src="https://code.highcharts.com/modules/exporting.js"></script>
+    <script src="https://code.highcharts.com/modules/export-data.js"></script>
+
+    <!-- Librerías para generación de PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+
+    <!-- La lógica principal se carga dinámicamente con control de versión -->
+
+    <!-- Modal reutilizable para mostrar mensajes al usuario -->
     <div class="modal fade" id="appModal" tabindex="-1" aria-labelledby="appModalLabel" aria-hidden="true">
         <div class="modal-dialog">
             <div class="modal-content">
