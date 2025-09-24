@@ -154,6 +154,13 @@ let layersControl = null;
 let featureLayersById = new Map();  // Para poder navegar a elementos específicos
 let highlightLayer = null;          // Para resaltar elementos seleccionados
 
+// Elementos del DOM para multi-KML (variables globales)
+let kmlSelect = null;
+let analyzeSelectedBtn = null;
+let kmlResultsContainer = null;
+let kmlSummaryEl = null;
+let kmlChartsContainer = null;
+
 // Grupos globales por capa temática para evitar duplicados en el control
 const overlayGroupsByKey = {};       // { layerKey: L.FeatureGroup }
 const overlayDisplayNameByKey = {};  // { layerKey: displayName }
@@ -594,12 +601,12 @@ function initApp() {
         // Controles globales antiguos (pueden no existir tras rediseño de UI)
         const globalAreaTypeSelect = document.getElementById('globalAreaType') || null;
         const autoAnalyzeCheck = document.getElementById('autoAnalyzeCheck') || null;
-        // Nuevos elementos para análisis por área en la sección 3
-        const kmlSelect = document.getElementById('kmlSelect');
-        const analyzeSelectedBtn = document.getElementById('analyzeSelectedBtn');
-        const kmlResultsContainer = document.getElementById('kmlResultsContainer');
-        const kmlSummaryEl = document.getElementById('kmlSummary');
-        const kmlChartsContainer = document.getElementById('kmlChartsContainer');
+        // Nuevos elementos para análisis por área en la sección 3 - asignar a variables globales
+        kmlSelect = document.getElementById('kmlSelect');
+        analyzeSelectedBtn = document.getElementById('analyzeSelectedBtn');
+        kmlResultsContainer = document.getElementById('kmlResultsContainer');
+        kmlSummaryEl = document.getElementById('kmlSummary');
+        kmlChartsContainer = document.getElementById('kmlChartsContainer');
         const kmlLayerChartEl = document.getElementById('kmlLayerChart');
         const kmlPopulationChartEl = document.getElementById('kmlPopulationChart');
         const reloadDataBtn = document.getElementById('reloadDataBtn');
@@ -610,23 +617,10 @@ function initApp() {
         if (kmlFileInput) kmlFileInput.value = '';
 
         // Poblar y sincronizar el selector de áreas
-        function refreshKmlSelect() {
-            if (!kmlSelect) return;
-            const current = kmlSelect.value;
-            kmlSelect.innerHTML = '<option value="" selected>— Selecciona un área —</option>';
-            kmlLayers.forEach((entry, id) => {
-                const opt = document.createElement('option');
-                opt.value = id;
-                opt.textContent = entry.name + (entry.isAnalyzed ? ' ✓' : '');
-                kmlSelect.appendChild(opt);
-            });
-            // Restaurar selección si es posible
-            if (current && kmlLayers.has(current)) {
-                kmlSelect.value = current;
-            }
-            analyzeSelectedBtn && (analyzeSelectedBtn.disabled = !kmlSelect.value);
-        }
 
+        /**
+         * Renderiza el panel de resultados para un área KML específica
+         */
         function renderKmlResultsPanel(kmlEntry) {
             if (!kmlResultsContainer) return;
             if (!kmlEntry || !kmlEntry.isAnalyzed) {
@@ -690,11 +684,38 @@ function initApp() {
 
             // Gráficos por área reaprovechando generadores existentes con IDs específicos
             try {
-                if (kmlChartsContainer) kmlChartsContainer.style.display = 'block';
+                console.log('[DEBUG] Rendering charts for area:', kmlEntry.name);
+                if (kmlChartsContainer) {
+                    kmlChartsContainer.style.display = 'block';
+                    console.log('[DEBUG] Charts container made visible');
+                }
+
+                // Callbacks para navegación interactiva
+                const onLayerClick = (layerName, features) => {
+                    console.log('[DEBUG] Layer clicked:', layerName, 'with', features.length, 'features');
+                    navigateToLayerFeatures(layerName, features);
+                };
+
+                const onLocalityClick = (feature) => {
+                    console.log('[DEBUG] Locality clicked:', feature.properties.NOMGEO || feature.properties.NOM_LOC);
+                    const propertyName = 'CVEGEO'; // Para localidades
+                    navigateToFeature(feature.properties[propertyName], 'localidades', results.localidades.features, propertyName);
+                };
+
                 // Dibujar en contenedores específicos de la sección 3
-                generateLayerChartIn('kmlLayerChart', { ...results });
-                generatePopulationChartIn('kmlPopulationChart', { localidades: results.localidades });
-            } catch (e) { console.warn('Charts render warning:', e); }
+                console.log('[DEBUG] Generating layer chart with data:', Object.keys(results));
+                generateLayerChartIn('kmlLayerChart', { ...results }, onLayerClick);
+                console.log('[DEBUG] Generating population chart');
+                generatePopulationChartIn('kmlPopulationChart', { localidades: results.localidades }, onLocalityClick);
+                console.log('[DEBUG] Charts generation completed');
+            } catch (e) {
+                console.error('Charts render error:', e);
+                // Mostrar mensaje de error en el contenedor
+                if (kmlChartsContainer) {
+                    kmlChartsContainer.innerHTML = '<div class="alert alert-warning small">Error al generar gráficos: ' + e.message + '</div>';
+                    kmlChartsContainer.style.display = 'block';
+                }
+            }
 
             // Per-area export button was removed; use the unified Excel export instead
         }
@@ -705,6 +726,14 @@ function initApp() {
                 analyzeSelectedBtn && (analyzeSelectedBtn.disabled = !kmlSelect.value);
                 const entry = kmlLayers.get(kmlSelect.value);
                 renderKmlResultsPanel(entry);
+
+                // Expandir automáticamente la sección de análisis si hay resultados
+                if (entry && entry.isAnalyzed) {
+                    const collapseConfig = document.getElementById('collapseConfig');
+                    if (collapseConfig && !collapseConfig.classList.contains('show')) {
+                        const bsCollapse = new bootstrap.Collapse(collapseConfig, { show: true });
+                    }
+                }
             });
         }
         if (analyzeSelectedBtn) {
@@ -1275,6 +1304,234 @@ function initApp() {
                 'rutaWixarika': 'Ruta Wixarika'
             };
             return displayNames[layerName] || layerName;
+        }
+
+        /**
+         * Navega a todas las features de una capa específica en el mapa con highlight visual
+         */
+        function navigateToLayerFeatures(layerName, features) {
+            if (!features || features.length === 0) return;
+
+            // Activar automáticamente la capa correspondiente si no está visible
+            const layerMapping = {
+                'localidades': clippedLocalitiesLayer,
+                'atlas': clippedAtlasLayer,
+                'municipios': clippedMunicipiosLayer,
+                'regiones': clippedRegionesLayer,
+                'ran': clippedRanLayer,
+                'lenguas': clippedLenguasLayer,
+                'za_publico': clippedZaPublicoLayer,
+                'za_publico_a': clippedZaPublicoALayer,
+                'anp_estatal': clippedAnpEstatalLayer,
+                'ramsar': clippedRamsarLayer,
+                'sitio_arqueologico': clippedSitioArqueologicoLayer,
+                'z_historicos': clippedZHistoricosLayer,
+                'loc_indigenas_datos': clippedLocIndigenasLayer,
+                'rutaWixarika': clippedRutaWixarikaLayer
+            };
+
+            const correspondingLayer = layerMapping[layerName];
+            if (correspondingLayer && !map.hasLayer(correspondingLayer)) {
+                map.addLayer(correspondingLayer);
+                showAlert(`Capa "${getLayerDisplayName(layerName)}" activada automáticamente`, 'info', 2000);
+            }
+
+            // Remover highlight anterior si existe
+            if (highlightLayer) {
+                map.removeLayer(highlightLayer);
+                highlightLayer = null;
+            }
+
+            // Crear bounds que incluyan todas las features
+            const group = L.featureGroup();
+            features.forEach(f => {
+                const layer = L.geoJSON(f);
+                group.addLayer(layer);
+            });
+
+            const bounds = group.getBounds();
+            if (bounds.isValid()) {
+                // Crear capa de highlight con estilo llamativo
+                highlightLayer = L.geoJSON(features, {
+                    style: function (feature) {
+                        return {
+                            color: '#ffff00',        // Amarillo brillante
+                            weight: 4,
+                            opacity: 1,
+                            fillColor: '#ffff00',
+                            fillOpacity: 0.3,
+                            dashArray: '10,5'        // Línea punteada
+                        };
+                    },
+                    pointToLayer: function (feature, latlng) {
+                        return L.circleMarker(latlng, {
+                            radius: 12,
+                            color: '#ffff00',
+                            weight: 4,
+                            opacity: 1,
+                            fillColor: '#ffff00',
+                            fillOpacity: 0.4
+                        });
+                    },
+                    onEachFeature: function (feature, layer) {
+                        const props = feature.properties;
+                        let popupContent;
+                        // Use the same popup logic as in navigateToFeature
+                        if (layerName === 'localidades') {
+                            popupContent = createPopupContent('Localidad', '🏘️', [
+                                { value: props.NOMGEO || props.NOM_LOC || props.NOMBRE || 'Sin nombre', isMain: true },
+                                { label: 'CVEGEO', value: props.CVEGEO },
+                                { label: 'Municipio', value: props.NOM_MUN || props.MUNICIPIO },
+                                { label: 'Estado', value: props.NOM_ENT || props.ESTADO },
+                                { label: 'Ámbito', value: props.AMBITO },
+                                { label: 'Población Total', value: props.POBTOT },
+                                { label: 'Población Femenina', value: props.POBFEM },
+                                { label: 'Población Masculina', value: props.POBMAS }
+                            ]);
+                        } else if (layerName === 'atlas') {
+                            popupContent = createPopupContent('Atlas Pueblos Indígenas', '🏛️', [
+                                { value: props.CVEGEO, isMain: true },
+                                { label: 'Localidad', value: props.NOM_LOC || props.NOMBRE },
+                                { label: 'Municipio', value: props.NOM_MUN || props.MUNICIPIO }
+                            ]);
+                        } else if (layerName === 'municipios') {
+                            popupContent = createPopupContent('Municipio', '🏛️', [
+                                { value: props.NOMGEO || props.NOM_MUN || props.NOMBRE || 'Sin nombre', isMain: true },
+                                { label: 'CVEGEO', value: props.CVEGEO },
+                                { label: 'Estado', value: props.NOM_ENT || props.ESTADO },
+                                { label: 'Cabecera', value: props.NOM_CAB || props.CABECERA }
+                            ]);
+                        } else if (layerName === 'regiones') {
+                            popupContent = createPopupContent('Región Indígena', '🌄', [
+                                { value: props.Name || props.NOMBRE || 'Sin nombre', isMain: true },
+                                { label: 'Tipo', value: props.Tipo || props.TIPO },
+                                { label: 'Descripción', value: props.Descripci || props.DESCRIPCION }
+                            ]);
+                        } else if (layerName === 'ran') {
+                            popupContent = createPopupContent('RAN', '🌾', [
+                                { value: props.MUNICIPIO || props.Clv_Unica, isMain: true },
+                                { label: 'Clv_Unica', value: props.Clv_Unica },
+                                { label: 'Tipo', value: props.tipo || props.Tipo },
+                                { label: 'Estado', value: props.Estado || props.ESTADO },
+                                { label: 'Municipio', value: props.Municipio || props.MUNICIPIO }
+                            ]);
+                        } else if (layerName === 'lenguas') {
+                            popupContent = createPopupContent('Lengua Indígena', '🗣️', [
+                                { value: props.Lengua || props.LENGUA || 'Sin especificar', isMain: true },
+                                { label: 'Localidad', value: props.NOM_LOC || props.LOCALIDAD },
+                                { label: 'Municipio', value: props.NOM_MUN || props.MUNICIPIO },
+                                { label: 'Estado', value: props.NOM_ENT || props.ESTADO }
+                            ]);
+                        } else if (layerName === 'za_publico') {
+                            popupContent = createPopupContent('ZA Público', '🏞️', [
+                                { value: props["Zona Arqueológica"] || 'Sin nombre', isMain: true },
+                                { label: 'Estado', value: props.ESTADO },
+                                { label: 'Municipio', value: props.MUNICIPIO },
+                                { label: 'Localidad', value: props.LOCALIDAD }
+                            ]);
+                        } else if (layerName === 'za_publico_a') {
+                            popupContent = createPopupContent('ZA Público A', '🏞️', [
+                                { value: props["Zona Arqueológica"] || 'Sin nombre', isMain: true },
+                                { label: 'Estado', value: props.ESTADO },
+                                { label: 'Municipio', value: props.MUNICIPIO },
+                                { label: 'Localidad', value: props.LOCALIDAD }
+                            ]);
+                        } else if (layerName === 'anp_estatal') {
+                            popupContent = createPopupContent('ANP Estatal', '🌿', [
+                                { value: props.NOMBRE || 'Sin nombre', isMain: true },
+                                { label: 'Tipo', value: props.TIPO },
+                                { label: 'Categoría DEC', value: props.CAT_DEC },
+                                { label: 'Entidad', value: props.ENTIDAD },
+                                { label: 'Municipio DEC', value: props.MUN_DEC }
+                            ]);
+                        } else if (layerName === 'ramsar') {
+                            popupContent = createPopupContent('Sitio Ramsar', '🦆', [
+                                { value: props.RAMSAR || 'Sin nombre', isMain: true },
+                                { label: 'Estado', value: props.ESTADO },
+                                { label: 'Municipio', value: props.MUNICIPIOS }
+                            ]);
+                        } else if (layerName === 'sitio_arqueologico') {
+                            popupContent = createPopupContent('Sitio Arqueológico', '🏛️', [
+                                { value: props.nombre || 'Sin nombre', isMain: true },
+                                { label: 'Estado', value: props.nom_ent },
+                                { label: 'Municipio', value: props.nom_mun },
+                                { label: 'Localidad', value: props.nom_loc }
+                            ]);
+                        } else if (layerName === 'z_historicos') {
+                            popupContent = createPopupContent('Zona Histórica', '🏰', [
+                                { value: props.Nombre || 'Sin nombre', isMain: true },
+                                { label: 'Estado', value: props.ESTADO },
+                                { label: 'Municipio', value: props.MUNICIPIO },
+                                { label: 'Localidad', value: props.LOCALIDAD }
+                            ]);
+                        } else if (layerName === 'loc_indigenas_datos') {
+                            popupContent = createPopupContent('Loc Indígenas Datos', '🏘️', [
+                                { value: props.LOCALIDAD || 'Sin Localidad', isMain: true },
+                                { label: 'Entidad', value: props.ENTIDAD },
+                                { label: 'Municipio', value: props.MUNICIPIO },
+                                { label: 'Localidad', value: props.LOCALIDAD },
+                                { label: 'Población Total', value: props.POBTOTAL }
+                            ]);
+                        } else if (layerName === 'rutaWixarika') {
+                            popupContent = createPopupContent('Ruta Wixarika', '🛤️', [
+                                { value: props.Name || 'Sin nombre', isMain: true }
+                            ]);
+                        } else {
+                            popupContent = `<h6>${props.NOMBRE || props.nombre || props.Name || props.name || 'Elemento'}</h6><small>Capa: ${getLayerDisplayName(layerName)}</small>`;
+                        }
+                        layer.bindPopup(popupContent);
+                        // Only open popup for single features to avoid clutter
+                        if (features.length === 1) {
+                            layer.openPopup();
+                        }
+                    }
+                }).addTo(map);
+
+                // Agregar efecto de pulso para puntos
+                if (features.length > 0 && features[0].geometry.type === 'Point') {
+                    let pulseCount = 0;
+                    const pulseInterval = setInterval(() => {
+                        if (highlightLayer && pulseCount < 6) {
+                            highlightLayer.eachLayer(layer => {
+                                if (layer.setRadius) {
+                                    const currentRadius = layer.getRadius();
+                                    layer.setRadius(currentRadius === 12 ? 16 : 12);
+                                }
+                            });
+                            pulseCount++;
+                        } else {
+                            clearInterval(pulseInterval);
+                        }
+                    }, 300);
+                }
+
+                // Navegar con animación suave
+                map.fitBounds(bounds, {
+                    padding: [20, 20],
+                    maxZoom: features.length === 1 ? 15 : 13,
+                    animate: true,
+                    duration: 0.8
+                });
+
+                // Mostrar popup informativo
+                setTimeout(() => {
+                    if (features.length === 1) {
+                        const props = features[0].properties;
+                        let displayName = props.NOMGEO || props.NOM_LOC || props.NOMBRE || props.nombre || props.Name || 'Sin nombre';
+                        showAlert(`📍 Navegando a: ${displayName}`, 'info', 2000);
+                    } else {
+                        showAlert(`📍 Navegando a ${features.length} elementos en ${getLayerDisplayName(layerName)}`, 'info', 2000);
+                    }
+                }, 500);
+
+                // Auto-remover highlight después de 8 segundos
+                setTimeout(() => {
+                    if (highlightLayer) {
+                        map.removeLayer(highlightLayer);
+                        highlightLayer = null;
+                    }
+                }, 8000);
+            }
         }
 
         /**
@@ -3978,12 +4235,44 @@ function initApp() {
         const errorMessage = error.message ? `Error al inicializar la aplicación: ${error.message}` : 'Error al inicializar la aplicación. Recarga la página.';
         showAlert(errorMessage, 'danger', 8000);
     }
+
+    // Inicializar el dropdown de áreas
+    refreshKmlSelect();
+
     console.log('[DEBUG] initApp v3 completed');
 }
 
 // ============================================================================
 // FUNCIONES PARA GESTIÓN MULTI-KML
 // ============================================================================
+
+/**
+ * Actualiza el dropdown de selección de áreas KML
+ */
+function refreshKmlSelect() {
+    console.log('[DEBUG] refreshKmlSelect called, kmlSelect:', kmlSelect, 'kmlLayers size:', kmlLayers.size);
+    if (!kmlSelect) {
+        console.log('[DEBUG] kmlSelect not found, returning');
+        return;
+    }
+    const current = kmlSelect.value;
+    kmlSelect.innerHTML = '<option value="" selected>— Selecciona un área —</option>';
+    kmlLayers.forEach((entry, id) => {
+        console.log('[DEBUG] Adding option for:', entry.name, 'analyzed:', entry.isAnalyzed);
+        const opt = document.createElement('option');
+        opt.value = id;
+        opt.textContent = entry.name + (entry.isAnalyzed ? ' ✓' : '');
+        kmlSelect.appendChild(opt);
+    });
+    // Restaurar selección si es posible
+    if (current && kmlLayers.has(current)) {
+        kmlSelect.value = current;
+    }
+    if (analyzeSelectedBtn) {
+        analyzeSelectedBtn.disabled = !kmlSelect.value;
+    }
+    console.log('[DEBUG] refreshKmlSelect completed, options added:', kmlLayers.size);
+}
 
 /**
  * Valida que un archivo sea un KML válido
@@ -4073,7 +4362,7 @@ async function processKmlFile(file) {
 }
 
 // Variantes que permiten dibujar en otro contenedor
-function generateLayerChartIn(containerId, layersData) {
+function generateLayerChartIn(containerId, layersData, onLayerClick = null) {
     const chartData = [];
     const layerColors = {
         localidades: '#008000', atlas: '#ff00ff', municipios: '#0000ff', regiones: '#ffa500', ran: '#ff0000', lenguas: '#00ffff',
@@ -4088,7 +4377,15 @@ function generateLayerChartIn(containerId, layersData) {
     Object.entries(layersData || {}).forEach(([layerName, data]) => {
         if (data && data.features && data.features.length > 0) {
             const count = layerName === 'lenguas' ? new Set(data.features.map(f => f.properties.Lengua || f.properties.LENGUA)).size : data.features.length;
-            chartData.push({ name: layerNames[layerName] || layerName, y: count, color: layerColors[layerName] || '#666666' });
+            const pointConfig = { name: layerNames[layerName] || layerName, y: count, color: layerColors[layerName] || '#666666' };
+            if (onLayerClick) {
+                pointConfig.events = {
+                    click: function () {
+                        onLayerClick(layerName, data.features);
+                    }
+                };
+            }
+            chartData.push(pointConfig);
         }
     });
     Highcharts.chart(containerId, {
@@ -4097,19 +4394,29 @@ function generateLayerChartIn(containerId, layersData) {
         xAxis: { categories: chartData.map(i => i.name), labels: { style: { color: '#333', fontSize: '11px' } } },
         yAxis: { title: { text: 'Número de Elementos', style: { color: '#7C1946', fontWeight: 'bold' } }, labels: { style: { color: '#666' } } },
         legend: { enabled: false },
-        tooltip: { backgroundColor: 'rgba(255,255,255,0.95)', borderColor: '#7C1946', borderRadius: 8, shadow: true, style: { color: '#333' }, formatter: function () { return `<b>${this.x}</b><br/>Elementos: <b>${this.y.toLocaleString('es-MX')}</b>`; } },
-        plotOptions: { bar: { dataLabels: { enabled: true, color: '#333', style: { fontSize: '11px', fontWeight: 'bold' }, formatter: function () { return this.y.toLocaleString('es-MX'); } } } },
+        tooltip: { backgroundColor: 'rgba(255,255,255,0.95)', borderColor: '#7C1946', borderRadius: 8, shadow: true, style: { color: '#333' }, formatter: function () { return `<b>${this.x}</b><br/>Elementos: <b>${this.y.toLocaleString('es-MX')}</b>${onLayerClick ? '<br/><small>Haz clic para navegar</small>' : ''}`; } },
+        plotOptions: { bar: { dataLabels: { enabled: true, color: '#333', style: { fontSize: '11px', fontWeight: 'bold' }, formatter: function () { return this.y.toLocaleString('es-MX'); } }, cursor: onLayerClick ? 'pointer' : 'default' } },
         series: [{ name: 'Elementos', data: chartData, colorByPoint: true }], credits: { enabled: false }, exporting: { enabled: true, buttons: { contextButton: { menuItems: ['viewFullscreen', 'printChart', 'downloadPNG', 'downloadJPEG', 'downloadPDF', 'downloadSVG'] } } }
     });
 }
 
-function generatePopulationChartIn(containerId, layersData) {
+function generatePopulationChartIn(containerId, layersData, onLocalityClick = null) {
     const locs = (layersData && layersData.localidades && layersData.localidades.features) ? layersData.localidades.features : [];
     const populationData = locs
         .filter(f => f.properties.POBTOT && f.properties.POBTOT > 0)
         .sort((a, b) => (b.properties.POBTOT || 0) - (a.properties.POBTOT || 0))
         .slice(0, 10)
-        .map(f => ({ name: f.properties.NOMGEO || f.properties.NOM_LOC || 'Sin nombre', y: f.properties.POBTOT, color: '#7C1946' }));
+        .map(f => {
+            const pointConfig = { name: f.properties.NOMGEO || f.properties.NOM_LOC || 'Sin nombre', y: f.properties.POBTOT, color: '#7C1946' };
+            if (onLocalityClick) {
+                pointConfig.events = {
+                    click: function () {
+                        onLocalityClick(f);
+                    }
+                };
+            }
+            return pointConfig;
+        });
     if (populationData.length === 0) {
         try { document.getElementById(containerId).innerHTML = '<div class="text-muted small">Sin datos de población.</div>'; } catch (_) { }
         return;
@@ -4119,8 +4426,8 @@ function generatePopulationChartIn(containerId, layersData) {
         accessibility: { enabled: false }, title: { text: null },
         xAxis: { categories: populationData.map(item => item.name.length > 15 ? item.name.substring(0, 15) + '...' : item.name), labels: { rotation: -45, style: { color: '#333', fontSize: '10px' } } },
         yAxis: { title: { text: 'Población Total', style: { color: '#7C1946', fontWeight: 'bold' } }, labels: { style: { color: '#666' }, formatter: function () { return (this.value / 1000).toFixed(0) + 'k'; } } },
-        legend: { enabled: false }, tooltip: { backgroundColor: 'rgba(255,255,255,0.95)', borderColor: '#7C1946', borderRadius: 8, shadow: true, style: { color: '#333' }, formatter: function () { return `<b>${this.x}</b><br/>Población: <b>${this.y.toLocaleString('es-MX')}</b>`; } },
-        plotOptions: { column: { dataLabels: { enabled: true, color: '#333', style: { fontSize: '9px', fontWeight: 'bold' }, formatter: function () { return (this.y / 1000).toFixed(0) + 'k'; }, rotation: -90, y: -20 } } },
+        legend: { enabled: false }, tooltip: { backgroundColor: 'rgba(255,255,255,0.95)', borderColor: '#7C1946', borderRadius: 8, shadow: true, style: { color: '#333' }, formatter: function () { return `<b>${this.x}</b><br/>Población: <b>${this.y.toLocaleString('es-MX')}</b>${onLocalityClick ? '<br/><small>Haz clic para navegar</small>' : ''}`; } },
+        plotOptions: { column: { dataLabels: { enabled: true, color: '#333', style: { fontSize: '9px', fontWeight: 'bold' }, formatter: function () { return (this.y / 1000).toFixed(0) + 'k'; }, rotation: -90, y: -20 }, cursor: onLocalityClick ? 'pointer' : 'default' } },
         series: [{ name: 'Población', data: populationData, color: '#7C1946' }], credits: { enabled: false }, exporting: { enabled: true, buttons: { contextButton: { menuItems: ['viewFullscreen', 'printChart', 'downloadPNG', 'downloadJPEG', 'downloadPDF', 'downloadSVG'] } } }
     });
 }
@@ -4211,6 +4518,9 @@ async function addKmlToSystem(file) {
         // Actualizar UI
         updateAreasList();
         updateAreasCount();
+        refreshKmlSelect();
+        refreshKmlSelect();
+        refreshKmlSelect();
 
         console.log(`KML ${kmlId} agregado: ${file.name}`);
         return kmlId;
@@ -4417,6 +4727,7 @@ async function analyzeSingleArea(kmlId) {
         // Actualizar UI
         updateAreasList();
         updateAreasCount();
+        refreshKmlSelect();
         // Render section 3 panel if current selection matches
         const kmlSelect = document.getElementById('kmlSelect');
         if (kmlSelect && kmlSelect.value === kmlId) {
@@ -4471,6 +4782,7 @@ async function analyzeAllActiveAreas() {
         updateProgress(100, 'Análisis completado');
         updateAreasList();
         updateAreasCount();
+        refreshKmlSelect();
         // If a selection exists, re-render its panel
         const kmlSelectEl = document.getElementById('kmlSelect');
         if (kmlSelectEl && kmlSelectEl.value) {
