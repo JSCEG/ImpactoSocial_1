@@ -21,6 +21,9 @@ let lastAreaBounds = null; // Para poder volver a centrar en el área analizada
 let kmlMetrics = {
     area: 0, // en km²
     perimeter: 0, // en km
+    hasOverlaps: false, // si tiene superposiciones
+    overlapCount: 0, // número de superposiciones detectadas
+    polygonCount: 0, // número de polígonos en el KML
     geometryType: 'N/A',
     bufferUsed: false,
     bufferRadius: 0,
@@ -1999,11 +2002,12 @@ function initApp() {
                         return;
                     }
 
-                    const kmlPolygon = kmlGeoJson.features.find(f =>
+                    // Buscar todas las geometrías de tipo Polygon o MultiPolygon
+                    const polygons = kmlGeoJson.features.filter(f =>
                         f.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon')
                     );
 
-                    if (!kmlPolygon) {
+                    if (polygons.length === 0) {
                         showAlert(
                             'El archivo KML no contiene un polígono válido. ' +
                             'Por favor, asegúrate de que el archivo contenga geometrías de tipo Polygon o MultiPolygon.',
@@ -2013,8 +2017,111 @@ function initApp() {
                         return;
                     }
 
+                    // Validar geometrías: verificar que no estén vacías y tengan coordenadas válidas
+                    const validPolygons = polygons.filter(polygon => {
+                        if (!polygon.geometry || !polygon.geometry.coordinates) return false;
+
+                        // Para Polygon: verificar que tenga al menos un anillo con coordenadas
+                        if (polygon.geometry.type === 'Polygon') {
+                            return polygon.geometry.coordinates.length > 0 &&
+                                polygon.geometry.coordinates[0].length >= 4; // Mínimo 4 puntos para un polígono cerrado
+                        }
+
+                        // Para MultiPolygon: verificar que cada polígono sea válido
+                        if (polygon.geometry.type === 'MultiPolygon') {
+                            return polygon.geometry.coordinates.length > 0 &&
+                                polygon.geometry.coordinates.every(poly =>
+                                    poly.length > 0 && poly[0].length >= 4
+                                );
+                        }
+
+                        return false;
+                    });
+
+                    if (validPolygons.length === 0) {
+                        showAlert('El archivo KML contiene geometrías inválidas o vacías', 'warning');
+                        performClipBtn.disabled = true;
+                        return;
+                    }
+
+                    // Check for overlapping polygons with detailed analysis
+                    let hasOverlaps = false;
+                    let overlapDetails = [];
+
+                    // Solo verificar superposiciones si hay múltiples polígonos
+                    if (validPolygons.length > 1) {
+                        for (let i = 0; i < validPolygons.length; i++) {
+                            for (let j = i + 1; j < validPolygons.length; j++) {
+                                try {
+                                    // Verificar que ambos polígonos sean válidos antes de la comparación
+                                    if (validPolygons[i].geometry && validPolygons[j].geometry) {
+                                        if (turf.booleanOverlap(validPolygons[i], validPolygons[j])) {
+                                            hasOverlaps = true;
+                                            try {
+                                                overlapDetails.push({
+                                                    polygon1: i + 1,
+                                                    polygon2: j + 1,
+                                                    area1: turf.area(validPolygons[i]) / 1000000, // km²
+                                                    area2: turf.area(validPolygons[j]) / 1000000  // km²
+                                                });
+                                            } catch (areaError) {
+                                                console.warn('Error calculating area for overlap details:', areaError);
+                                                overlapDetails.push({
+                                                    polygon1: i + 1,
+                                                    polygon2: j + 1,
+                                                    area1: 0,
+                                                    area2: 0
+                                                });
+                                            }
+                                        }
+                                    }
+                                } catch (overlapError) {
+                                    console.warn(`Error checking overlap between polygons ${i + 1} and ${j + 1}:`, overlapError);
+                                    // En caso de error, marcar como superposición por seguridad
+                                    hasOverlaps = true;
+                                    overlapDetails.push({
+                                        polygon1: i + 1,
+                                        polygon2: j + 1,
+                                        area1: 0,
+                                        area2: 0,
+                                        error: 'Error en verificación de superposición'
+                                    });
+                                }
+                            }
+                        }
+                    }
+
+                    let kmlPolygon;
+
+                    if (validPolygons.length === 1) {
+                        // Solo un polígono válido
+                        kmlPolygon = validPolygons[0];
+                    } else {
+                        // Múltiples polígonos: combinar en un MultiPolygon
+                        const multiPolygonCoordinates = validPolygons.map(p => {
+                            if (p.geometry.type === 'Polygon') {
+                                return [p.geometry.coordinates[0]]; // MultiPolygon espera array de polígonos
+                            } else {
+                                return p.geometry.coordinates;
+                            }
+                        });
+
+                        kmlPolygon = {
+                            type: 'Feature',
+                            properties: validPolygons[0].properties || {}, // Usar propiedades del primer polígono
+                            geometry: {
+                                type: 'MultiPolygon',
+                                coordinates: multiPolygonCoordinates
+                            }
+                        };
+                    }
+
                     // Calcular métricas del KML
                     kmlMetrics.geometryType = kmlPolygon.geometry.type;
+                    kmlMetrics.hasOverlaps = hasOverlaps;
+                    kmlMetrics.overlapCount = overlapDetails.length;
+                    kmlMetrics.polygonCount = validPolygons.length;
+
                     try {
                         kmlMetrics.area = turf.area(kmlPolygon) / 1000000; // Convertir a km²
                         kmlMetrics.perimeter = turf.length(kmlPolygon, { units: 'kilometers' });
@@ -2026,14 +2133,76 @@ function initApp() {
 
                     if (kmlLayer) map.removeLayer(kmlLayer);
 
+                    // Crear capa con estilo según si hay superposiciones
                     kmlLayer = L.geoJSON(kmlPolygon, {
-                        style: {
+                        style: hasOverlaps ? {
+                            // Estilo especial para polígonos con superposiciones
+                            color: '#ff6b35',
+                            weight: 4,
+                            fillColor: '#ff6b35',
+                            fillOpacity: 0.4,
+                            dashArray: '10,5'
+                        } : {
+                            // Estilo normal
                             color: '#ff7800',
                             weight: 3,
                             fillColor: '#ffa500',
                             fillOpacity: 0.2
                         }
                     }).addTo(map);
+
+                    // Configurar popup y advertencias si hay superposiciones
+                    if (hasOverlaps) {
+                        // Agregar popup de advertencia
+                        kmlLayer.bindPopup(`
+                            <div class="popup-content">
+                                <h6 class="text-warning">⚠️ Polígonos Superpuestos</h6>
+                                <p class="mb-2"><strong>Problema detectado:</strong> Este KML contiene ${validPolygons.length} polígonos con áreas superpuestas.</p>
+                                <p class="mb-2"><strong>Impacto:</strong> Puede causar conteo duplicado de elementos en las zonas de superposición.</p>
+                                <p class="mb-0"><strong>Recomendación:</strong> Revisar el archivo KML para corregir las superposiciones.</p>
+                            </div>
+                        `);
+
+                        // Crear detalles de superposición para mostrar al usuario
+                        let overlapDetailsHtml = '';
+                        if (overlapDetails && overlapDetails.length > 0) {
+                            overlapDetailsHtml = '<p><strong>Superposiciones detectadas:</strong></p><ul>';
+                            overlapDetails.slice(0, 5).forEach(detail => {
+                                overlapDetailsHtml += `<li>Polígono ${detail.polygon1} (${detail.area1.toFixed(2)} km²) se superpone con Polígono ${detail.polygon2} (${detail.area2.toFixed(2)} km²)</li>`;
+                            });
+                            if (overlapDetails.length > 5) {
+                                overlapDetailsHtml += `<li>... y ${overlapDetails.length - 5} superposiciones más</li>`;
+                            }
+                            overlapDetailsHtml += '</ul>';
+                        }
+
+                        // Mostrar alerta inmediata
+                        showAlert(`⚠️ KML "${file.name}" cargado con advertencias de superposición`, 'warning', 4000);
+
+                        // Mostrar modal informativo después de un breve delay
+                        setTimeout(() => {
+                            showModal({
+                                title: '⚠️ Polígonos Superpuestos Detectados',
+                                message: `
+                                    <div class="alert alert-warning">
+                                        <strong>Se detectaron superposiciones en el KML "${file.name}"</strong>
+                                    </div>
+                                    <p><strong>Detalles del problema:</strong></p>
+                                    <ul>
+                                        <li>Número de polígonos: ${validPolygons.length}</li>
+                                        <li>Superposiciones encontradas: ${overlapDetails?.length || 'Múltiples'}</li>
+                                        <li>Posible conteo duplicado en zonas de superposición</li>
+                                    </ul>
+                                    ${overlapDetailsHtml}
+                                    <div class="alert alert-info small mt-3">
+                                        <strong>Recomendación:</strong> Revisar el archivo KML en un editor GIS para corregir las superposiciones antes del análisis final.
+                                    </div>
+                                    <p class="small text-muted">El área se ha marcado visualmente en el mapa con líneas punteadas naranjas y está disponible para análisis.</p>
+                                `,
+                                okText: 'Entendido'
+                            });
+                        }, 1000);
+                    }
 
                     setTimeout(() => {
                         map.invalidateSize();
@@ -2046,13 +2215,36 @@ function initApp() {
 
                     performClipBtn.disabled = false;
                     if (centerKmlBtn) centerKmlBtn.disabled = false;
-                    showAlert(`KML cargado exitosamente. Se encontró un polígono con ${kmlPolygon.geometry.coordinates.length} coordenadas.`, 'success');
+
+                    // Mensaje de éxito adaptado según si hay superposiciones
+                    const successMessage = hasOverlaps
+                        ? `KML cargado con advertencias. Se encontraron ${validPolygons.length} polígonos con superposiciones.`
+                        : `KML cargado exitosamente. Se encontró${validPolygons.length > 1 ? 'ron ' + validPolygons.length + ' polígonos' : ' un polígono'}.`;
+
+                    showAlert(successMessage, hasOverlaps ? 'warning' : 'success');
 
                 } catch (error) {
                     console.error('Error procesando KML:', error);
+
+                    // Proporcionar mensajes de error más específicos
+                    let errorMessage = 'Error procesando el archivo KML';
+
+                    if (error.message.includes('parseFromString')) {
+                        errorMessage = 'El archivo KML contiene XML inválido o corrupto';
+                    } else if (error.message.includes('toGeoJSON')) {
+                        errorMessage = 'No se pudo convertir el KML a formato GeoJSON';
+                    } else if (error.message.includes('coordinates')) {
+                        errorMessage = 'El archivo KML contiene coordenadas inválidas';
+                    } else if (error.message.includes('geometry')) {
+                        errorMessage = 'El archivo KML contiene geometrías inválidas';
+                    } else if (error.message.includes('turf')) {
+                        errorMessage = 'Error en el análisis geoespacial del KML';
+                    } else if (error.message) {
+                        errorMessage = error.message;
+                    }
+
                     showAlert(
-                        'Error procesando el archivo KML. Verifica que sea un archivo válido y no esté corrupto. ' +
-                        'Detalles: ' + error.message,
+                        errorMessage + '. Verifica que sea un archivo KML válido.',
                         'danger',
                         8000
                     );
@@ -2592,6 +2784,8 @@ function initApp() {
                     ['Área del KML', formatNumber(kmlMetrics.area) + ' km²'],
                     ['Perímetro', formatNumber(kmlMetrics.perimeter) + ' km'],
                     ['Geometría', kmlMetrics.geometryType],
+                    ['Número de polígonos', kmlMetrics.polygonCount],
+                    ['Superposiciones detectadas', kmlMetrics.hasOverlaps ? `Sí (${kmlMetrics.overlapCount})` : 'No'],
                     ['Buffer aplicado', kmlMetrics.bufferUsed ? 'Sí (' + kmlMetrics.bufferRadius + ' km)' : 'No'],
                     ['Densidad de localidades', formatNumber(kmlMetrics.localityDensity) + ' loc/km²'],
                     ['Población total intersectada', formatNumber(kmlMetrics.totalPopulation) + ' hab.'],
@@ -3065,9 +3259,12 @@ function initApp() {
                 pdf.setFontSize(10);
                 pdf.text(`Área KML: ${formatNumber(kmlMetrics.area)} km²`, 105, 175, { align: 'center' });
                 pdf.text(`Perímetro: ${formatNumber(kmlMetrics.perimeter)} km`, 105, 182, { align: 'center' });
-                pdf.text(`Geometría: ${kmlMetrics.geometryType}`, 105, 189, { align: 'center' });
+                pdf.text(`Geometría: ${kmlMetrics.geometryType} (${kmlMetrics.polygonCount} polígono${kmlMetrics.polygonCount > 1 ? 's' : ''})`, 105, 189, { align: 'center' });
+                if (kmlMetrics.hasOverlaps) {
+                    pdf.text(`⚠️ Superposiciones: ${kmlMetrics.overlapCount} detectadas`, 105, 196, { align: 'center' });
+                }
                 if (kmlMetrics.bufferUsed) {
-                    pdf.text(`Buffer: ${kmlMetrics.bufferRadius} km añadido`, 105, 196, { align: 'center' });
+                    pdf.text(`Buffer: ${kmlMetrics.bufferRadius} km añadido`, 105, kmlMetrics.hasOverlaps ? 203 : 196, { align: 'center' });
                 }
                 pdf.setFontSize(12);
 

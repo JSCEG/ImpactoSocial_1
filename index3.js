@@ -4058,7 +4058,25 @@ function initApp() {
 
         // Limpiar mapa
         if (clearMapBtn) {
-            clearMapBtn.addEventListener('click', clearAllLayers);
+            clearMapBtn.addEventListener('click', () => {
+                showModal({
+                    title: 'Limpiar Mapa',
+                    message: '¿Deseas limpiar completamente el mapa y reiniciar la aplicación?',
+                    okText: 'Limpiar Todo',
+                    onOk: () => {
+                        performCompleteCleanup();
+                        // Reinicializar control de capas
+                        setTimeout(() => {
+                            if (!layersControl) {
+                                const baseMaps = {
+                                    'SENER Azul': map._layers[Object.keys(map._layers)[0]], // Obtener capa base actual
+                                };
+                                layersControl = L.control.layers(baseMaps, {}, { collapsed: false }).addTo(map);
+                            }
+                        }, 500);
+                    }
+                });
+            });
         }
 
         // =============================
@@ -4145,41 +4163,153 @@ function initApp() {
             }
 
             try {
+                showAlert('Generando reporte Excel multi-área...', 'info', 2000);
                 const workbook = XLSX.utils.book_new();
 
-                const header = ['Área', 'Superficie (km²)', 'Población', 'Elementos', 'Densidad (hab/km²)'];
-                const rows = [header];
+                // Hoja de resumen general
+                const header = ['Área', 'Archivo KML', 'Superficie (km²)', 'Población', 'Elementos', 'Densidad (hab/km²)', 'Capas con datos'];
+                const rows = [
+                    ['REPORTE MULTI-ÁREA - RESUMEN EJECUTIVO'],
+                    ['Fecha de generación', new Date().toLocaleString('es-MX')],
+                    ['Áreas incluidas', ids.length],
+                    [''],
+                    header
+                ];
                 let totalArea = 0, totalPop = 0, totalElems = 0;
+
                 ids.forEach(id => {
                     const k = kmlLayers.get(id);
                     if (!k) return;
                     const m = k.metrics || {};
-                    rows.push([k.name, m.area || 0, m.totalPopulation || 0, m.totalElements || 0, m.populationDensity || 0]);
+                    const layersWithData = k.results ? Object.keys(k.results).filter(layerName =>
+                        k.results[layerName]?.features?.length > 0).length : 0;
+
+                    rows.push([
+                        k.name,
+                        k.file?.name || 'N/A',
+                        m.area || 0,
+                        m.totalPopulation || 0,
+                        m.totalElements || 0,
+                        m.populationDensity || 0,
+                        layersWithData
+                    ]);
                     totalArea += m.area || 0;
                     totalPop += m.totalPopulation || 0;
                     totalElems += m.totalElements || 0;
                 });
-                rows.push(['TOTAL', totalArea, totalPop, totalElems, totalArea > 0 ? totalPop / totalArea : 0]);
-                const resumenSheet = XLSX.utils.aoa_to_sheet(rows);
-                XLSX.utils.book_append_sheet(workbook, resumenSheet, 'Resumen');
 
-                // Una hoja por área con conteos por capa
+                rows.push([''], ['TOTALES', '', totalArea, totalPop, totalElems, totalArea > 0 ? totalPop / totalArea : 0, '']);
+                const resumenSheet = XLSX.utils.aoa_to_sheet(rows);
+                XLSX.utils.book_append_sheet(workbook, resumenSheet, 'Resumen_Ejecutivo');
+
+                // Hoja de comparación por capas
+                const layerComparison = [['COMPARACIÓN POR CAPAS'], [''], ['Capa']];
+                const areaNames = [];
+                ids.forEach(id => {
+                    const k = kmlLayers.get(id);
+                    if (k) {
+                        areaNames.push(k.name);
+                        layerComparison[2].push(k.name);
+                    }
+                });
+                layerComparison[2].push('TOTAL');
+
+                // Obtener todas las capas únicas
+                const allLayers = new Set();
+                ids.forEach(id => {
+                    const k = kmlLayers.get(id);
+                    if (k?.results) {
+                        Object.keys(k.results).forEach(layerName => allLayers.add(layerName));
+                    }
+                });
+
+                // Crear filas de comparación por capa
+                Array.from(allLayers).sort().forEach(layerName => {
+                    const row = [getLayerDisplayName(layerName)];
+                    let totalForLayer = 0;
+
+                    ids.forEach(id => {
+                        const k = kmlLayers.get(id);
+                        const count = k?.results?.[layerName]?.features?.length || 0;
+                        row.push(count);
+                        totalForLayer += count;
+                    });
+
+                    row.push(totalForLayer);
+                    layerComparison.push(row);
+                });
+
+                const comparisonSheet = XLSX.utils.aoa_to_sheet(layerComparison);
+                XLSX.utils.book_append_sheet(workbook, comparisonSheet, 'Comparacion_Capas');
+
+                // Hojas detalladas por área (resumen + detalle por capa)
                 ids.forEach(id => {
                     const k = kmlLayers.get(id);
                     if (!k) return;
+
+                    const areaData = [
+                        [`ANÁLISIS DETALLADO: ${k.name.toUpperCase()}`],
+                        [''],
+                        ['INFORMACIÓN GENERAL'],
+                        ['Archivo KML', k.file?.name || 'N/A'],
+                        ['Fecha de análisis', k.metrics?.analysisDate ? new Date(k.metrics.analysisDate).toLocaleString('es-MX') : 'N/A'],
+                        ['Tipo de área', k.metrics?.areaType || k.areaType || 'N/A'],
+                        ['Buffer aplicado', k.metrics?.bufferUsed ? `${k.metrics.bufferRadius} km` : 'No'],
+                        ['Superficie (km²)', k.metrics?.area || 0],
+                        ['Población Total', k.metrics?.totalPopulation || 0],
+                        ['Elementos Totales', k.metrics?.totalElements || 0],
+                        ['Densidad poblacional', k.metrics?.populationDensity || 0],
+                        [''],
+                        ['RESUMEN POR CAPAS'],
+                        ['Capa', 'Elementos', 'Porcentaje']
+                    ];
+
                     const results = k.results || {};
-                    const table = [['Capa', 'Elementos']];
+                    const totalElements = k.metrics?.totalElements || 0;
+
                     Object.entries(results).forEach(([layerName, data]) => {
                         const count = (data?.features || []).length;
-                        table.push([getLayerDisplayName(layerName), count]);
+                        const percentage = totalElements > 0 ? ((count / totalElements) * 100).toFixed(1) + '%' : '0%';
+                        areaData.push([getLayerDisplayName(layerName), count, percentage]);
                     });
-                    const sheet = XLSX.utils.aoa_to_sheet(table);
-                    XLSX.utils.book_append_sheet(workbook, sheet, k.name.substring(0, 31));
+
+                    const areaSheet = XLSX.utils.aoa_to_sheet(areaData);
+                    XLSX.utils.book_append_sheet(workbook, areaSheet, `${k.name.substring(0, 25)}_Resumen`);
+
+                    // Hojas detalladas por capa para esta área
+                    Object.entries(results).forEach(([layerName, data]) => {
+                        if (data.features && data.features.length > 0) {
+                            // Recopilar todas las propiedades únicas
+                            const allProps = new Set();
+                            data.features.forEach(feature => {
+                                Object.keys(feature.properties || {}).forEach(prop => allProps.add(prop));
+                            });
+
+                            const headers = Array.from(allProps).sort();
+                            const detailData = [
+                                [`${getLayerDisplayName(layerName).toUpperCase()} - ${k.name.toUpperCase()}`],
+                                [''],
+                                headers
+                            ];
+
+                            data.features.forEach(feature => {
+                                const row = headers.map(header => {
+                                    const value = feature.properties[header];
+                                    return value !== undefined && value !== null ? value : '';
+                                });
+                                detailData.push(row);
+                            });
+
+                            const detailSheet = XLSX.utils.aoa_to_sheet(detailData);
+                            const sheetName = `${k.name.substring(0, 15)}_${getLayerDisplayName(layerName).substring(0, 15)}`.replace(/[^\w\s]/g, '');
+                            XLSX.utils.book_append_sheet(workbook, detailSheet, sheetName.substring(0, 31));
+                        }
+                    });
                 });
 
-                const fileName = `reporte_excel_${new Date().toISOString().split('T')[0]}.xlsx`;
+                const fileName = `reporte_multi_area_completo_${new Date().toISOString().split('T')[0]}.xlsx`;
                 XLSX.writeFile(workbook, fileName);
-                showAlert(`Reporte Excel generado: ${fileName}`, 'success', 3500);
+                showAlert(`Reporte Excel completo generado: ${fileName}`, 'success', 4000);
             } catch (e) {
                 console.error('Error generando Excel:', e);
                 showAlert('Error al generar el Excel', 'danger', 4000);
@@ -4364,16 +4494,51 @@ async function processKmlFile(file) {
                     return;
                 }
 
-                // Check for overlapping polygons
+                // Check for overlapping polygons with detailed analysis
                 let hasOverlaps = false;
-                for (let i = 0; i < validPolygons.length; i++) {
-                    for (let j = i + 1; j < validPolygons.length; j++) {
-                        if (turf.booleanOverlap(validPolygons[i], validPolygons[j])) {
-                            hasOverlaps = true;
-                            break;
+                let overlapDetails = [];
+
+                // Solo verificar superposiciones si hay múltiples polígonos
+                if (validPolygons.length > 1) {
+                    for (let i = 0; i < validPolygons.length; i++) {
+                        for (let j = i + 1; j < validPolygons.length; j++) {
+                            try {
+                                // Verificar que ambos polígonos sean válidos antes de la comparación
+                                if (validPolygons[i].geometry && validPolygons[j].geometry) {
+                                    if (turf.booleanOverlap(validPolygons[i], validPolygons[j])) {
+                                        hasOverlaps = true;
+                                        try {
+                                            overlapDetails.push({
+                                                polygon1: i + 1,
+                                                polygon2: j + 1,
+                                                area1: turf.area(validPolygons[i]) / 1000000, // km²
+                                                area2: turf.area(validPolygons[j]) / 1000000  // km²
+                                            });
+                                        } catch (areaError) {
+                                            console.warn('Error calculating area for overlap details:', areaError);
+                                            overlapDetails.push({
+                                                polygon1: i + 1,
+                                                polygon2: j + 1,
+                                                area1: 0,
+                                                area2: 0
+                                            });
+                                        }
+                                    }
+                                }
+                            } catch (overlapError) {
+                                console.warn(`Error checking overlap between polygons ${i + 1} and ${j + 1}:`, overlapError);
+                                // En caso de error, marcar como superposición por seguridad
+                                hasOverlaps = true;
+                                overlapDetails.push({
+                                    polygon1: i + 1,
+                                    polygon2: j + 1,
+                                    area1: 0,
+                                    area2: 0,
+                                    error: 'Error en verificación de superposición'
+                                });
+                            }
                         }
                     }
-                    if (hasOverlaps) break;
                 }
 
                 let finalPolygon;
@@ -4414,12 +4579,31 @@ async function processKmlFile(file) {
                     bounds: bounds,
                     polygon: finalPolygon,
                     polygonCount: validPolygons.length,
-                    hasOverlaps: hasOverlaps
+                    hasOverlaps: hasOverlaps,
+                    overlapDetails: overlapDetails
                 });
 
             } catch (error) {
                 console.error('Error procesando KML:', error);
-                reject(error);
+
+                // Proporcionar mensajes de error más específicos
+                let errorMessage = 'Error procesando el archivo KML';
+
+                if (error.message.includes('parseFromString')) {
+                    errorMessage = 'El archivo KML contiene XML inválido o corrupto';
+                } else if (error.message.includes('toGeoJSON')) {
+                    errorMessage = 'No se pudo convertir el KML a formato GeoJSON';
+                } else if (error.message.includes('coordinates')) {
+                    errorMessage = 'El archivo KML contiene coordenadas inválidas';
+                } else if (error.message.includes('geometry')) {
+                    errorMessage = 'El archivo KML contiene geometrías inválidas';
+                } else if (error.message.includes('turf')) {
+                    errorMessage = 'Error en el análisis geoespacial del KML';
+                } else if (error.message) {
+                    errorMessage = error.message;
+                }
+
+                reject(new Error(errorMessage));
             }
         };
 
@@ -4696,25 +4880,84 @@ async function processMultipleKmlFiles(files) {
     showPreloader();
     updateProgress(0, 'Procesando archivos KML...');
 
+    const results = {
+        successful: 0,
+        failed: 0,
+        warnings: 0,
+        errors: []
+    };
+
     try {
         for (let i = 0; i < files.length; i++) {
             const file = files[i];
             updateProgress((i / files.length) * 100, `Procesando ${file.name}...`);
 
-            await addKmlToSystem(file);
+            try {
+                const kmlId = await addKmlToSystem(file);
+                const kmlEntry = kmlLayers.get(kmlId);
+
+                if (kmlEntry && kmlEntry.layer) {
+                    // Verificar si tiene superposiciones para contar como warning
+                    const hasOverlaps = kmlEntry.layer.options?.style?.dashArray === '10,5';
+                    if (hasOverlaps) {
+                        results.warnings++;
+                    }
+                    results.successful++;
+                } else {
+                    results.failed++;
+                    results.errors.push(`${file.name}: Error desconocido al crear la capa`);
+                }
+            } catch (fileError) {
+                console.error(`Error procesando ${file.name}:`, fileError);
+                results.failed++;
+                results.errors.push(`${file.name}: ${fileError.message}`);
+
+                // Continuar con el siguiente archivo en lugar de detener todo el proceso
+                continue;
+            }
         }
 
-        updateProgress(100, 'Todos los KMLs procesados');
-        showAlert(`${files.length} archivo(s) KML agregado(s) exitosamente`, 'success');
+        updateProgress(100, 'Procesamiento completado');
 
-        // Análisis automático si está activado
-        if (autoAnalyze && kmlLayers.size > 0) {
+        // Mostrar resumen de resultados
+        let message = '';
+        let alertType = 'success';
+
+        if (results.successful > 0) {
+            message += `✅ ${results.successful} archivo(s) cargado(s) exitosamente`;
+        }
+
+        if (results.warnings > 0) {
+            message += `${message ? '\n' : ''}⚠️ ${results.warnings} archivo(s) con advertencias de superposición`;
+            if (alertType === 'success') alertType = 'warning';
+        }
+
+        if (results.failed > 0) {
+            message += `${message ? '\n' : ''}❌ ${results.failed} archivo(s) fallaron`;
+            alertType = 'danger';
+
+            // Mostrar detalles de errores si hay pocos
+            if (results.errors.length <= 3) {
+                message += '\n\nErrores:\n' + results.errors.join('\n');
+            } else {
+                message += `\n\nPrimeros errores:\n${results.errors.slice(0, 2).join('\n')}\n... y ${results.errors.length - 2} más`;
+            }
+        }
+
+        if (results.successful === 0 && results.failed > 0) {
+            message = `No se pudo cargar ningún archivo KML.\n\n${results.errors.join('\n')}`;
+        }
+
+        showAlert(message, alertType, alertType === 'danger' ? 8000 : 5000);
+
+        // Análisis automático si está activado y hay archivos exitosos
+        if (autoAnalyze && results.successful > 0) {
             setTimeout(() => analyzeAllActiveAreas(), 1000);
         }
 
     } catch (error) {
-        console.error('Error procesando múltiples KMLs:', error);
-        showAlert('Error al procesar algunos archivos KML', 'danger');
+        console.error('Error general procesando múltiples KMLs:', error);
+        showAlert(`Error general al procesar archivos: ${error.message}`, 'danger', 6000);
     }
 
     hidePreloader();
@@ -4734,24 +4977,18 @@ async function addKmlToSystem(file) {
         const bounds = kmlData.bounds;
         const polygon = kmlData.polygon;
 
-        // Mostrar advertencia si hay polígonos superpuestos
-        if (kmlData.hasOverlaps) {
-            showAlert('Advertencia: El KML contiene polígonos superpuestos. Esto puede afectar la precisión del análisis.', 'warning');
-            // Cambiar estilo del layer para indicar superposición
-            layer.setStyle({
-                color: '#ff0000',
-                weight: 4,
-                fillColor: '#ffaaaa',
-                fillOpacity: 0.3,
-                dashArray: '10,5'
-            });
-            // Agregar popup de advertencia
-            layer.bindPopup('⚠️ <strong>Advertencia:</strong> Este KML contiene polígonos superpuestos que pueden afectar la precisión del análisis.');
-        }
-
         // Crear capa visual usando solo el polígono
         const layer = L.geoJSON(polygon, {
-            style: {
+            style: kmlData.hasOverlaps ? {
+                // Estilo especial para polígonos con superposiciones
+                color: '#ff6b35',
+                weight: 4,
+                opacity: 0.8,
+                fillColor: '#ff6b35',
+                fillOpacity: 0.4,
+                dashArray: '10,5'
+            } : {
+                // Estilo normal
                 color: color,
                 weight: 3,
                 opacity: 0.8,
@@ -4759,6 +4996,59 @@ async function addKmlToSystem(file) {
                 fillOpacity: 0.2
             }
         });
+
+        // Configurar popup y advertencias si hay superposiciones
+        if (kmlData.hasOverlaps) {
+            // Agregar popup de advertencia
+            layer.bindPopup(`
+                <div class="popup-content">
+                    <h6 class="text-warning">⚠️ Polígonos Superpuestos</h6>
+                    <p class="mb-2"><strong>Problema detectado:</strong> Este KML contiene ${kmlData.polygonCount} polígonos con áreas superpuestas.</p>
+                    <p class="mb-2"><strong>Impacto:</strong> Puede causar conteo duplicado de elementos en las zonas de superposición.</p>
+                    <p class="mb-0"><strong>Recomendación:</strong> Revisar el archivo KML para corregir las superposiciones.</p>
+                </div>
+            `);
+
+            // Crear detalles de superposición para mostrar al usuario
+            let overlapDetailsHtml = '';
+            if (kmlData.overlapDetails && kmlData.overlapDetails.length > 0) {
+                overlapDetailsHtml = '<p><strong>Superposiciones detectadas:</strong></p><ul>';
+                kmlData.overlapDetails.slice(0, 5).forEach(detail => {
+                    overlapDetailsHtml += `<li>Polígono ${detail.polygon1} (${detail.area1.toFixed(2)} km²) se superpone con Polígono ${detail.polygon2} (${detail.area2.toFixed(2)} km²)</li>`;
+                });
+                if (kmlData.overlapDetails.length > 5) {
+                    overlapDetailsHtml += `<li>... y ${kmlData.overlapDetails.length - 5} superposiciones más</li>`;
+                }
+                overlapDetailsHtml += '</ul>';
+            }
+
+            // Mostrar alerta inmediata pero no bloquear el proceso
+            showAlert(`⚠️ KML "${file.name}" cargado con advertencias de superposición`, 'warning', 4000);
+
+            // Mostrar modal informativo después de un breve delay para no bloquear la carga
+            setTimeout(() => {
+                showModal({
+                    title: '⚠️ Polígonos Superpuestos Detectados',
+                    message: `
+                        <div class="alert alert-warning">
+                            <strong>Se detectaron superposiciones en el KML "${file.name}"</strong>
+                        </div>
+                        <p><strong>Detalles del problema:</strong></p>
+                        <ul>
+                            <li>Número de polígonos: ${kmlData.polygonCount}</li>
+                            <li>Superposiciones encontradas: ${kmlData.overlapDetails?.length || 'Múltiples'}</li>
+                            <li>Posible conteo duplicado en zonas de superposición</li>
+                        </ul>
+                        ${overlapDetailsHtml}
+                        <div class="alert alert-info small mt-3">
+                            <strong>Recomendación:</strong> Revisar el archivo KML en un editor GIS para corregir las superposiciones antes del análisis final.
+                        </div>
+                        <p class="small text-muted">El área se ha marcado visualmente en el mapa con líneas punteadas naranjas y ya está disponible para análisis.</p>
+                    `,
+                    okText: 'Entendido'
+                });
+            }, 1000);
+        }
 
         // Agregar al mapa
         layer.addTo(map);
@@ -4771,12 +5061,14 @@ async function addKmlToSystem(file) {
             layer: layer,
             geoJson: geoJson,
             bounds: bounds,
-            color: color,
+            color: kmlData.hasOverlaps ? '#ff6b35' : color, // Usar color de advertencia si hay superposiciones
             areaType: globalAreaType,
             isActive: true,
             isAnalyzed: false,
             metrics: null,
             clippedLayers: {},
+            hasOverlaps: kmlData.hasOverlaps || false,
+            overlapDetails: kmlData.overlapDetails || [],
             createdAt: new Date()
         };
 
@@ -4813,15 +5105,22 @@ function updateAreasList() {
     let html = '';
     kmlLayers.forEach((kmlEntry, kmlId) => {
         const statusIcon = kmlEntry.isAnalyzed ? '✅' : '⏳';
-        const statusText = kmlEntry.isAnalyzed ? 'Analizada' : 'Pendiente';
+        let statusText = kmlEntry.isAnalyzed ? 'Analizada' : 'Pendiente';
+
+        // Agregar indicador de advertencia si hay superposiciones
+        if (kmlEntry.hasOverlaps) {
+            statusText += ' ⚠️';
+        }
+
         const metrics = kmlEntry.metrics;
 
         html += `
-            <div class="area-item card mb-2" data-kml-id="${kmlId}">
+            <div class="area-item card mb-2 ${kmlEntry.hasOverlaps ? 'border-warning' : ''}" data-kml-id="${kmlId}">
                 <div class="card-body p-2">
+                    ${kmlEntry.hasOverlaps ? '<div class="alert alert-warning py-1 px-2 mb-2 small">⚠️ Contiene polígonos superpuestos</div>' : ''}
                     <div class="d-flex align-items-center justify-content-between">
                         <div class="d-flex align-items-center">
-                            <div class="color-indicator me-2" style="background-color: ${kmlEntry.color}; width: 12px; height: 12px; border-radius: 50%;"></div>
+                            <div class="color-indicator me-2" style="background-color: ${kmlEntry.color}; width: 12px; height: 12px; border-radius: 50%; ${kmlEntry.hasOverlaps ? 'border: 2px solid #ff6b35;' : ''}"></div>
                             <div>
                                 <h6 class="mb-0 small">${kmlEntry.name}</h6>
                                 <small class="text-muted">${statusIcon} ${statusText}</small>
@@ -4893,39 +5192,93 @@ function removeArea(kmlId) {
     const kmlEntry = kmlLayers.get(kmlId);
     if (!kmlEntry) return;
 
-    // Remover del mapa
-    if (kmlEntry.layer && map.hasLayer(kmlEntry.layer)) {
-        map.removeLayer(kmlEntry.layer);
-    }
-
-    // Remover capas clipped
-    Object.entries(kmlEntry.clippedLayers || {}).forEach(([layerKey, layer]) => {
-        if (layer) {
-            try {
-                // Quitar del grupo temático si existe
-                const group = overlayGroupsByKey[layerKey];
-                if (group && typeof group.removeLayer === 'function') {
-                    group.removeLayer(layer);
-                }
-                // Asegurar que no quede en el mapa suelto
-                if (map.hasLayer(layer)) {
-                    map.removeLayer(layer);
-                }
-            } catch (_) { /* noop */ }
+    showModal({
+        title: 'Confirmar eliminación',
+        message: `¿Estás seguro de que quieres eliminar el área "${kmlEntry.name}"?`,
+        okText: 'Eliminar',
+        onOk: () => {
+            performAreaCleanup(kmlId, kmlEntry);
         }
     });
+}
 
-    // Remover del sistema
-    kmlLayers.delete(kmlId);
+/**
+ * Realiza limpieza completa de un área específica
+ */
+function performAreaCleanup(kmlId, kmlEntry) {
+    try {
+        // Remover del mapa
+        if (kmlEntry.layer && map.hasLayer(kmlEntry.layer)) {
+            map.removeLayer(kmlEntry.layer);
+        }
 
-    // Actualizar UI
-    updateAreasList();
-    updateAreasCount();
+        // Remover capas clipped
+        Object.entries(kmlEntry.clippedLayers || {}).forEach(([layerKey, layer]) => {
+            if (layer) {
+                try {
+                    // Quitar del grupo temático si existe
+                    const group = overlayGroupsByKey[layerKey];
+                    if (group && typeof group.removeLayer === 'function') {
+                        group.removeLayer(layer);
+                    }
+                    // Asegurar que no quede en el mapa suelto
+                    if (map.hasLayer(layer)) {
+                        map.removeLayer(layer);
+                    }
+                } catch (_) { /* noop */ }
+            }
+        });
 
-    // Update global charts if needed
-    updateGlobalCharts();
+        // Remover del sistema
+        kmlLayers.delete(kmlId);
 
-    showAlert(`Área removida: ${kmlEntry.name}`, 'info', 2000);
+        // Limpiar UI si era el área seleccionada
+        const kmlSelect = document.getElementById('kmlSelect');
+        if (kmlSelect && kmlSelect.value === kmlId) {
+            kmlSelect.value = '';
+
+            const kmlResultsContainer = document.getElementById('kmlResultsContainer');
+            if (kmlResultsContainer) {
+                kmlResultsContainer.innerHTML = '<p class="text-muted mb-0">Selecciona un área para ver sus resultados por capas.</p>';
+            }
+
+            const kmlSummaryEl = document.getElementById('kmlSummary');
+            if (kmlSummaryEl) {
+                kmlSummaryEl.innerHTML = '';
+            }
+
+            const kmlChartsContainer = document.getElementById('kmlChartsContainer');
+            if (kmlChartsContainer) {
+                kmlChartsContainer.style.display = 'none';
+            }
+
+            const analyzeSelectedBtn = document.getElementById('analyzeSelectedBtn');
+            if (analyzeSelectedBtn) {
+                analyzeSelectedBtn.disabled = true;
+            }
+        }
+
+        // Actualizar UI
+        updateAreasList();
+        updateAreasCount();
+        refreshKmlSelect();
+
+        // Deshabilitar botón de Excel si no hay áreas analizadas
+        const hasAnalyzed = Array.from(kmlLayers.values()).some(k => k.isAnalyzed);
+        const downloadReportBtn = document.getElementById('downloadReportBtn');
+        if (downloadReportBtn) {
+            downloadReportBtn.disabled = !hasAnalyzed;
+        }
+
+        // Update global charts if needed
+        updateGlobalCharts();
+
+        showAlert(`Área "${kmlEntry.name}" eliminada completamente`, 'success', 2000);
+
+    } catch (error) {
+        console.error('Error eliminando área:', error);
+        showAlert(`Error al eliminar área "${kmlEntry.name}"`, 'danger', 3000);
+    }
 }
 
 /**
@@ -4937,44 +5290,107 @@ function clearAllAreas() {
         message: '¿Estás seguro de que quieres eliminar todas las áreas cargadas?',
         okText: 'Eliminar Todo',
         onOk: () => {
-            // Remover todas las capas del mapa
-            kmlLayers.forEach(kmlEntry => {
-                if (kmlEntry.layer && map.hasLayer(kmlEntry.layer)) {
-                    map.removeLayer(kmlEntry.layer);
-                }
-                Object.values(kmlEntry.clippedLayers || {}).forEach(layer => {
-                    if (layer && map.hasLayer(layer)) {
-                        map.removeLayer(layer);
-                    }
-                });
-            });
-
-            // Limpiar sistema
-            kmlLayers.clear();
-            kmlCounter = 0;
-            activeKmlId = null;
-
-            // Vaciar grupos globales pero mantenerlos registrados
-            Object.values(overlayGroupsByKey).forEach(group => {
-                try { group.clearLayers(); } catch (_) { }
-            });
-
-            // Remover control de capas para resetear completamente
-            if (layersControl) {
-                map.removeControl(layersControl);
-                layersControl = null;
-            }
-
-            // Actualizar UI
-            updateAreasList();
-            updateAreasCount();
-
-            // Update global charts
-            updateGlobalCharts();
-
-            showAlert('Todas las áreas han sido eliminadas', 'info', 2000);
+            performCompleteCleanup();
         }
     });
+}
+
+/**
+ * Realiza limpieza completa del sistema
+ */
+function performCompleteCleanup() {
+    try {
+        // Remover todas las capas del mapa
+        kmlLayers.forEach(kmlEntry => {
+            if (kmlEntry.layer && map.hasLayer(kmlEntry.layer)) {
+                map.removeLayer(kmlEntry.layer);
+            }
+            Object.values(kmlEntry.clippedLayers || {}).forEach(layer => {
+                if (layer && map.hasLayer(layer)) {
+                    map.removeLayer(layer);
+                }
+            });
+        });
+
+        // Limpiar sistema
+        kmlLayers.clear();
+        kmlCounter = 0;
+        activeKmlId = null;
+
+        // Vaciar grupos globales pero mantenerlos registrados
+        Object.values(overlayGroupsByKey).forEach(group => {
+            try { group.clearLayers(); } catch (_) { }
+        });
+
+        // Remover control de capas para resetear completamente
+        if (layersControl) {
+            map.removeControl(layersControl);
+            layersControl = null;
+        }
+
+        // Limpiar elementos de UI
+        const areasList = document.getElementById('areasList');
+        if (areasList) {
+            areasList.innerHTML = '<p class="text-muted small mb-0">No hay áreas cargadas. Sube archivos KML para comenzar.</p>';
+        }
+
+        const kmlSelect = document.getElementById('kmlSelect');
+        if (kmlSelect) {
+            kmlSelect.innerHTML = '<option value="" selected>— Selecciona un área —</option>';
+            kmlSelect.value = '';
+        }
+
+        const kmlResultsContainer = document.getElementById('kmlResultsContainer');
+        if (kmlResultsContainer) {
+            kmlResultsContainer.innerHTML = '<p class="text-muted mb-0">Selecciona un área para ver sus resultados por capas.</p>';
+        }
+
+        const kmlSummaryEl = document.getElementById('kmlSummary');
+        if (kmlSummaryEl) {
+            kmlSummaryEl.innerHTML = '';
+        }
+
+        const kmlChartsContainer = document.getElementById('kmlChartsContainer');
+        if (kmlChartsContainer) {
+            kmlChartsContainer.style.display = 'none';
+            kmlChartsContainer.innerHTML = '';
+        }
+
+        const chartsContainer = document.getElementById('chartsContainer');
+        if (chartsContainer) {
+            chartsContainer.style.display = 'none';
+            chartsContainer.innerHTML = '';
+        }
+
+        // Limpiar input de archivos
+        const kmlFileInput = document.getElementById('kmlFile');
+        if (kmlFileInput) {
+            kmlFileInput.value = '';
+        }
+
+        // Actualizar contadores y badges
+        updateAreasCount();
+
+        // Deshabilitar botones
+        const analyzeAllBtn = document.getElementById('analyzeAllBtn');
+        const analyzeSelectedBtn = document.getElementById('analyzeSelectedBtn');
+        const downloadReportBtn = document.getElementById('downloadReportBtn');
+        const uploadKmlBtn = document.getElementById('uploadKmlBtn');
+
+        if (analyzeAllBtn) analyzeAllBtn.disabled = true;
+        if (analyzeSelectedBtn) analyzeSelectedBtn.disabled = true;
+        if (downloadReportBtn) downloadReportBtn.disabled = true;
+        if (uploadKmlBtn) uploadKmlBtn.disabled = true;
+
+        // Update global charts
+        updateGlobalCharts();
+
+        showAlert('Todas las áreas y datos han sido eliminados completamente', 'success', 3000);
+
+    } catch (error) {
+        console.error('Error durante la limpieza:', error);
+        showAlert('Error durante la limpieza. Recarga la página si persisten problemas.', 'warning', 4000);
+    }
 }
 
 /**
@@ -5030,6 +5446,43 @@ async function analyzeSingleArea(kmlId) {
 }
 
 /**
+ * Verifica superposiciones entre áreas KML cargadas
+ */
+function checkInterAreaOverlaps() {
+    console.log('[DEBUG] Checking for overlaps between different KML areas...');
+    const areas = Array.from(kmlLayers.values());
+    const overlaps = [];
+
+    for (let i = 0; i < areas.length; i++) {
+        for (let j = i + 1; j < areas.length; j++) {
+            const area1 = areas[i];
+            const area2 = areas[j];
+
+            try {
+                if (area1.geoJson && area2.geoJson) {
+                    // Verificar si las geometrías se superponen
+                    const overlap = turf.booleanOverlap(area1.geoJson, area2.geoJson);
+                    if (overlap) {
+                        console.log(`[DEBUG] Overlap detected between ${area1.name} and ${area2.name}`);
+                        overlaps.push({
+                            area1: area1.name,
+                            area2: area2.name,
+                            area1Id: area1.id,
+                            area2Id: area2.id
+                        });
+                    }
+                }
+            } catch (error) {
+                console.warn(`[DEBUG] Error checking overlap between ${area1.name} and ${area2.name}:`, error);
+            }
+        }
+    }
+
+    console.log(`[DEBUG] Found ${overlaps.length} inter-area overlaps`);
+    return overlaps;
+}
+
+/**
  * Analiza todas las áreas activas no analizadas
  */
 async function analyzeAllActiveAreas() {
@@ -5041,6 +5494,14 @@ async function analyzeAllActiveAreas() {
     }
 
     try {
+        // Verificar superposiciones entre áreas antes del análisis
+        const interAreaOverlaps = checkInterAreaOverlaps();
+        if (interAreaOverlaps.length > 0) {
+            console.log('[DEBUG] Inter-area overlaps found, showing warning');
+            const overlapMessage = interAreaOverlaps.map(o => `${o.area1} ↔ ${o.area2}`).join(', ');
+            showAlert(`⚠️ Se detectaron superposiciones entre áreas: ${overlapMessage}. Esto puede causar conteo duplicado.`, 'warning', 6000);
+        }
+
         // Configuración global para el análisis masivo
         const globalConfig = await openAnalysisConfigDialog({ scope: 'bulk', areaName: `${unanalyzedAreas.length} áreas`, defaults: {} });
         if (!globalConfig) {
