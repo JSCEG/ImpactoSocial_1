@@ -26,6 +26,21 @@ let kmlGeoJson = null; // Datos GeoJSON convertidos del KML original
 let labelLayer = null; // Capa de etiquetas CVEGEO sobre el mapa
 let lastAreaBounds = null; // Bounds del área para restaurar la vista del área
 
+// Métricas del KML para reportes
+let kmlMetrics = {
+    area: 0, // en km²
+    perimeter: 0, // en km
+    hasOverlaps: false, // si tiene superposiciones
+    overlapCount: 0, // número de superposiciones detectadas
+    polygonCount: 0, // número de polígonos en el KML
+    geometryType: 'N/A',
+    bufferUsed: false,
+    bufferRadius: 0,
+    localityDensity: 0, // localidades por km²
+    populationDensity: 0, // población por km²
+    totalPopulation: 0, // población total intersectada
+};
+
 // ============================================================================
 // UTILIDAD DE FORMATEO NUMÉRICO
 // ============================================================================
@@ -271,19 +286,133 @@ function updateProgress(percent, message) {
  */
 function initApp() {
     try {
+        const MAP_CONTAINER_ID = 'map';
         // Garantizar que el preloader no bloquee la vista inicial
         hidePreloader();
 
         // ====================================================================
-        // CONFIGURACIÓN DEL MAPA BASE
+        // CONFIGURACIÓN DEL MAPA BASE CON MAPTILER
         // ====================================================================
 
-        // Inicializar mapa centrado en México con zoom nacional
-        map = L.map("map").setView([24.1, -102], 6);
+        const initialView = {
+            center: [24.1, -102],
+            zoom: 5
+        };
+
+        // MapTiler API Keys
+        const mapTilerKeys = {
+            personal: 'jAAFQsMBZ9a6VIm2dCwg',  // Tu API key
+            amigo: 'xRR3xCujdkUjxkDqlNTG'     // API key del amigo
+        };
+
+        // Verificar disponibilidad de MapTiler SDK
+        function checkMapTilerSDK() {
+            if (typeof L.maptiler !== 'undefined' && L.maptiler.maptilerLayer) {
+                console.log('MapTiler SDK disponible');
+                return true;
+            } else {
+                console.warn('MapTiler SDK no disponible');
+                return false;
+            }
+        }
+
+        // Función para crear MapTiler layer usando SDK o fallback con API key específica
+        function createMapTilerLayer(styleId, apiKeyType, fallbackUrl, attribution, name) {
+            const apiKey = mapTilerKeys[apiKeyType];
+
+            if (checkMapTilerSDK()) {
+                try {
+                    // Usar el SDK de MapTiler (método recomendado)
+                    const layer = L.maptiler.maptilerLayer({
+                        apiKey: apiKey,
+                        style: styleId,
+                        maxZoom: 18 // Asegurar maxZoom para clusters
+                    });
+
+                    // Configurar maxZoom manualmente si no está definido
+                    if (!layer.options) layer.options = {};
+                    if (!layer.options.maxZoom) layer.options.maxZoom = 18;
+
+                    console.log(`${name} creado con MapTiler SDK usando key ${apiKeyType}`);
+                    return layer;
+                } catch (error) {
+                    console.warn(`Error creando ${name} con SDK:`, error);
+                }
+            }
+
+            // Fallback a tile layer estándar
+            console.log(`${name} usando fallback`);
+            return L.tileLayer(fallbackUrl, {
+                attribution: attribution,
+                maxZoom: 18
+            });
+        }
+
+        // Tu mapa personalizado de MapTiler
+        const MiMapaPersonalizado = createMapTilerLayer(
+            '0198a42c-5e08-77a1-9773-763ee4e12b32', // Tu style ID
+            'personal', // Usar tu API key
+            'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+            '&copy; <a href="https://www.maptiler.com/">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+            'Mi Mapa Personalizado'
+        );
+
+        // Mapas originales del amigo con su API key
+        const SenerLightOriginal = createMapTilerLayer(
+            '0198a9af-dc7c-79d3-8316-a80767ad1d0f', // Style ID original del amigo
+            'amigo', // Usar API key del amigo
+            'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+            '&copy; <a href="https://www.maptiler.com/">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+            'SENER Light Original'
+        );
+
+        const SenerDarkOriginal = createMapTilerLayer(
+            '0198a9f0-f135-7991-aaec-bea71681556e', // Style ID original del amigo
+            'amigo', // Usar API key del amigo
+            'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+            '&copy; <a href="https://www.maptiler.com/">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+            'SENER Dark Original'
+        );
+
+        // Google Satellite Layer (fallback)
+        const GoogleSatellite = L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+            attribution: '&copy; Google',
+            maxZoom: 20
+        });
+
+        const baseMaps = {
+            'SENER Azul': MiMapaPersonalizado,
+            'SENER Light': SenerLightOriginal,
+            'SENER Oscuro': SenerDarkOriginal,
+            'Google Satellite': GoogleSatellite
+        };
+
+        // Definir límites aproximados de México para restringir navegación
+        const mexicoBounds = L.latLngBounds([
+            [14.0, -118.0], // Suroeste (aprox. Chiapas / Pacífico)
+            [33.5, -86.0]   // Noreste (frontera norte / Golfo)
+        ]);
+
+        map = L.map(MAP_CONTAINER_ID, {
+            center: initialView.center,
+            zoom: initialView.zoom,
+            minZoom: 4,
+            maxZoom: 18,
+            maxBounds: mexicoBounds,
+            maxBoundsViscosity: 0.9,
+            layers: [baseMaps['SENER Oscuro']]
+        });
+
+        // Evitar hacer zoom out más allá del marco continental relevante
+        map.on('zoomend', () => {
+            if (map.getZoom() < 4) map.setZoom(4);
+        });
+
+        // Ajustar vista para asegurar bounds al iniciar (si se desea ver todo México)
+        map.fitBounds(mexicoBounds.pad(-0.15));
 
         /**
          * Asegurar que el mapa calcule su tamaño correctamente
-         * Esto es necesario porque los estilos se cargan de forma asíncrona
          */
         (function ensureMapSized(attempt = 0) {
             if (!map) return;
@@ -292,21 +421,16 @@ function initApp() {
             const ready = el && el.clientHeight > 40;
             map.invalidateSize();
 
-            // Reintentar hasta 10 veces si el contenedor no tiene altura
             if (!ready && attempt < 10) {
                 setTimeout(() => ensureMapSized(attempt + 1), 150);
             }
         })();
 
-        // Recalcular tamaño cuando la ventana termine de cargar
         window.addEventListener('load', () => {
             setTimeout(() => map && map.invalidateSize(), 100);
         });
 
-        // Agregar capa base de OpenStreetMap
-        const base = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        }).addTo(map);
+        layersControl = L.control.layers(baseMaps, {}, { collapsed: false }).addTo(map);
 
         // ====================================================================
         // CONFIGURACIÓN DE DATOS Y ELEMENTOS DEL DOM
@@ -562,7 +686,6 @@ function initApp() {
          * @param {File} file - Archivo KML seleccionado por el usuario
          */
         function processKmlFile(file) {
-            // Validar archivo antes de procesar
             if (!validateKmlFile(file)) {
                 return;
             }
@@ -573,38 +696,32 @@ function initApp() {
                 try {
                     const kmlText = e.target.result;
 
-                    // Validar que el contenido no esté vacío
                     if (!kmlText || kmlText.trim().length === 0) {
                         showAlert('El archivo KML está vacío o no se pudo leer correctamente.', 'danger');
                         return;
                     }
 
-                    // Parsear XML del KML
                     const kmlDom = new DOMParser().parseFromString(kmlText, 'text/xml');
 
-                    // Verificar errores de parseo XML
                     const parseError = kmlDom.querySelector('parsererror');
                     if (parseError) {
                         showAlert('El archivo KML contiene errores de formato XML. Verifica que sea un archivo válido.', 'danger');
                         return;
                     }
 
-                    // Convertir KML a GeoJSON usando la librería togeojson
                     kmlGeoJson = toGeoJSON.kml(kmlDom);
 
-                    // Verificar que la conversión fue exitosa
                     if (!kmlGeoJson || !kmlGeoJson.features || kmlGeoJson.features.length === 0) {
                         showAlert('El archivo KML no contiene geometrías válidas o no se pudo convertir.', 'warning');
                         performClipBtn.disabled = true;
                         return;
                     }
 
-                    // Buscar el primer polígono válido en el KML
-                    const kmlPolygon = kmlGeoJson.features.find(f =>
+                    const polygons = kmlGeoJson.features.filter(f =>
                         f.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon')
                     );
 
-                    if (!kmlPolygon) {
+                    if (polygons.length === 0) {
                         showAlert(
                             'El archivo KML no contiene un polígono válido. ' +
                             'Por favor, asegúrate de que el archivo contenga geometrías de tipo Polygon o MultiPolygon.',
@@ -614,49 +731,88 @@ function initApp() {
                         return;
                     }
 
-                    // Remover capa anterior si existe
+                    const validPolygons = polygons.filter(polygon => {
+                        if (!polygon.geometry || !polygon.geometry.coordinates) return false;
+                        if (polygon.geometry.type === 'Polygon') {
+                            return polygon.geometry.coordinates.length > 0 && polygon.geometry.coordinates[0].length >= 4;
+                        }
+                        if (polygon.geometry.type === 'MultiPolygon') {
+                            return polygon.geometry.coordinates.length > 0 && polygon.geometry.coordinates.every(poly => poly.length > 0 && poly[0].length >= 4);
+                        }
+                        return false;
+                    });
+
+                    if (validPolygons.length === 0) {
+                        showAlert('El archivo KML contiene geometrías inválidas o vacías', 'warning');
+                        performClipBtn.disabled = true;
+                        return;
+                    }
+
+                    let hasOverlaps = false;
+                    let overlapDetails = [];
+                    if (validPolygons.length > 1) {
+                        for (let i = 0; i < validPolygons.length; i++) {
+                            for (let j = i + 1; j < validPolygons.length; j++) {
+                                try {
+                                    if (turf.booleanOverlap(validPolygons[i], validPolygons[j])) {
+                                        hasOverlaps = true;
+                                        overlapDetails.push({ polygon1: i + 1, polygon2: j + 1 });
+                                    }
+                                } catch (overlapError) {
+                                    console.warn(`Error checking overlap between polygons ${i + 1} and ${j + 1}:`, overlapError);
+                                    hasOverlaps = true;
+                                    overlapDetails.push({ polygon1: i + 1, polygon2: j + 1, error: 'Error en verificación' });
+                                }
+                            }
+                        }
+                    }
+
+                    let kmlPolygon = validPolygons.length === 1 ? validPolygons[0] : {
+                        type: 'Feature',
+                        properties: validPolygons[0].properties || {},
+                        geometry: {
+                            type: 'MultiPolygon',
+                            coordinates: validPolygons.map(p => p.geometry.type === 'Polygon' ? p.geometry.coordinates : p.geometry.coordinates[0])
+                        }
+                    };
+
+                    kmlMetrics.hasOverlaps = hasOverlaps;
+                    kmlMetrics.overlapCount = overlapDetails.length;
+                    kmlMetrics.polygonCount = validPolygons.length;
+
                     if (kmlLayer) map.removeLayer(kmlLayer);
 
-                    // Agregar nueva capa con estilo institucional
                     kmlLayer = L.geoJSON(kmlPolygon, {
-                        style: {
-                            color: '#ff7800',
-                            weight: 3,
-                            fillColor: '#ffa500',
-                            fillOpacity: 0.2
-                        }
+                        style: hasOverlaps ? { color: '#ff6b35', weight: 4, fillColor: '#ff6b35', fillOpacity: 0.4, dashArray: '10,5' } : { color: '#ff7800', weight: 3, fillColor: '#ffa500', fillOpacity: 0.2 }
                     }).addTo(map);
 
-                    // Asegurar que el mapa se actualice correctamente después de cambios de layout
+                    if (hasOverlaps) {
+                        showAlert(`⚠️ KML cargado con ${overlapDetails.length} superposiciones.`, 'warning', 6000);
+                    }
+
                     setTimeout(() => {
                         map.invalidateSize();
                         const b = kmlLayer.getBounds();
                         if (b && b.isValid()) {
                             map.fitBounds(b, { padding: [24, 24], maxZoom: 15, animate: true, duration: 0.5 });
+                            lastAreaBounds = b;
                         }
                     }, 50);
 
-                    // Habilitar siguiente paso del flujo
                     performClipBtn.disabled = false;
                     if (centerKmlBtn) centerKmlBtn.disabled = false;
-                    showAlert(`KML cargado exitosamente. Se encontró un polígono con ${kmlPolygon.geometry.coordinates.length} coordenadas.`, 'success');
+                    showAlert(`KML cargado. Se encontraron ${validPolygons.length} polígonos.`, 'success');
 
                 } catch (error) {
                     console.error('Error procesando KML:', error);
-                    showAlert(
-                        'Error procesando el archivo KML. Verifica que sea un archivo válido y no esté corrupto. ' +
-                        'Detalles: ' + error.message,
-                        'danger',
-                        8000
-                    );
+                    showAlert('Error procesando el archivo KML. Verifique que sea válido.', 'danger', 8000);
                 }
             };
 
             reader.onerror = function () {
-                showAlert('Error al leer el archivo. Intenta nuevamente con un archivo diferente.', 'danger');
+                showAlert('Error al leer el archivo.', 'danger');
             };
 
-            // Leer archivo como texto
             reader.readAsText(file);
         }
 
