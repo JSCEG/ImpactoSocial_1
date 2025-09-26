@@ -15,7 +15,7 @@
     <!-- Estilos propios (sobrescribe Bootstrap cuando sea necesario) se cargan con versión para evitar caché -->
     <!-- Cache-busting loader: actualiza APP_VERSION para invalidar caché de style.css, togeojson.js e index.js -->
     <script>
-        window.APP_VERSION = '20250807-1';
+        window.APP_VERSION = '20250807-2';
         (function () {
             function withV(url) { return url + (url.indexOf('?') > -1 ? '&' : '?') + 'v=' + encodeURIComponent(window.APP_VERSION); }
             function loadCss(href) { var l = document.createElement('link'); l.rel = 'stylesheet'; l.href = withV(href); document.head.appendChild(l); }
@@ -137,6 +137,7 @@
                                     <div class="accordion-body">
                                         <label for="areaType" class="form-label">Tipo de área</label>
                                         <select id="areaType" class="form-select mb-2" aria-describedby="areaHelp">
+                                            <option value="exacta">Área exacta (sin buffer)</option>
                                             <option value="nucleo">Área núcleo (con buffer de 500m)</option>
                                             <option value="directa">Área de influencia directa</option>
                                             <option value="indirecta">Área de influencia indirecta</option>

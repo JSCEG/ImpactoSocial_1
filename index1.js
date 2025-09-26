@@ -25,6 +25,7 @@ let clippedPointsLayer = null; // Capa de localidades puntos resultantes del rec
 let kmlGeoJson = null; // Datos GeoJSON convertidos del KML original
 let labelLayer = null; // Capa de etiquetas CVEGEO sobre el mapa
 let lastAreaBounds = null; // Bounds del área para restaurar la vista del área
+let highlightedLayer = null; // Para el efecto de resaltado
 
 // Métricas del KML para reportes
 let kmlMetrics = {
@@ -403,6 +404,18 @@ function initApp() {
             layers: [baseMaps['SENER Oscuro']]
         });
 
+        map.on('click', function(e) {
+            // Si el clic no fue en una capa, limpiar el resaltado
+            if (e.originalEvent.target.classList.contains('leaflet-container')) {
+                clearHighlight();
+                // También deseleccionar cualquier elemento de la lista
+                const items = cvegeoListDiv.querySelectorAll('li');
+                items.forEach(li => {
+                    li.classList.remove('active');
+                });
+            }
+        });
+
         // Evitar hacer zoom out más allá del marco continental relevante
         map.on('zoomend', () => {
             if (map.getZoom() < 4) map.setZoom(4);
@@ -505,6 +518,9 @@ function initApp() {
             if (clippedPointsLayer) map.removeLayer(clippedPointsLayer);
             if (labelLayer) map.removeLayer(labelLayer);
 
+            // Limpiar la capa resaltada
+            clearHighlight();
+
             // Resetear variables de estado
             kmlLayer = null;
             bufferLayer = null;
@@ -557,25 +573,77 @@ function initApp() {
         }
 
         /**
-         * Navega suavemente a una feature específica en el mapa
-         * Ajusta automáticamente el zoom y centrado óptimos según el tipo de geometría
-         * @param {object} ref - Referencia que contiene bounds o latlng de la feature
+         * Limpia cualquier resaltado existente en el mapa.
+         */
+        function clearHighlight() {
+            if (highlightedLayer) {
+                // Restablecer el estilo de la capa previamente resaltada
+                if (typeof highlightedLayer.setStyle === 'function') {
+                    // Para polígonos o formas, restablecer estilo
+                    highlightedLayer.setStyle(highlightedLayer.options.originalStyle);
+                }
+                highlightedLayer = null;
+            }
+        }
+
+        /**
+         * Navega suavemente a una feature específica en el mapa y la resalta.
+         * Ajusta automáticamente el zoom y centrado óptimos según el tipo de geometría.
+         * @param {object} ref - Referencia que contiene bounds o latlng de la feature y la capa.
          */
         function goToFeatureRef(ref) {
             if (!ref) return;
 
+            // Si la capa seleccionada ya está resaltada, límpiela y regrese
+            if (highlightedLayer === ref.layer) {
+                clearHighlight();
+                return;
+            }
+
+            // Limpiar el resaltado anterior
+            clearHighlight();
+
+            // Resaltar la nueva capa
+            if (ref.layer && typeof ref.layer.setStyle === 'function') {
+                highlightedLayer = ref.layer;
+                // Guardar el estilo original si no se ha guardado
+                if (!highlightedLayer.options.originalStyle) {
+                    highlightedLayer.options.originalStyle = {
+                        color: highlightedLayer.options.color,
+                        weight: highlightedLayer.options.weight,
+                        opacity: highlightedLayer.options.opacity,
+                        fillColor: highlightedLayer.options.fillColor,
+                        fillOpacity: highlightedLayer.options.fillOpacity
+                    };
+                }
+                // Aplicar estilo de resaltado
+                highlightedLayer.setStyle({
+                    color: '#FFFF00', // Amarillo brillante
+                    weight: 5,
+                    opacity: 1,
+                    fillColor: '#FFFF00',
+                    fillOpacity: 0.7
+                });
+                // Asegurarse de que la capa resaltada esté al frente
+                if (typeof highlightedLayer.bringToFront === 'function') {
+                    highlightedLayer.bringToFront();
+                }
+            }
+
             if (ref.bounds && ref.bounds.isValid()) {
-                // Para polígonos: centrar en bounds con zoom calculado automáticamente
-                const center = ref.bounds.getCenter();
-                const targetZoom = Math.min(map.getBoundsZoom(ref.bounds, true), 15);
-                map.setView(center, targetZoom, {
+                // Para polígonos, usar fitBounds para una mejor vista con padding
+                map.fitBounds(ref.bounds, {
+                    padding: [50, 50], // 50px de margen
+                    maxZoom: 16,
                     animate: true,
                     duration: 0.6
                 });
             } else if (ref.latlng) {
-                // Para puntos: usar zoom mínimo razonable
-                const z = Math.max(map.getZoom(), 13);
-                map.setView(ref.latlng, z, {
+                // Para puntos, también usar fitBounds creando un área pequeña alrededor
+                const pointBounds = L.latLngBounds(ref.latlng, ref.latlng);
+                map.fitBounds(pointBounds, {
+                    padding: [50, 50],
+                    maxZoom: 16, // Zoom consistente para puntos
                     animate: true,
                     duration: 0.6
                 });
@@ -767,14 +835,39 @@ function initApp() {
                         }
                     }
 
-                    let kmlPolygon = validPolygons.length === 1 ? validPolygons[0] : {
-                        type: 'Feature',
-                        properties: validPolygons[0].properties || {},
-                        geometry: {
-                            type: 'MultiPolygon',
-                            coordinates: validPolygons.map(p => p.geometry.type === 'Polygon' ? p.geometry.coordinates : p.geometry.coordinates[0])
+                    const allPolygonCoordinates = [];
+                    validPolygons.forEach(p => {
+                        if (p.geometry.type === 'Polygon') {
+                            allPolygonCoordinates.push(p.geometry.coordinates);
+                        } else if (p.geometry.type === 'MultiPolygon') {
+                            p.geometry.coordinates.forEach(polyCoords => {
+                                allPolygonCoordinates.push(polyCoords);
+                            });
                         }
-                    };
+                    });
+
+                    let kmlPolygonFeature;
+                    if (allPolygonCoordinates.length === 1) {
+                        kmlPolygonFeature = {
+                            type: 'Feature',
+                            properties: validPolygons[0].properties || {},
+                            geometry: {
+                                type: 'Polygon',
+                                coordinates: allPolygonCoordinates[0]
+                            }
+                        };
+                    } else {
+                        kmlPolygonFeature = {
+                            type: 'Feature',
+                            properties: validPolygons[0].properties || {},
+                            geometry: {
+                                type: 'MultiPolygon',
+                                coordinates: allPolygonCoordinates
+                            }
+                        };
+                    }
+                    
+                    kmlGeoJson.features = [kmlPolygonFeature];
 
                     kmlMetrics.hasOverlaps = hasOverlaps;
                     kmlMetrics.overlapCount = overlapDetails.length;
@@ -782,12 +875,43 @@ function initApp() {
 
                     if (kmlLayer) map.removeLayer(kmlLayer);
 
-                    kmlLayer = L.geoJSON(kmlPolygon, {
+                    kmlLayer = L.geoJSON(kmlPolygonFeature, {
                         style: hasOverlaps ? { color: '#ff6b35', weight: 4, fillColor: '#ff6b35', fillOpacity: 0.4, dashArray: '10,5' } : { color: '#ff7800', weight: 3, fillColor: '#ffa500', fillOpacity: 0.2 }
                     }).addTo(map);
 
                     if (hasOverlaps) {
-                        showAlert(`⚠️ KML cargado con ${overlapDetails.length} superposiciones.`, 'warning', 6000);
+                        let overlapDetailsHtml = '';
+                        if (overlapDetails && overlapDetails.length > 0) {
+                            overlapDetailsHtml = '<p><strong>Superposiciones detectadas:</strong></p><ul>';
+                            overlapDetails.slice(0, 5).forEach(detail => {
+                                overlapDetailsHtml += `<li>Polígono ${detail.polygon1} se superpone con Polígono ${detail.polygon2}</li>`;
+                            });
+                            if (overlapDetails.length > 5) {
+                                overlapDetailsHtml += `<li>... y ${overlapDetails.length - 5} superposiciones más</li>`;
+                            }
+                            overlapDetailsHtml += '</ul>';
+                        }
+                        setTimeout(() => {
+                            showModal({
+                                title: '⚠️ Polígonos Superpuestos Detectados',
+                                message: `
+                                    <div class="alert alert-warning">
+                                        <strong>Se detectaron superposiciones en el KML "${file.name}"</strong>
+                                    </div>
+                                    <p><strong>Detalles del problema:</strong></p>
+                                    <ul>
+                                        <li>Número de polígonos: ${validPolygons.length}</li>
+                                        <li>Superposiciones encontradas: ${overlapDetails?.length || 'Múltiples'}</li>
+                                        <li>Posible conteo duplicado en zonas de superposición</li>
+                                    </ul>
+                                    ${overlapDetailsHtml}
+                                    <div class="alert alert-info small mt-3">
+                                        <strong>Recomendación:</strong> Revisar el archivo KML para corregir las superposiciones.
+                                    </div>
+                                `,
+                                okText: 'Entendido'
+                            });
+                        }, 1000);
                     }
 
                     setTimeout(() => {
@@ -1056,6 +1180,17 @@ function initApp() {
                                     const nombre = props.NOM_LOC || props.NOMGEO || '—';
                                     layer.bindPopup(`<strong>Localidad (Polígono)</strong><br><strong>Nombre:</strong> ${nombre}<br><strong>CVEGEO:</strong> ${props.CVEGEO || '—'}`);
                                     const id = props.CVEGEO;
+
+                                    // Guardar el estilo original para el resaltado
+                                    const originalStyle = {
+                                        color: layer.options.color,
+                                        weight: layer.options.weight,
+                                        opacity: layer.options.opacity,
+                                        fillColor: layer.options.fillColor,
+                                        fillOpacity: layer.options.fillOpacity
+                                    };
+                                    layer.options.originalStyle = originalStyle;
+
                                     const ref = { layer };
                                     if (layer.getBounds) ref.bounds = layer.getBounds();
                                     else if (layer.getLatLng) ref.latlng = layer.getLatLng();
@@ -1078,7 +1213,7 @@ function initApp() {
                             pointToLayer: (feature, latlng) => {
                                 const id = feature.properties?.CVEGEO;
                                 const color = (id && colorsById.get(id)) || '#008000';
-                                return L.circle(latlng, { radius: 100, fillColor: color, color: '#222', weight: 2, opacity: 0.8, fillOpacity: 0.3 });
+                                return L.circleMarker(latlng, { radius: 8, fillColor: color, color: '#222', weight: 1, opacity: 1, fillOpacity: 0.8 });
                             },
                             onEachFeature: (feature, layer) => {
                                 if (feature.properties) {
@@ -1086,6 +1221,18 @@ function initApp() {
                                     const nombre = props.NOM_LOC || props.NOMGEO || '—';
                                     layer.bindPopup(`<strong>Localidad (Coordenadas)</strong><br><strong>Nombre:</strong> ${nombre}<br><strong>CVEGEO:</strong> ${props.CVEGEO || '—'}<br><small><em>Identificada por coordenadas geográficas.</em></small>`);
                                     const id = props.CVEGEO;
+
+                                    // Guardar el estilo original para el resaltado
+                                    const originalStyle = {
+                                        radius: layer.options.radius,
+                                        fillColor: layer.options.fillColor,
+                                        color: layer.options.color,
+                                        weight: layer.options.weight,
+                                        opacity: layer.options.opacity,
+                                        fillOpacity: layer.options.fillOpacity
+                                    };
+                                    layer.options.originalStyle = originalStyle;
+
                                     const ref = { layer, latlng: layer.getLatLng() };
                                     if (id) featureLayersById.set(id, ref);
                                 }
