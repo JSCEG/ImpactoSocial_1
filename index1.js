@@ -16,10 +16,12 @@
  * Variables principales para manejo del estado de la aplicación
  */
 let map; // Instancia principal del mapa Leaflet
-let localitiesData = null; // Datos de localidades cargados desde el servidor
+let localitiesData = null; // Datos de localidades cargados desde el servidor (polígonos)
+let localitiesPointsData = null; // Datos de localidades puntos (coordenadas sin polígono)
 let kmlLayer = null; // Capa del polígono KML original cargado por el usuario
 let bufferLayer = null; // Capa del buffer generado para área núcleo
 let clippedLocalitiesLayer = null; // Capa de localidades resultantes del recorte
+let clippedPointsLayer = null; // Capa de localidades puntos resultantes del recorte
 let kmlGeoJson = null; // Datos GeoJSON convertidos del KML original
 let labelLayer = null; // Capa de etiquetas CVEGEO sobre el mapa
 let lastAreaBounds = null; // Bounds del área para restaurar la vista del área
@@ -310,8 +312,9 @@ function initApp() {
         // CONFIGURACIÓN DE DATOS Y ELEMENTOS DEL DOM
         // ====================================================================
 
-        // URL del servicio de localidades (datos geoespaciales de INEGI)
+        // URLs de servicios de localidades (datos geoespaciales de INEGI)
         const localitiesUrl = 'https://cdn.sassoapps.com/Gabvy/localidades_4326.geojson';
+        const localitiesPointsUrl = 'https://cdn.sassoapps.com/Gabvy/localidades_puntos.geojson'; // Puntos
 
         // Referencias a elementos del DOM para controles
         const kmlFileInput = document.getElementById('kmlFile');
@@ -341,14 +344,23 @@ function initApp() {
          */
         async function loadLocalitiesData() {
             try {
+                // Cargar polígonos de localidades
                 const response = await fetch(localitiesUrl);
                 if (!response.ok) {
                     throw new Error(`Error HTTP! status: ${response.status}`);
                 }
-
                 localitiesData = await response.json();
-                console.log(`Localidades cargadas: ${localitiesData.features.length}`);
-                showAlert(`Localidades cargadas: ${localitiesData.features.length}`, 'success');
+                console.log(`Localidades polígonos cargadas: ${localitiesData.features.length}`);
+
+                // Cargar puntos de localidades
+                const pointsResponse = await fetch(localitiesPointsUrl);
+                if (!pointsResponse.ok) {
+                    throw new Error(`Error HTTP puntos! status: ${pointsResponse.status}`);
+                }
+                localitiesPointsData = await pointsResponse.json();
+                console.log(`Localidades puntos cargadas: ${localitiesPointsData.features.length}`);
+
+                showAlert(`Localidades cargadas: ${localitiesData.features.length} polígonos + ${localitiesPointsData.features.length} puntos`, 'success');
 
             } catch (error) {
                 console.error('Error al cargar localidades:', error);
@@ -366,12 +378,14 @@ function initApp() {
             if (kmlLayer) map.removeLayer(kmlLayer);
             if (bufferLayer) map.removeLayer(bufferLayer);
             if (clippedLocalitiesLayer) map.removeLayer(clippedLocalitiesLayer);
+            if (clippedPointsLayer) map.removeLayer(clippedPointsLayer);
             if (labelLayer) map.removeLayer(labelLayer);
 
             // Resetear variables de estado
             kmlLayer = null;
             bufferLayer = null;
             clippedLocalitiesLayer = null;
+            clippedPointsLayer = null;
             labelLayer = null;
             kmlGeoJson = null;
             lastAreaBounds = null;
@@ -462,11 +476,13 @@ function initApp() {
                 if (f.properties.CVEGEO) {
                     const li = document.createElement('li');
                     const color = colorsById.get(f.properties.CVEGEO) || '#008000';
-                    li.innerHTML = `<span class="color-dot" style="background:${color}"></span>${f.properties.CVEGEO}`;
-                    li.dataset.cvegeo = f.properties.CVEGEO;
+                    const nombre = f.properties.NOM_LOC || f.properties.NOMGEO || 'Sin nombre';
+                    const cvegeo = f.properties.CVEGEO;
+                    li.innerHTML = `<span class="color-dot" style="background:${color}"></span>${nombre} (${cvegeo})`;
+                    li.dataset.cvegeo = cvegeo;
                     li.setAttribute('role', 'button');
                     li.setAttribute('tabindex', '0');
-                    li.setAttribute('aria-label', `Ir a localidad ${f.properties.CVEGEO}`);
+                    li.setAttribute('aria-label', `Ir a localidad ${nombre} (${cvegeo})`);
                     ul.appendChild(li);
                 }
             });
@@ -821,26 +837,32 @@ function initApp() {
                     await yieldUI();
                 }
 
-                updateProgress(95, `Encontradas ${clipped.length} localidades. Preparando visualización…`);
+                // Procesar puntos adicionales que no tengan polígono
+                const clippedPoints = [];
+                const existingCvegeo = new Set(clipped.map(f => f.properties?.CVEGEO).filter(Boolean));
+
+                if (localitiesPointsData && localitiesPointsData.features) {
+                    updateProgress(96, `Procesando puntos adicionales…`);
+
+                    const pointsFeatures = localitiesPointsData.features;
+                    for (const point of pointsFeatures) {
+                        const cvegeo = point.properties?.CVEGEO;
+                        // Solo incluir si intersecta y no está ya en los polígonos
+                        if (cvegeo && !existingCvegeo.has(cvegeo) && T.booleanIntersects(point.geometry, clipArea.geometry)) {
+                            clippedPoints.push(point);
+                        }
+                    }
+                }
+
+                updateProgress(97, `Encontradas ${clipped.length} localidades + ${clippedPoints.length} puntos adicionales. Preparando visualización…`);
 
                 // ============================================================
                 // VISUALIZACIÓN DE RESULTADOS Y GENERACIÓN DE CAPAS
                 // ============================================================
 
-                if (clipped.length > 0) {
-                    /*
-                     * GENERACIÓN DE PALETA DE COLORES POR CVEGEO
-                     * 
-                     * Cada localidad necesita un color único para diferenciación visual:
-                     * 1. Se crea un Map() para asociar CVEGEO → Color
-                     * 2. Se define paleta de 20 colores institucionales  
-                     * 3. Los colores se asignan secuencialmente, con reutilización cíclica
-                     * 4. Esto permite hasta 20 localidades con colores únicos
-                     * 5. Si hay más de 20, los colores se reutilizan (patrón cíclico)
-                     */
-
+                if (clipped.length > 0 || clippedPoints.length > 0) {
                     // Generar paleta de colores distinta por CVEGEO
-                    const colorsById = new Map();  // CVEGEO → Color hex
+                    const colorsById = new Map();
                     const palette = [
                         '#d11149', '#1a8fe3', '#119822', '#ff7f0e', '#9467bd',
                         '#e377c2', '#17becf', '#bcbd22', '#8c564b', '#2ca02c',
@@ -849,8 +871,8 @@ function initApp() {
                     ];
 
                     let colorIndex = 0;
-                    // Asignar colores únicos por CVEGEO
-                    for (const f of clipped) {
+                    const allFeatures = [...clipped, ...clippedPoints];
+                    for (const f of allFeatures) {
                         const id = f.properties?.CVEGEO || String(colorIndex);
                         if (!colorsById.has(id)) {
                             colorsById.set(id, palette[colorIndex % palette.length]);
@@ -858,216 +880,121 @@ function initApp() {
                         }
                     }
 
-                    /*
-                     * CREACIÓN DE CAPAS LEAFLET CON ESTILOS DIFERENCIADOS
-                     * 
-                     * Se convierte el arreglo de features a una capa Leaflet visualizable:
-                     * 1. clipped[] → T.featureCollection() → Formato GeoJSON estándar
-                     * 2. L.geoJSON() → Capa Leaflet con estilos y eventos configurados
-                     * 3. Diferentes tipos de geometría requieren tratamiento especializado:
-                     *    - Puntos → CircleMarkers con colores específicos
-                     *    - Polígonos → Estilos de borde y relleno 
-                     *    - Líneas → Estilos de trazo
-                     */
-
-                    // Crear capa de localidades con estilos diferenciados
-                    featureLayersById = new Map();  // CVEGEO → {bounds, layer} para navegación
-                    const clippedCollection = T.featureCollection(clipped);  // Convertir a GeoJSON válido
-
-                    clippedLocalitiesLayer = L.geoJSON(clippedCollection, {
-                        // Configuración de estilos para polígonos y líneas
-                        style: (feature) => {
-                            const id = feature.properties?.CVEGEO;
-                            const color = (id && colorsById.get(id)) || '#008000';  // Verde por defecto
-                            return {
-                                color,                    // Color del borde
-                                weight: 2,               // Grosor del borde
-                                opacity: 0.9,           // Transparencia del borde
-                                fillColor: color,       // Color de relleno
-                                fillOpacity: 0.25       // Transparencia del relleno
-                            };
-                        },
-
-                        // Convertir puntos a círculos con color asignado
-                        pointToLayer: (feature, latlng) => {
-                            const id = feature.properties?.CVEGEO;
-                            const color = (id && colorsById.get(id)) || '#008000';
-                            return L.circleMarker(latlng, {
-                                radius: 6,              // Tamaño del círculo
-                                fillColor: color,       // Color de relleno
-                                color: '#222',          // Color del borde
-                                weight: 1,              // Grosor del borde
-                                opacity: 1,             // Opacidad del borde
-                                fillOpacity: 0.9        // Opacidad del relleno
-                            });
-                        },
-
-                        // Configurar popups informativos y navegación por cada feature
-                        onEachFeature: (feature, layer) => {
-                            if (feature.properties) {
-                                const props = feature.properties;
-
-                                // Extraer propiedades relevantes con fallbacks
-                                const nombre = props.NOM_LOC || props.NOMGEO || props.NOMBRE || '—';
-                                const cvegeo = props.CVEGEO || '—';
-                                const ambito = props.AMBITO || '—';
-
-                                // Popup con información básica de la localidad
-                                layer.bindPopup(`
-                                    <strong>Información de la Localidad</strong><br>
-                                    <strong>Nombre:</strong> ${nombre}<br>
-                                    <strong>CVEGEO:</strong> ${cvegeo}<br>
-                                    <strong>Ámbito:</strong> ${ambito}
-                                `);
-
-                                // Guardar referencia para navegación desde lista
-                                const id = props.CVEGEO;
-                                const ref = { layer };
-
-                                // Calcular bounds según tipo de geometría
-                                if (layer.getBounds) {
-                                    const b = layer.getBounds();
-                                    if (b && b.isValid()) ref.bounds = b;
-                                } else if (layer.getLatLng) {
-                                    ref.latlng = layer.getLatLng();
-                                }
-
-                                if (id) featureLayersById.set(id, ref);
-                            }
-
-                            // Evento click: centrar mapa y destacar en lista
-                            layer.on('click', () => {
+                    featureLayersById = new Map();
+                    if (clipped.length > 0) {
+                        const clippedCollection = T.featureCollection(clipped);
+                        clippedLocalitiesLayer = L.geoJSON(clippedCollection, {
+                            style: (feature) => {
                                 const id = feature.properties?.CVEGEO;
-                                if (id) setActiveListItem(id);
+                                const color = (id && colorsById.get(id)) || '#008000';
+                                return { color, weight: 2, opacity: 0.9, fillColor: color, fillOpacity: 0.25 };
+                            },
+                            pointToLayer: (feature, latlng) => {
+                                const id = feature.properties?.CVEGEO;
+                                const color = (id && colorsById.get(id)) || '#008000';
+                                return L.circleMarker(latlng, { radius: 6, fillColor: color, color: '#222', weight: 1, opacity: 1, fillOpacity: 0.9 });
+                            },
+                            onEachFeature: (feature, layer) => {
+                                if (feature.properties) {
+                                    const props = feature.properties;
+                                    const nombre = props.NOM_LOC || props.NOMGEO || '—';
+                                    layer.bindPopup(`<strong>Localidad (Polígono)</strong><br><strong>Nombre:</strong> ${nombre}<br><strong>CVEGEO:</strong> ${props.CVEGEO || '—'}`);
+                                    const id = props.CVEGEO;
+                                    const ref = { layer };
+                                    if (layer.getBounds) ref.bounds = layer.getBounds();
+                                    else if (layer.getLatLng) ref.latlng = layer.getLatLng();
+                                    if (id) featureLayersById.set(id, ref);
+                                }
+                                layer.on('click', () => {
+                                    const id = feature.properties?.CVEGEO;
+                                    if (id) setActiveListItem(id);
+                                    const ref = featureLayersById.get(id);
+                                    goToFeatureRef(ref);
+                                    if (layer.openPopup) layer.openPopup();
+                                });
+                            }
+                        }).addTo(map);
+                    }
 
-                                const ref = featureLayersById.get(id) || (layer.getBounds
-                                    ? { bounds: layer.getBounds(), layer }
-                                    : layer.getLatLng ? { latlng: layer.getLatLng(), layer } : null);
+                    if (clippedPoints.length > 0) {
+                        const pointsCollection = T.featureCollection(clippedPoints);
+                        clippedPointsLayer = L.geoJSON(pointsCollection, {
+                            pointToLayer: (feature, latlng) => {
+                                const id = feature.properties?.CVEGEO;
+                                const color = (id && colorsById.get(id)) || '#008000';
+                                return L.circle(latlng, { radius: 100, fillColor: color, color: '#222', weight: 2, opacity: 0.8, fillOpacity: 0.3 });
+                            },
+                            onEachFeature: (feature, layer) => {
+                                if (feature.properties) {
+                                    const props = feature.properties;
+                                    const nombre = props.NOM_LOC || props.NOMGEO || '—';
+                                    layer.bindPopup(`<strong>Localidad (Coordenadas)</strong><br><strong>Nombre:</strong> ${nombre}<br><strong>CVEGEO:</strong> ${props.CVEGEO || '—'}<br><small><em>Identificada por coordenadas geográficas.</em></small>`);
+                                    const id = props.CVEGEO;
+                                    const ref = { layer, latlng: layer.getLatLng() };
+                                    if (id) featureLayersById.set(id, ref);
+                                }
+                                layer.on('click', () => {
+                                    const id = feature.properties?.CVEGEO;
+                                    if (id) setActiveListItem(id);
+                                    const ref = featureLayersById.get(id);
+                                    goToFeatureRef(ref);
+                                    if (layer.openPopup) layer.openPopup();
+                                });
+                            }
+                        }).addTo(map);
+                    }
 
-                                goToFeatureRef(ref);
-                                if (layer.openPopup) layer.openPopup();
-                            });
-                        }
-                    }).addTo(map);  // Agregar capa al mapa
-
-                    // ========================================================
-                    // CREACIÓN DE ETIQUETAS CVEGEO SOBRE EL MAPA
-                    // ========================================================
-
-                    /*
-                     * ALGORITMO DE ETIQUETAS: Mostrar CVEGEO sobre cada localidad
-                     * 
-                     * PROPÓSITO: Facilitar identificación visual rápida de localidades
-                     * 
-                     * PROCESO:
-                     * 1. Para cada feature en clipped[], determinar posición óptima de etiqueta
-                     * 2. Manejar diferentes tipos de geometría con algoritmos específicos:
-                     *    - Point: Usar coordenadas directamente
-                     *    - Polygon/MultiPolygon: Calcular centroide geométrico con Turf.js
-                     *    - LineString: Usar punto medio de la línea
-                     * 3. Crear L.divIcon con HTML personalizado y color correspondiente
-                     * 4. Posicionar etiqueta en coordenadas calculadas
-                     * 
-                     * LIBRERÍAS UTILIZADAS:
-                     * - Turf.js: Para cálculo de centroides (T.centroid)
-                     * - Leaflet: Para creación de markers con iconos HTML (L.divIcon, L.marker)
-                     */
-
-                    const labels = [];  // Array de markers de etiquetas
-                    clipped.forEach(f => {
+                    const labels = [];
+                    allFeatures.forEach(f => {
                         const id = f.properties?.CVEGEO;
                         const color = (id && colorsById.get(id)) || '#008000';
-
-                        // Manejar diferentes tipos de geometría para posicionamiento de etiquetas
+                        let position = null;
                         if (f.geometry.type === 'Point') {
-                            // CASO 1: Geometría tipo punto - usar coordenadas directamente
                             const [lng, lat] = f.geometry.coordinates;
-                            const icon = L.divIcon({
-                                className: 'cvegeo-label',
-                                html: `<span style="background:${color};color:#fff;padding:2px 4px;border-radius:3px;font-size:11px;">${id || ''}</span>`
-                            });
-                            labels.push(L.marker([lat, lng], { icon }));
-
-                        } else if (f.geometry.type === 'MultiPoint') {
-                            // CASO 2: Múltiples puntos - crear etiqueta para cada punto
-                            f.geometry.coordinates.forEach(([lng, lat]) => {
-                                const icon = L.divIcon({
-                                    className: 'cvegeo-label',
-                                    html: `<span style="background:${color};color:#fff;padding:2px 4px;border-radius:3px;font-size:11px;">${id || ''}</span>`
-                                });
-                                labels.push(L.marker([lat, lng], { icon }));
-                            });
-
+                            position = [lat, lng];
                         } else if (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon') {
-                            // CASO 3: Polígonos - calcular centroide geométrico
                             try {
-                                /*
-                                 * CÁLCULO DE CENTROIDE: Algoritmo geométrico para posición central
-                                 * 
-                                 * T.centroid() utiliza:
-                                 * - Para polígonos simples: Centro de masa geométrico
-                                 * - Para polígonos complejos: Promedio ponderado de vértices
-                                 * - Para MultiPolygon: Centroide del polígono más grande
-                                 * 
-                                 * Resultado: Point GeoJSON con coordenadas [lng, lat]
-                                 */
                                 const centroid = T.centroid(f);
                                 const [lng, lat] = centroid.geometry.coordinates;
-                                const icon = L.divIcon({
-                                    className: 'cvegeo-label',
-                                    html: `<span style="background:${color};color:#fff;padding:2px 4px;border-radius:3px;font-size:11px;">${id || ''}</span>`
-                                });
-                                labels.push(L.marker([lat, lng], { icon }));
-                            } catch (e) {
-                                // Si falla el cálculo del centroide, omitir etiqueta
-                                console.warn('No se pudo calcular centroide para feature:', id);
-                            }
+                                position = [lat, lng];
+                            } catch (e) { console.warn('No se pudo calcular centroide para feature:', id); }
+                        }
+                        if (position) {
+                            const icon = L.divIcon({ className: 'cvegeo-label', html: `<span style="background:${color};color:#fff;padding:2px 4px;border-radius:3px;font-size:11px;">${id || ''}</span>` });
+                            labels.push(L.marker(position, { icon }));
                         }
                     });
 
-                    // Agregar capa de etiquetas si hay etiquetas válidas
                     if (labels.length) labelLayer = L.layerGroup(labels).addTo(map);
 
-                    // ========================================================
-                    // FINALIZACIÓN Y AJUSTES DE VISTA
-                    // ========================================================
-
-                    // Calcular bounds combinados del área (buffer o KML) y resultados
-                    const areaBounds = (bufferLayer && bufferLayer.getBounds && bufferLayer.getBounds().isValid())
-                        ? bufferLayer.getBounds()
-                        : (kmlLayer && kmlLayer.getBounds && kmlLayer.getBounds().isValid())
-                            ? kmlLayer.getBounds()
-                            : null;
-                    const resultBounds = clippedLocalitiesLayer.getBounds();
-                    let combinedBounds = null;
-                    if (areaBounds && areaBounds.isValid()) {
-                        combinedBounds = L.latLngBounds(areaBounds.getSouthWest(), areaBounds.getNorthEast());
-                        if (resultBounds && resultBounds.isValid()) combinedBounds.extend(resultBounds);
-                    } else if (resultBounds && resultBounds.isValid()) {
-                        combinedBounds = resultBounds;
+                    const areaBounds = bufferLayer?.getBounds().isValid() ? bufferLayer.getBounds() : kmlLayer?.getBounds().isValid() ? kmlLayer.getBounds() : null;
+                    const resultBounds = clippedLocalitiesLayer?.getBounds();
+                    const pointsBounds = clippedPointsLayer?.getBounds();
+                    let combinedBounds = areaBounds ? L.latLngBounds(areaBounds.getSouthWest(), areaBounds.getNorthEast()) : null;
+                    if (combinedBounds) {
+                        if (resultBounds?.isValid()) combinedBounds.extend(resultBounds);
+                        if (pointsBounds?.isValid()) combinedBounds.extend(pointsBounds);
+                    } else {
+                        combinedBounds = resultBounds?.isValid() ? resultBounds : pointsBounds;
                     }
 
-                    // Guardar bounds para función de restaurar vista
                     lastAreaBounds = combinedBounds;
-                    if (resetViewBtn) {
-                        resetViewBtn.disabled = !lastAreaBounds || !lastAreaBounds.isValid();
-                    }
+                    if (resetViewBtn) resetViewBtn.disabled = !lastAreaBounds?.isValid();
 
-                    // Ajustar vista al encuadre del recorte completo
                     setTimeout(() => {
                         map.invalidateSize();
-                        if (lastAreaBounds && lastAreaBounds.isValid()) {
+                        if (lastAreaBounds?.isValid()) {
                             map.fitBounds(lastAreaBounds, { padding: [24, 24], maxZoom: 15, animate: true, duration: 0.6 });
                         }
                     }, 50);
 
-                    // Actualizar interfaz con resultados
-                    displayCvegeoList(clipped, colorsById);
-                    showModal({
-                        title: 'Recorte completado',
-                        message: `Se encontraron <strong>${clipped.length}</strong> localidades dentro del área seleccionada.`,
-                        okText: 'Aceptar'
-                    });
+                    displayCvegeoList(allFeatures, colorsById);
+                    let message = `Se encontraron <strong>${clipped.length}</strong> localidades con polígonos`;
+                    if (clippedPoints.length > 0) {
+                        message += ` y <strong>${clippedPoints.length}</strong> más por coordenadas geográficas`;
+                    }
+                    message += ' dentro del área seleccionada.';
+                    showModal({ title: 'Recorte completado', message, okText: 'Aceptar' });
                     updateProgress(100, 'Proceso completado.');
 
                 } else {
