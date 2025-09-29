@@ -87,6 +87,7 @@ let zHistoricosData = null;     // Zonas Históricas
 let locIndigenasData = null;    // Localidades Indígenas Datos
 let rutaWixarikaData = null;    // Ruta Wixarika
 let localidadesDatosData = null; // Localidades Datos Adicionales (JSON tabular)
+let localitiesPointsData = null; // Datos de localidades puntos (coordenadas sin polígono)
 
 // Variables para las capas filtradas que se muestran en el mapa
 let clippedLocalitiesLayer = null;
@@ -103,9 +104,11 @@ let clippedSitioArqueologicoLayer = null;
 let clippedZHistoricosLayer = null;
 let clippedLocIndigenasLayer = null;
 let clippedRutaWixarikaLayer = null;
+let clippedLocalitiesPointsLayer = null;
 
 // Control de capas de Leaflet y utilidades de navegación
 let layersControl = null;
+let overlayMaps = {};               // Para mantener referencias de overlays
 let featureLayersById = new Map();  // Para poder navegar a elementos específicos
 let highlightLayer = null;          // Para resaltar elementos seleccionados
 
@@ -500,7 +503,8 @@ function initApp() {
             z_historicos: 'https://cdn.sassoapps.com/Gabvy/z_historicos.geojson',
             loc_indigenas_datos: 'https://cdn.sassoapps.com/Gabvy/loc_indigenas_datos.geojson',
             rutaWixarika: 'https://cdn.sassoapps.com/Gabvy/rutaWixarika.geojson',
-            localidadesdatos_solo_datos: 'https://cdn.sassoapps.com/Gabvy/localidadesdatos_solo_datos.json'
+            localidadesdatos_solo_datos: 'https://cdn.sassoapps.com/Gabvy/localidadesdatos_solo_datos.json',
+            localities_points: 'https://cdn.sassoapps.com/Gabvy/localidades_puntos.geojson' // Puntos
         };
 
         // URLs alternativas con proxy CORS (fallback automático)
@@ -741,6 +745,9 @@ function initApp() {
 
                 updateProgress(75, 'Cargando localidades datos adicionales...');
                 localidadesDatosData = await loadJsonData(urls.localidadesdatos_solo_datos, 'Localidades Datos Adicionales');
+
+                updateProgress(80, 'Cargando localidades puntos...');
+                localitiesPointsData = await loadSingleLayer(urls.localities_points, 'Localidades Puntos');
 
                 // Merge localidades datos adicionales into localitiesData
                 if (localitiesData && localidadesDatosData) {
@@ -1184,6 +1191,13 @@ function initApp() {
                                 { label: 'Población Femenina', value: props.POBFEM },
                                 { label: 'Población Masculina', value: props.POBMAS }
                             ]);
+                        } else if (layerName === 'localidades_puntos') {
+                            popupContent = createPopupContent('Localidad (Puntos)', '📍', [
+                                { value: props.NOM_LOC || props.NOMGEO || 'Sin nombre', isMain: true },
+                                { label: 'CVEGEO', value: props.CVEGEO },
+                                { label: 'Municipio', value: props.NOM_MUN || props.MUNICIPIO },
+                                { label: 'Estado', value: props.NOM_ENT || props.ESTADO },
+                            ]);
                         } else if (layerName === 'atlas') {
                             popupContent = createPopupContent('Atlas Pueblos Indígenas', '🏛️', [
                                 { value: props.CVEGEO, isMain: true },
@@ -1420,6 +1434,10 @@ function initApp() {
                                 const name = f.properties.NOMGEO || f.properties.NOM_LOC || 'Sin nombre';
                                 const key = f.properties.CVEGEO;
                                 displayText = `${name} (${key})`;
+                            } else if (layerName === 'localidades_puntos') {
+                                const name = f.properties.NOM_LOC || f.properties.NOMGEO || 'Sin nombre';
+                                const key = f.properties.CVEGEO;
+                                displayText = `${name} (${key})`;
                             } else if (layerName === 'atlas') {
                                 const name = f.properties.Localidad || 'Sin localidad';
                                 const key = f.properties.CVEGEO;
@@ -1505,12 +1523,31 @@ function initApp() {
                 rutaWixarika: '#ff8000'
             };
 
+            // Definir títulos para cada capa
+            const layerTitles = {
+                localidades: 'Localidades',
+                atlas: 'Atlas Pueblos Indígenas',
+                municipios: 'Municipios',
+                regiones: 'Regiones Indígenas',
+                ran: 'RAN',
+                lenguas: 'Lenguas Indígenas',
+                za_publico: 'ZA Público',
+                za_publico_a: 'ZA Público A',
+                anp_estatal: 'ANP Estatales',
+                ramsar: 'Ramsar',
+                sitio_arqueologico: 'Sitios Arqueológicos',
+                z_historicos: 'Zonas Históricas',
+                loc_indigenas_datos: 'Loc Indígenas Datos',
+                rutaWixarika: 'Ruta Wixarika'
+            };
+
             // Crear secciones para cada capa
             Object.entries(layersData).forEach(([layerName, data]) => {
                 if (data.features) {
                     console.log(`[DEBUG] Processing layer ${layerName} with ${data.features.length} features`);
                     const propertyMap = {
                         localidades: 'CVEGEO',
+                        localidades_puntos: 'CVEGEO',
                         atlas: 'CVEGEO',
                         municipios: 'CVEGEO',
                         regiones: 'Name',
@@ -1526,22 +1563,7 @@ function initApp() {
                         rutaWixarika: 'Name'
                     };
 
-                    const titleMap = {
-                        localidades: 'Localidades',
-                        atlas: 'Atlas Pueblos Indígenas',
-                        municipios: 'Municipios',
-                        regiones: 'Regiones Indígenas',
-                        ran: 'RAN',
-                        lenguas: 'Lenguas Indígenas',
-                        za_publico: 'Zonas Arqueológicas (Puntos)',
-                        za_publico_a: 'Zonas Arqueológicas (Áreas)',
-                        anp_estatal: 'ANP Estatales',
-                        ramsar: 'Ramsar',
-                        sitio_arqueologico: 'Sitios Arqueológicos',
-                        z_historicos: 'Zonas Históricas',
-                        loc_indigenas_datos: 'Loc Indígenas Datos',
-                        rutaWixarika: 'Ruta Wixarika'
-                    };
+                    const titleMap = layerTitles;
 
                     // Determinar si es la capa de lenguas para tratamiento especial
                     const isLenguasLayer = layerName === 'lenguas';
@@ -1886,11 +1908,11 @@ function initApp() {
          */
         function clearAllLayers() {
             // Remover todas las capas del mapa
-            [kmlLayer, bufferLayer, clippedLocalitiesLayer, clippedAtlasLayer, clippedMunicipiosLayer, clippedRegionesLayer, clippedRanLayer, clippedLenguasLayer, clippedZaPublicoLayer, clippedZaPublicoALayer, clippedAnpEstatalLayer, clippedRamsarLayer, clippedSitioArqueologicoLayer, clippedZHistoricosLayer, clippedLocIndigenasLayer, clippedRutaWixarikaLayer, highlightLayer]
+            [kmlLayer, bufferLayer, clippedLocalitiesLayer, clippedLocalitiesPointsLayer, clippedAtlasLayer, clippedMunicipiosLayer, clippedRegionesLayer, clippedRanLayer, clippedLenguasLayer, clippedZaPublicoLayer, clippedZaPublicoALayer, clippedAnpEstatalLayer, clippedRamsarLayer, clippedSitioArqueologicoLayer, clippedZHistoricosLayer, clippedLocIndigenasLayer, clippedRutaWixarikaLayer, highlightLayer]
                 .forEach(layer => { if (layer) map.removeLayer(layer); });
 
             // Resetear variables de estado
-            kmlLayer = bufferLayer = clippedLocalitiesLayer = clippedAtlasLayer = clippedMunicipiosLayer = clippedRegionesLayer = clippedRanLayer = clippedLenguasLayer = clippedZaPublicoLayer = clippedZaPublicoALayer = clippedAnpEstatalLayer = clippedRamsarLayer = clippedSitioArqueologicoLayer = clippedZHistoricosLayer = clippedLocIndigenasLayer = clippedRutaWixarikaLayer = highlightLayer = null;
+            kmlLayer = bufferLayer = clippedLocalitiesLayer = clippedLocalitiesPointsLayer = clippedAtlasLayer = clippedMunicipiosLayer = clippedRegionesLayer = clippedRanLayer = clippedLenguasLayer = clippedZaPublicoLayer = clippedZaPublicoALayer = clippedAnpEstatalLayer = clippedRamsarLayer = clippedSitioArqueologicoLayer = clippedZHistoricosLayer = clippedLocIndigenasLayer = clippedRutaWixarikaLayer = highlightLayer = null;
             kmlGeoJson = null;
             lastAreaBounds = null;
 
@@ -2731,6 +2753,203 @@ function initApp() {
                     console.log('[DEBUG] Ruta Wixarika data not available or empty');
                     clippedRutaWixarikaLayer = L.layerGroup().addTo(map);
                     layersControl.addOverlay(clippedRutaWixarikaLayer, "Ruta Wixarika");
+                }
+
+                // After all layers are processed, handle the localities points
+                if (localitiesPointsData && localitiesPointsData.features) {
+                    updateProgress(85, 'Procesando localidades puntos adicionales...');
+
+                    // Filter out points that are already included in the polygons
+                    const existingCvegeo = new Set();
+                    if (layersData.localidades && layersData.localidades.features) {
+                        layersData.localidades.features.forEach(f => {
+                            if (f.properties?.CVEGEO) {
+                                existingCvegeo.add(f.properties.CVEGEO);
+                            }
+                        });
+                    }
+
+                    const clippedPoints = localitiesPointsData.features.filter(f => {
+                        const cvegeo = f.properties?.CVEGEO;
+                        // Only include if intersects AND is not already in polygons
+                        return cvegeo && !existingCvegeo.has(cvegeo) && T.booleanIntersects(f.geometry, clipArea.geometry);
+                    });
+
+                    if (clippedPoints.length > 0) {
+                        // Add origin property to distinguish from polygon localities
+                        clippedPoints.forEach(point => {
+                            point.properties.origen = 'Capa de Coordenadas';
+                        });
+
+                        // Create buffers of 100m around each point locality
+                        const bufferedPoints = clippedPoints.map(point => {
+                            try {
+                                const buffer = T.buffer(point, 0.1, { units: 'kilometers' }); // 100m buffer
+                                return {
+                                    ...point,
+                                    geometry: buffer.geometry
+                                };
+                            } catch (error) {
+                                console.warn('Error creating buffer for point:', point.properties?.CVEGEO, error);
+                                return point; // Return original point if buffer fails
+                            }
+                        });
+
+                        // Combine polygon localities and buffered point localities into a single collection
+                        const allLocalitiesFeatures = [];
+                        if (layersData.localidades && layersData.localidades.features) {
+                            allLocalitiesFeatures.push(...layersData.localidades.features);
+                        }
+                        allLocalitiesFeatures.push(...bufferedPoints);
+
+                        const allLocalitiesCollection = T.featureCollection(allLocalitiesFeatures);
+
+                        // Remove existing localities layer if it exists
+                        if (clippedLocalitiesLayer) {
+                            map.removeLayer(clippedLocalitiesLayer);
+                            layersControl.removeLayer(clippedLocalitiesLayer);
+                        }
+
+                        // Create unified localities layer with both polygons and buffered points
+                        clippedLocalitiesLayer = L.geoJSON(allLocalitiesCollection, {
+                            style: (feature) => {
+                                const isBufferedPoint = feature.properties?.origen === 'Capa de Coordenadas';
+                                return {
+                                    color: isBufferedPoint ? '#FF6600' : '#008000', // Orange for buffered points, green for polygons
+                                    weight: 2,
+                                    opacity: 0.9,
+                                    fillColor: isBufferedPoint ? '#FF6600' : '#008000',
+                                    fillOpacity: 0.3
+                                };
+                            },
+                            pointToLayer: (feature, latlng) => {
+                                const isBufferedPoint = feature.properties?.origen === 'Capa de Coordenadas';
+                                return L.circleMarker(latlng, {
+                                    radius: isBufferedPoint ? 8 : 6,
+                                    fillColor: isBufferedPoint ? '#FF6600' : '#008000',
+                                    color: '#222',
+                                    weight: 1,
+                                    opacity: 1,
+                                    fillOpacity: isBufferedPoint ? 0.8 : 0.9
+                                });
+                            },
+                            onEachFeature: (feature, layer) => {
+                                if (feature.properties) {
+                                    const props = feature.properties;
+                                    const nombre = props.NOM_LOC || props.NOMGEO || '—';
+                                    const isBufferedPoint = props.origen === 'Capa de Coordenadas';
+
+                                    // Enhanced popup with buffer information
+                                    const popupTitle = isBufferedPoint ?
+                                        `Localidad (Coordenadas + 100m buffer)` :
+                                        `Localidad (Polígono)`;
+                                    const popupDescription = isBufferedPoint ?
+                                        `Identificada por coordenadas geográficas con buffer de 100m.` :
+                                        `Identificada por geometría poligonal.`;
+
+                                    layer.bindPopup(`<strong>${popupTitle}</strong><br><strong>Nombre:</strong> ${nombre}<br><strong>CVEGEO:</strong> ${props.CVEGEO || '—'}<br><strong>Municipio:</strong> ${props.NOM_MUN || props.MUNICIPIO || '—'}<br><strong>Estado:</strong> ${props.NOM_ENT || props.ESTADO || '—'}<br><small><em>${popupDescription}</em></small>`);
+
+                                    // Add to navigation map for interaction
+                                    const id = props.CVEGEO;
+                                    if (id) {
+                                        const ref = { layer };
+                                        if (layer.getBounds) ref.bounds = layer.getBounds();
+                                        else if (layer.getLatLng) ref.latlng = layer.getLatLng();
+                                        featureLayersById.set(id, ref);
+                                    }
+                                }
+
+                                // Add click interaction for highlighting and navigation
+                                layer.on('click', () => {
+                                    const id = feature.properties?.CVEGEO;
+                                    if (id) {
+                                        // Find the corresponding list item and highlight it
+                                        const listItems = document.querySelectorAll('[data-cvegeo]');
+                                        listItems.forEach(item => {
+                                            if (item.dataset.cvegeo === id) {
+                                                item.classList.add('active');
+                                                item.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                                            } else {
+                                                item.classList.remove('active');
+                                            }
+                                        });
+                                    }
+                                    if (layer.openPopup) layer.openPopup();
+                                });
+                            }
+                        }).addTo(map);
+
+                        layersControl.addOverlay(clippedLocalitiesLayer, "Localidades");
+
+                        // Update layersData to include all localities together
+                        layersData.localidades = { features: allLocalitiesFeatures };
+
+                        console.log(`Localidades unificadas: ${allLocalitiesFeatures.length} total (${layersData.localidades.features.length - bufferedPoints.length} polígonos + ${bufferedPoints.length} puntos con buffers de 100m)`);
+                    } else {
+                        // No additional points, just keep the existing polygon localities
+                        if (layersData.localidades && layersData.localidades.features) {
+                            const allLocalitiesCollection = T.featureCollection(layersData.localidades.features);
+
+                            // Remove existing localities layer if it exists
+                            if (clippedLocalitiesLayer) {
+                                map.removeLayer(clippedLocalitiesLayer);
+                                layersControl.removeLayer(clippedLocalitiesLayer);
+                            }
+
+                            // Recreate unified localities layer
+                            clippedLocalitiesLayer = L.geoJSON(allLocalitiesCollection, {
+                                style: (feature) => ({
+                                    color: '#008000',
+                                    weight: 2,
+                                    opacity: 0.9,
+                                    fillColor: '#008000',
+                                    fillOpacity: 0.3
+                                }),
+                                pointToLayer: (feature, latlng) => L.circleMarker(latlng, {
+                                    radius: 6,
+                                    fillColor: '#008000',
+                                    color: '#222',
+                                    weight: 1,
+                                    opacity: 1,
+                                    fillOpacity: 0.9
+                                }),
+                                onEachFeature: (feature, layer) => {
+                                    if (feature.properties) {
+                                        const props = feature.properties;
+                                        const nombre = props.NOM_LOC || props.NOMGEO || '—';
+
+                                        layer.bindPopup(`<strong>Localidad (Polígono)</strong><br><strong>Nombre:</strong> ${nombre}<br><strong>CVEGEO:</strong> ${props.CVEGEO || '—'}<br><strong>Municipio:</strong> ${props.NOM_MUN || props.MUNICIPIO || '—'}<br><strong>Estado:</strong> ${props.NOM_ENT || props.ESTADO || '—'}<br><small><em>Identificada por geometría poligonal.</em></small>`);
+
+                                        const id = props.CVEGEO;
+                                        if (id) {
+                                            const ref = { layer };
+                                            if (layer.getBounds) ref.bounds = layer.getBounds();
+                                            else if (layer.getLatLng) ref.latlng = layer.getLatLng();
+                                            featureLayersById.set(id, ref);
+                                        }
+                                    }
+
+                                    layer.on('click', () => {
+                                        const id = feature.properties?.CVEGEO;
+                                        if (id) {
+                                            const listItems = document.querySelectorAll('[data-cvegeo]');
+                                            listItems.forEach(item => {
+                                                if (item.dataset.cvegeo === id) {
+                                                    item.classList.add('active');
+                                                    item.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                                                } else {
+                                                    item.classList.remove('active');
+                                                }
+                                            });
+                                        }
+                                        if (layer.openPopup) layer.openPopup();
+                                    });
+                                }
+                            }).addTo(map);
+
+                            layersControl.addOverlay(clippedLocalitiesLayer, "Localidades");
+                        }
+                    }
                 }
 
                 updateLayersDisplay(layersData);

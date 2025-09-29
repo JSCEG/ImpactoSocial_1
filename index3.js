@@ -46,6 +46,7 @@ function formatNumber(n) {
 function getLayerDisplayName(layerName) {
     const displayNames = {
         'localidades': 'Localidades',
+        'localidades_puntos': 'Localidades (Puntos)',
         'atlas': 'Atlas Pueblos Indígenas',
         'municipios': 'Municipios',
         'regiones': 'Regiones Indígenas',
@@ -153,6 +154,14 @@ let zHistoricosData = null;     // Zonas Históricas
 let locIndigenasData = null;    // Localidades Indígenas Datos
 let rutaWixarikaData = null;    // Ruta Wixarika
 let localidadesDatosData = null; // Localidades Datos Adicionales (JSON tabular)
+let localitiesPointsData = null; // Datos de localidades puntos (coordenadas sin polígono)
+
+// Define layers to clip
+const layersToClip = [
+    { data: localitiesData, name: 'localidades', displayName: 'Localidades', property: 'CVEGEO', color: '#008000' },
+    { data: localitiesPointsData, name: 'localidades_puntos', displayName: 'Localidades (Puntos)', property: 'CVEGEO', color: '#FF00FF' },
+    { data: atlasData, name: 'atlas', displayName: 'Atlas Pueblos Indígenas', property: 'CVEGEO', color: '#ff00ff' }
+];
 
 // Variables para las capas filtradas que se muestran en el mapa
 let clippedLocalitiesLayer = null;
@@ -169,6 +178,7 @@ let clippedSitioArqueologicoLayer = null;
 let clippedZHistoricosLayer = null;
 let clippedLocIndigenasLayer = null;
 let clippedRutaWixarikaLayer = null;
+let clippedLocalitiesPointsLayer = null;
 
 // Control de capas de Leaflet y utilidades de navegación
 let layersControl = null;
@@ -590,7 +600,8 @@ function initApp() {
             z_historicos: 'https://cdn.sassoapps.com/Gabvy/z_historicos.geojson',
             loc_indigenas_datos: 'https://cdn.sassoapps.com/Gabvy/loc_indigenas_datos.geojson',
             rutaWixarika: 'https://cdn.sassoapps.com/Gabvy/rutaWixarika.geojson',
-            localidadesdatos_solo_datos: 'https://cdn.sassoapps.com/Gabvy/localidadesdatos_solo_datos.json'
+            localidadesdatos_solo_datos: 'https://cdn.sassoapps.com/Gabvy/localidadesdatos_solo_datos.json',
+            localities_points: 'https://cdn.sassoapps.com/Gabvy/localidades_puntos.geojson' // Puntos
         };
 
         // URLs alternativas con proxy CORS (fallback automático)
@@ -654,17 +665,17 @@ function initApp() {
 
             // Construir lista por capas como en index2, usando createLayerSection ya existente
             const colors = {
-                localidades: '#008000', atlas: '#ff00ff', municipios: '#0000ff', regiones: '#ffa500', ran: '#ff0000',
+                localidades: '#008000', localidades_puntos: '#FF00FF', atlas: '#ff00ff', municipios: '#0000ff', regiones: '#ffa500', ran: '#ff0000',
                 lenguas: '#00ffff', za_publico: '#800080', za_publico_a: '#800000', anp_estatal: '#008080', ramsar: '#808000',
                 sitio_arqueologico: '#808080', z_historicos: '#400080', loc_indigenas_datos: '#8000ff', rutaWixarika: '#ff8000'
             };
             const titles = {
-                localidades: 'Localidades', atlas: 'Atlas Pueblos Indígenas', municipios: 'Municipios', regiones: 'Regiones Indígenas', ran: 'RAN',
+                localidades: 'Localidades', localidades_puntos: 'Localidades (Puntos)', atlas: 'Atlas Pueblos Indígenas', municipios: 'Municipios', regiones: 'Regiones Indígenas', ran: 'RAN',
                 lenguas: 'Lenguas Indígenas', za_publico: 'Zonas Arqueológicas (Puntos)', za_publico_a: 'Zonas Arqueológicas (Áreas)', anp_estatal: 'ANP Estatales', ramsar: 'Ramsar',
                 sitio_arqueologico: 'Sitios Arqueológicos', z_historicos: 'Zonas Históricas', loc_indigenas_datos: 'Loc Indígenas Datos', rutaWixarika: 'Ruta Wixarika'
             };
             const propsKey = {
-                localidades: 'CVEGEO', atlas: 'CVEGEO', municipios: 'CVEGEO', regiones: 'Name', ran: 'Clv_Unica', lenguas: 'Lengua',
+                localidades: 'CVEGEO', localidades_puntos: 'CVEGEO', atlas: 'CVEGEO', municipios: 'CVEGEO', regiones: 'Name', ran: 'Clv_Unica', lenguas: 'Lengua',
                 za_publico: 'Zona Arqueológica', za_publico_a: 'Zona Arqueológica', anp_estatal: 'NOMBRE', ramsar: 'RAMSAR', sitio_arqueologico: 'nombre',
                 z_historicos: 'Nombre', loc_indigenas_datos: 'LOCALIDAD', rutaWixarika: 'Name'
             };
@@ -975,6 +986,9 @@ function initApp() {
 
                 updateProgress(75, 'Cargando localidades datos adicionales...');
                 localidadesDatosData = await loadJsonData(urls.localidadesdatos_solo_datos, 'Localidades Datos Adicionales');
+
+                updateProgress(80, 'Cargando localidades puntos...');
+                localitiesPointsData = await loadSingleLayer(urls.localities_points, 'Localidades Puntos');
 
                 // Merge localidades datos adicionales into localitiesData
                 if (localitiesData && localidadesDatosData) {
@@ -1314,6 +1328,7 @@ function initApp() {
             // Activar automáticamente la capa correspondiente si no está visible
             const layerMapping = {
                 'localidades': clippedLocalitiesLayer,
+                'localidades_puntos': clippedLocalitiesPointsLayer,
                 'atlas': clippedAtlasLayer,
                 'municipios': clippedMunicipiosLayer,
                 'regiones': clippedRegionesLayer,
@@ -1386,6 +1401,13 @@ function initApp() {
                                 { label: 'Población Total', value: props.POBTOT },
                                 { label: 'Población Femenina', value: props.POBFEM },
                                 { label: 'Población Masculina', value: props.POBMAS }
+                            ]);
+                        } else if (layerName === 'localidades_puntos') {
+                            popupContent = createPopupContent('Localidad (Puntos)', '📍', [
+                                { value: props.NOM_LOC || props.NOMGEO || 'Sin nombre', isMain: true },
+                                { label: 'CVEGEO', value: props.CVEGEO },
+                                { label: 'Municipio', value: props.NOM_MUN || props.MUNICIPIO },
+                                { label: 'Estado', value: props.NOM_ENT || props.ESTADO },
                             ]);
                         } else if (layerName === 'atlas') {
                             popupContent = createPopupContent('Atlas Pueblos Indígenas', '🏛️', [
@@ -1552,6 +1574,7 @@ function initApp() {
             // Activar automáticamente la capa correspondiente si no está visible
             const layerMapping = {
                 'localidades': clippedLocalitiesLayer,
+                'localidades_puntos': clippedLocalitiesPointsLayer,
                 'atlas': clippedAtlasLayer,
                 'municipios': clippedMunicipiosLayer,
                 'regiones': clippedRegionesLayer,
@@ -1623,6 +1646,13 @@ function initApp() {
                                 { label: 'Población Total', value: props.POBTOT },
                                 { label: 'Población Femenina', value: props.POBFEM },
                                 { label: 'Población Masculina', value: props.POBMAS }
+                            ]);
+                        } else if (layerName === 'localidades_puntos') {
+                            popupContent = createPopupContent('Localidad (Puntos)', '📍', [
+                                { value: props.NOM_LOC || props.NOMGEO || 'Sin nombre', isMain: true },
+                                { label: 'CVEGEO', value: props.CVEGEO },
+                                { label: 'Municipio', value: props.NOM_MUN || props.MUNICIPIO },
+                                { label: 'Estado', value: props.NOM_ENT || props.ESTADO },
                             ]);
                         } else if (layerName === 'atlas') {
                             popupContent = createPopupContent('Atlas Pueblos Indígenas', '🏛️', [
@@ -1858,6 +1888,10 @@ function initApp() {
                             let displayText = f.properties[propertyName];
                             if (layerName === 'localidades') {
                                 const name = f.properties.NOMGEO || f.properties.NOM_LOC || 'Sin nombre';
+                                const key = f.properties.CVEGEO;
+                                displayText = `${name} (${key})`;
+                            } else if (layerName === 'localidades_puntos') {
+                                const name = f.properties.NOM_LOC || f.properties.NOMGEO || 'Sin nombre';
                                 const key = f.properties.CVEGEO;
                                 displayText = `${name} (${key})`;
                             } else if (layerName === 'atlas') {
@@ -2974,6 +3008,67 @@ function initApp() {
                     console.log('[DEBUG] Ruta Wixarika data not available or empty');
                     clippedRutaWixarikaLayer = L.layerGroup().addTo(map);
                     layersControl.addOverlay(clippedRutaWixarikaLayer, "Ruta Wixarika");
+                }
+
+                // Procesar puntos adicionales que no tengan polígono
+                const clippedPoints = [];
+                const existingCvegeo = new Set();
+
+                // Recopilar todos los CVEGEO existentes de las localidades procesadas
+                if (layersData.localidades && layersData.localidades.features) {
+                    layersData.localidades.features.forEach(f => {
+                        const cvegeo = f.properties?.CVEGEO;
+                        if (cvegeo) existingCvegeo.add(cvegeo);
+                    });
+                }
+
+                if (localitiesPointsData && localitiesPointsData.features) {
+                    updateProgress(96, `Procesando puntos adicionales…`);
+
+                    const pointsFeatures = localitiesPointsData.features;
+                    for (const point of pointsFeatures) {
+                        const cvegeo = point.properties?.CVEGEO;
+                        // Solo incluir si intersecta y no está ya en los polígonos
+                        if (cvegeo && !existingCvegeo.has(cvegeo) && turf.booleanIntersects(point.geometry, clipArea.geometry)) {
+                            point.properties.origen = 'Capa de Coordenadas';
+                            clippedPoints.push(point);
+                        }
+                    }
+                }
+
+                updateProgress(97, `Encontradas ${totalFound} elementos base + ${clippedPoints.length} puntos adicionales. Preparando visualización…`);
+
+                // Crear capa de puntos adicionales si hay resultados
+                if (clippedPoints.length > 0) {
+                    const pointsCollection = turf.featureCollection(clippedPoints);
+                    clippedLocalitiesPointsLayer = L.geoJSON(pointsCollection, {
+                        pointToLayer: (feature, latlng) => {
+                            return L.circleMarker(latlng, { radius: 8, fillColor: '#FF00FF', color: '#222', weight: 1, opacity: 1, fillOpacity: 0.8 });
+                        },
+                        onEachFeature: (feature, layer) => {
+                            if (feature.properties) {
+                                const props = feature.properties;
+                                const nombre = props.NOM_LOC || props.NOMGEO || '—';
+                                layer.bindPopup(`<strong>Localidad (Coordenadas)</strong><br><strong>Nombre:</strong> ${nombre}<br><strong>CVEGEO:</strong> ${props.CVEGEO || '—'}<br><small><em>Identificada por coordenadas geográficas.</em></small>`);
+                            }
+                        }
+                    }).addTo(map);
+
+                    // Agregar a un FeatureGroup global para localidades_puntos
+                    if (!overlayGroupsByKey['localidades_puntos']) {
+                        overlayGroupsByKey['localidades_puntos'] = L.featureGroup().addTo(map);
+                        overlayDisplayNameByKey['localidades_puntos'] = 'Localidades (Puntos)';
+                        if (layersControl) {
+                            try { layersControl.addOverlay(overlayGroupsByKey['localidades_puntos'], 'Localidades (Puntos)'); } catch (_) { }
+                        }
+                    }
+                    clippedLocalitiesPointsLayer.addTo(overlayGroupsByKey['localidades_puntos']);
+
+                    // Agregar puntos adicionales al total de elementos
+                    totalFound += clippedPoints.length;
+                    layersData.localidades_puntos = { features: clippedPoints };
+                } else {
+                    layersData.localidades_puntos = { features: [] };
                 }
 
                 updateLayersDisplay(layersData);

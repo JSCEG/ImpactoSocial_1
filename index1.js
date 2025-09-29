@@ -27,6 +27,10 @@ let labelLayer = null; // Capa de etiquetas CVEGEO sobre el mapa
 let lastAreaBounds = null; // Bounds del área para restaurar la vista del área
 let highlightedLayer = null; // Para el efecto de resaltado
 
+// Variables para el reporte Excel
+let totalElements = 0;              // Total de elementos encontrados
+let layersData = {};                // Datos de todas las capas para el reporte
+
 // Métricas del KML para reportes
 let kmlMetrics = {
     area: 0, // en km²
@@ -662,6 +666,23 @@ function initApp() {
                 return;
             }
 
+            // Habilitar/deshabilitar botones de descarga
+            const downloadReportBtn = document.getElementById('downloadReportBtn');
+            if (downloadReportBtn) {
+                downloadReportBtn.disabled = features.length === 0;
+            }
+
+            // Mostrar/ocultar contenedor de gráficos
+            const chartsContainer = document.getElementById('chartsContainer');
+            if (chartsContainer) {
+                if (features.length > 0) {
+                    chartsContainer.style.display = 'block';
+                    generateCharts({ localidades: { features: features } });
+                } else {
+                    chartsContainer.style.display = 'none';
+                }
+            }
+
             // Construir lista interactiva con código de colores
             const ul = document.createElement('ul');
             features.forEach(f => {
@@ -1103,6 +1124,7 @@ function initApp() {
                          * - Manejo automático de diferentes tipos geométricos
                          */
                         if (T.booleanIntersects(loc.geometry, clipArea.geometry)) {
+                            loc.properties.origen = 'Capa de Poligonos';
                             clipped.push(loc);  // Agregar localidad completa al resultado
                         }
                     }
@@ -1129,6 +1151,7 @@ function initApp() {
                         const cvegeo = point.properties?.CVEGEO;
                         // Solo incluir si intersecta y no está ya en los polígonos
                         if (cvegeo && !existingCvegeo.has(cvegeo) && T.booleanIntersects(point.geometry, clipArea.geometry)) {
+                            point.properties.origen = 'Capa de Coordenadas';
                             clippedPoints.push(point);
                         }
                     }
@@ -1139,6 +1162,12 @@ function initApp() {
                 // ============================================================
                 // VISUALIZACIÓN DE RESULTADOS Y GENERACIÓN DE CAPAS
                 // ============================================================
+
+                // Poblar layersData para reportes
+                layersData = {
+                    localidades: { features: [...clipped, ...clippedPoints] }
+                };
+                totalElements = clipped.length + clippedPoints.length;
 
                 if (clipped.length > 0 || clippedPoints.length > 0) {
                     // Generar paleta de colores distinta por CVEGEO
@@ -1350,8 +1379,294 @@ function initApp() {
         }
 
         // ====================================================================
+        // FUNCIONES DE REPORTES Y GRÁFICOS
+        // ====================================================================
+
+        /**
+         * Genera gráficos con análisis de datos
+         */
+        function generateCharts(layersData) {
+            generateLayerChart(layersData);
+            generatePopulationChart(layersData);
+        }
+
+        /**
+         * Genera gráfico de barras con la distribución de elementos por capa
+         */
+        function generateLayerChart(layersData) {
+            const chartData = [];
+            const layerColors = {
+                localidades: '#008000',
+            };
+
+            const layerNames = {
+                localidades: 'Localidades',
+            };
+
+            Object.entries(layersData).forEach(([layerName, data]) => {
+                if (data.features && data.features.length > 0) {
+                    const count = data.features.length;
+
+                    chartData.push({
+                        name: layerNames[layerName] || layerName,
+                        y: count,
+                        color: layerColors[layerName] || '#666666'
+                    });
+                }
+            });
+
+            Highcharts.chart('layerChart', {
+                chart: {
+                    type: 'bar',
+                    backgroundColor: 'transparent',
+                    style: {
+                        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+                    }
+                },
+                accessibility: {
+                    enabled: false
+                },
+                title: {
+                    text: null
+                },
+                xAxis: {
+                    categories: chartData.map(item => item.name),
+                    labels: {
+                        style: {
+                            color: '#333',
+                            fontSize: '11px'
+                        }
+                    }
+                },
+                yAxis: {
+                    title: {
+                        text: 'Número de Elementos',
+                        style: {
+                            color: '#7C1946',
+                            fontWeight: 'bold'
+                        }
+                    },
+                    labels: {
+                        style: {
+                            color: '#666'
+                        }
+                    }
+                },
+                legend: {
+                    enabled: false
+                },
+                tooltip: {
+                    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                    borderColor: '#7C1946',
+                    borderRadius: 8,
+                    shadow: true,
+                    style: {
+                        color: '#333'
+                    },
+                    formatter: function () {
+                        return `<b>${this.x}</b><br/>Elementos: <b>${this.y.toLocaleString('es-MX')}</b>`;
+                    }
+                },
+                plotOptions: {
+                    bar: {
+                        dataLabels: {
+                            enabled: true,
+                            color: '#333',
+                            style: {
+                                fontSize: '11px',
+                                fontWeight: 'bold'
+                            },
+                            formatter: function () {
+                                return this.y.toLocaleString('es-MX');
+                            }
+                        }
+                    }
+                },
+                series: [{
+                    name: 'Elementos',
+                    data: chartData,
+                    colorByPoint: true
+                }],
+                credits: {
+                    enabled: false
+                },
+                exporting: {
+                    enabled: true,
+                    buttons: {
+                        contextButton: {
+                            menuItems: ['viewFullscreen', 'printChart', 'downloadPNG', 'downloadJPEG', 'downloadPDF', 'downloadSVG']
+                        }
+                    }
+                }
+            });
+        }
+
+        /**
+         * Genera gráfico de barras con top 10 localidades por población
+         */
+        function generatePopulationChart(layersData) {
+            if (!layersData.localidades || !layersData.localidades.features) {
+                return;
+            }
+
+            const populationData = layersData.localidades.features
+                .filter(f => f.properties.POBTOT && f.properties.POBTOT > 0)
+                .sort((a, b) => (b.properties.POBTOT || 0) - (a.properties.POBTOT || 0))
+                .slice(0, 10)
+                .map(f => ({
+                    name: f.properties.NOM_LOC || f.properties.NOMGEO || 'Sin nombre',
+                    y: f.properties.POBTOT,
+                    color: '#7C1946'
+                }));
+
+            if (populationData.length === 0) {
+                return;
+            }
+
+            Highcharts.chart('populationChart', {
+                chart: {
+                    type: 'column',
+                    backgroundColor: 'transparent',
+                    style: {
+                        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+                    }
+                },
+                accessibility: {
+                    enabled: false
+                },
+                title: {
+                    text: null
+                },
+                xAxis: {
+                    categories: populationData.map(item => item.name.length > 15 ?
+                        item.name.substring(0, 15) + '...' : item.name),
+                    labels: {
+                        rotation: -45,
+                        style: {
+                            color: '#333',
+                            fontSize: '10px'
+                        }
+                    }
+                },
+                yAxis: {
+                    title: {
+                        text: 'Población Total',
+                        style: {
+                            color: '#7C1946',
+                            fontWeight: 'bold'
+                        }
+                    },
+                    labels: {
+                        style: {
+                            color: '#666'
+                        },
+                        formatter: function () {
+                            return (this.value / 1000).toFixed(0) + 'k';
+                        }
+                    }
+                },
+                legend: {
+                    enabled: false
+                },
+                tooltip: {
+                    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                    borderColor: '#7C1946',
+                    borderRadius: 8,
+                    shadow: true,
+                    style: {
+                        color: '#333'
+                    },
+                    formatter: function () {
+                        return `<b>${this.x}</b><br/>Población: <b>${this.y.toLocaleString('es-MX')}</b>`;
+                    }
+                },
+                plotOptions: {
+                    column: {
+                        dataLabels: {
+                            enabled: true,
+                            color: '#333',
+                            style: {
+                                fontSize: '9px',
+                                fontWeight: 'bold'
+                            },
+                            formatter: function () {
+                                return (this.y / 1000).toFixed(0) + 'k';
+                            },
+                            rotation: -90,
+                            y: -20
+                        }
+                    }
+                },
+                series: [{
+                    name: 'Población',
+                    data: populationData,
+                    color: '#7C1946'
+                }],
+                credits: {
+                    enabled: false
+                },
+                exporting: {
+                    enabled: true,
+                    buttons: {
+                        contextButton: {
+                            menuItems: ['viewFullscreen', 'printChart', 'downloadPNG', 'downloadJPEG', 'downloadPDF', 'downloadSVG']
+                        }
+                    }
+                }
+            });
+        }
+
+        function generateExcelReport() {
+            const wb = XLSX.utils.book_new();
+
+            // Hoja de Localidades
+            if (layersData.localidades && layersData.localidades.features.length > 0) {
+                const localidadesData = layersData.localidades.features.map(f => {
+                    const properties = f.properties;
+                    // Rellenar valores nulos o indefinidos
+                    const new_properties = {};
+                    Object.keys(properties).forEach(key => {
+                        if (properties[key] === null || properties[key] === undefined) {
+                            if (['POBTOT', 'POBFEM', 'POBMAS'].includes(key)) {
+                                new_properties[key] = 0;
+                            } else {
+                                new_properties[key] = 'sin dato';
+                            }
+                        } else {
+                            new_properties[key] = properties[key];
+                        }
+                    });
+                    return new_properties;
+                });
+                const ws = XLSX.utils.json_to_sheet(localidadesData);
+                XLSX.utils.book_append_sheet(wb, ws, "Localidades");
+            }
+
+            const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'binary' });
+
+            function s2ab(s) {
+                const buf = new ArrayBuffer(s.length);
+                const view = new Uint8Array(buf);
+                for (let i = 0; i < s.length; i++) view[i] = s.charCodeAt(i) & 0xFF;
+                return buf;
+            }
+
+            saveAs(new Blob([s2ab(wbout)], { type: "application/octet-stream" }), 'Reporte_Analisis_Geoespacial.xlsx');
+        }
+
+        // ====================================================================
         // CONFIGURACIÓN DE EVENTOS DE INTERFAZ
         // ====================================================================
+        const downloadReportBtn = document.getElementById('downloadReportBtn');
+        if (downloadReportBtn) {
+            downloadReportBtn.addEventListener('click', () => {
+                if (totalElements > 0) {
+                    generateExcelReport();
+                } else {
+                    showAlert('No hay datos para exportar. Realiza un recorte primero.', 'warning');
+                }
+            });
+        }
 
         /**
          * Configuración de todos los event listeners para la interfaz de usuario
