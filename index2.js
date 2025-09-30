@@ -2029,17 +2029,7 @@ function initApp() {
                         f.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon')
                     );
 
-                    if (polygons.length === 0) {
-                        showAlert(
-                            'El archivo KML no contiene un polígono válido. ' +
-                            'Por favor, asegúrate de que el archivo contenga geometrías de tipo Polygon o MultiPolygon.',
-                            'warning'
-                        );
-                        performClipBtn.disabled = true;
-                        return;
-                    }
-
-                    // Validar geometrías: verificar que no estén vacías y tengan coordenadas válidas
+                    // Validar que cada geometría tenga coordenadas suficientes
                     const validPolygons = polygons.filter(polygon => {
                         if (!polygon.geometry || !polygon.geometry.coordinates) return false;
 
@@ -2116,15 +2106,19 @@ function initApp() {
                     let kmlPolygon;
 
                     if (validPolygons.length === 1) {
-                        // Solo un polígono válido
+                        // Solo un polígono válido (Polygon o MultiPolygon)
                         kmlPolygon = validPolygons[0];
                     } else {
-                        // Múltiples polígonos: combinar en un MultiPolygon
-                        const multiPolygonCoordinates = validPolygons.map(p => {
+                        // Múltiples polígonos: combinar en un MultiPolygon preservando agujeros y aplanando MultiPolygons
+                        const parts = [];
+                        validPolygons.forEach(p => {
+                            if (!p.geometry) return;
                             if (p.geometry.type === 'Polygon') {
-                                return [p.geometry.coordinates[0]]; // MultiPolygon espera array de polígonos
-                            } else {
-                                return p.geometry.coordinates;
+                                // Polygon.coordinates es [rings]
+                                parts.push(p.geometry.coordinates);
+                            } else if (p.geometry.type === 'MultiPolygon') {
+                                // MultiPolygon.coordinates es [[rings], [rings], ...]
+                                parts.push(...p.geometry.coordinates);
                             }
                         });
 
@@ -2133,10 +2127,13 @@ function initApp() {
                             properties: validPolygons[0].properties || {}, // Usar propiedades del primer polígono
                             geometry: {
                                 type: 'MultiPolygon',
-                                coordinates: multiPolygonCoordinates
+                                coordinates: parts
                             }
                         };
                     }
+
+                    // Reemplazar kmlGeoJson por la geometría combinada para que el recorte use TODOS los polígonos
+                    kmlGeoJson = { type: 'FeatureCollection', features: [kmlPolygon] };
 
                     // Calcular métricas del KML
                     kmlMetrics.geometryType = kmlPolygon.geometry.type;
