@@ -408,7 +408,7 @@ function initApp() {
             layers: [baseMaps['SENER Oscuro']]
         });
 
-        map.on('click', function(e) {
+        map.on('click', function (e) {
             // Si el clic no fue en una capa, limpiar el resaltado
             if (e.originalEvent.target.classList.contains('leaflet-container')) {
                 clearHighlight();
@@ -461,6 +461,8 @@ function initApp() {
         const kmlFileInput = document.getElementById('kmlFile');
         const uploadKmlBtn = document.getElementById('uploadKmlBtn');
         const areaTypeSelect = document.getElementById('areaType');
+        const bufferMetersGroup = document.getElementById('bufferMetersGroup');
+        const bufferMetersInput = document.getElementById('bufferMetersInput');
         const performClipBtn = document.getElementById('performClipBtn');
         const resetViewBtn = document.getElementById('resetViewBtn');
         const clearMapBtn = document.getElementById('clearMap');
@@ -473,6 +475,15 @@ function initApp() {
         // Estado inicial: deshabilitar botones hasta que se carguen datos
         if (uploadKmlBtn) uploadKmlBtn.disabled = true;
         if (performClipBtn) performClipBtn.disabled = true;
+
+        // Mostrar/ocultar input de buffer según el tipo
+        if (areaTypeSelect && bufferMetersGroup) {
+            const syncBufferVisibility = () => {
+                bufferMetersGroup.style.display = areaTypeSelect.value === 'nucleo' ? '' : 'none';
+            };
+            syncBufferVisibility();
+            areaTypeSelect.addEventListener('change', syncBufferVisibility);
+        }
 
         // ====================================================================
         // FUNCIONES DE MANEJO DE DATOS GEOESPACIALES
@@ -887,7 +898,7 @@ function initApp() {
                             }
                         };
                     }
-                    
+
                     kmlGeoJson.features = [kmlPolygonFeature];
 
                     kmlMetrics.hasOverlaps = hasOverlaps;
@@ -1037,10 +1048,11 @@ function initApp() {
                 );
                 let clipArea = kmlPolygon;
 
-                // Para área núcleo: generar buffer de 500 metros
+                // Para área núcleo: generar buffer dinámico en metros
                 if (areaType === 'nucleo') {
                     try {
-                        const buffer = T.buffer(kmlPolygon, 500, { units: 'meters' });
+                        const meters = Math.max(0, parseFloat(bufferMetersInput?.value || '500') || 500);
+                        const buffer = T.buffer(kmlPolygon, meters, { units: 'meters' });
                         clipArea = buffer;
 
                         // Visualizar buffer con estilo diferente
@@ -1053,13 +1065,13 @@ function initApp() {
                             }
                         }).addTo(map);
 
-                        updateProgress(15, 'Buffer generado. Intersectando con localidades…');
+                        updateProgress(15, `Buffer de ${meters.toLocaleString('es-MX')} m generado. Intersectando con localidades…`);
 
                     } catch (e) {
                         console.error('Error creando buffer:', e);
                         showModal({
                             title: 'Error al generar buffer',
-                            message: 'No se pudo crear el buffer de 500m. Verifica la geometría del KML.',
+                            message: 'No se pudo crear el buffer solicitado. Verifica la geometría del KML.',
                             okText: 'Cerrar'
                         });
                         hidePreloader();

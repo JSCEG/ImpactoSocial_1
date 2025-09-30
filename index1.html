@@ -138,13 +138,18 @@
                                         <label for="areaType" class="form-label">Tipo de área</label>
                                         <select id="areaType" class="form-select mb-2" aria-describedby="areaHelp">
                                             <option value="exacta">Área exacta (sin buffer)</option>
-                                            <option value="nucleo">Área núcleo (con buffer de 500m)</option>
+                                            <option value="nucleo">Área núcleo (con buffer)</option>
                                             <option value="directa">Área de influencia directa</option>
                                             <option value="indirecta">Área de influencia indirecta</option>
                                         </select>
+                                        <div id="bufferMetersGroup" class="mb-2" style="display:none;">
+                                            <label for="bufferMetersInput" class="form-label">Buffer (m)</label>
+                                            <input id="bufferMetersInput" type="number" class="form-control" min="0"
+                                                step="50" value="500" />
+                                        </div>
                                         <div id="areaHelp" class="form-text mb-2">
-                                            <small>El área núcleo incluye un buffer adicional de 500 metros alrededor
-                                                del polígono.</small>
+                                            <small>Cuando elijas "Área núcleo", puedes configurar el tamaño del buffer
+                                                en metros.</small>
                                         </div>
                                         <button id="performClipBtn" class="btn btn-success w-100" disabled
                                             title="Iniciar el análisis geoespacial con el área seleccionada">

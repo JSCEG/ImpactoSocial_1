@@ -531,6 +531,7 @@ function initApp() {
         const performClipBtn = document.getElementById('performClipBtn');
         const clearMapBtn = document.getElementById('clearMap');
         const areaTypeSelect = document.getElementById('areaType');
+        const bufferMetersInput = document.getElementById('bufferMetersInput');
         const centerKmlBtn = document.getElementById('centerKmlBtn');
         const resetViewBtn = document.getElementById('resetViewBtn');
         const layersContainer = document.getElementById('layersContainer');
@@ -2394,10 +2395,12 @@ function initApp() {
 
                 // Crear buffer según el tipo de área seleccionado
                 if (areaTypeSelect.value === 'nucleo') {
-                    // Área núcleo: buffer de 500m alrededor del polígono
+                    // Área núcleo: buffer dinámico en metros alrededor del polígono
                     try {
-                        updateProgress(15, 'Generando buffer de 500m para área núcleo…');
-                        clipArea = turf.buffer(kmlPolygon, 0.5, { units: 'kilometers' });
+                        const meters = Math.max(0, parseFloat(bufferMetersInput?.value || '500'));
+                        const km = meters / 1000.0;
+                        updateProgress(15, `Generando buffer de ${meters} m para área núcleo…`);
+                        clipArea = turf.buffer(kmlPolygon, km, { units: 'kilometers' });
 
                         if (bufferLayer) map.removeLayer(bufferLayer);
                         bufferLayer = L.geoJSON(clipArea, {
@@ -2408,10 +2411,10 @@ function initApp() {
 
                         // Actualizar métricas del buffer
                         kmlMetrics.bufferUsed = true;
-                        kmlMetrics.bufferRadius = 0.5;
+                        kmlMetrics.bufferRadius = meters; // almacenado en metros
                     } catch (err) {
                         console.error("Error creando buffer:", err);
-                        showAlert("No se pudo crear el buffer de 500m.", 'danger');
+                        showAlert("No se pudo crear el buffer solicitado.", 'danger');
                         hidePreloader();
                         return;
                     }

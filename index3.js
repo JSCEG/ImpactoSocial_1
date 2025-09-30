@@ -2666,9 +2666,9 @@ function initApp() {
 
                 // Crear buffer según el tipo de área seleccionado
                 if (areaTypeSelect.value === 'nucleo') {
-                    // Área núcleo: buffer de 500m alrededor del polígono
+                    // Área núcleo: generar buffer alrededor del polígono
                     try {
-                        updateProgress(15, 'Generando buffer de 500m para área núcleo…');
+                        updateProgress(15, 'Generando buffer para área núcleo…');
                         clipArea = turf.buffer(kmlPolygon, 0.5, { units: 'kilometers' });
 
                         if (bufferLayer) map.removeLayer(bufferLayer);
@@ -2683,7 +2683,7 @@ function initApp() {
                         kmlMetrics.bufferRadius = 0.5;
                     } catch (err) {
                         console.error("Error creando buffer:", err);
-                        showAlert("No se pudo crear el buffer de 500m.", 'danger');
+                        showAlert("No se pudo crear el buffer.", 'danger');
                         hidePreloader();
                         return;
                     }
@@ -4920,23 +4920,23 @@ function navigateToGlobalLayer(layerName) {
     if (allFeatures.length === 0) return;
 
     // Activar capa si no está visible
-                const layerMapping = {
-                    'localidades': clippedLocalitiesLayer,
-                    'localidades_puntos': clippedLocalitiesPointsLayer,
-                    'atlas': clippedAtlasLayer,
-                    'municipios': clippedMunicipiosLayer,
-                    'regiones': clippedRegionesLayer,
-                    'ran': clippedRanLayer,
-                    'lenguas': clippedLenguasLayer,
-                    'za_publico': clippedZaPublicoLayer,
-                    'za_publico_a': clippedZaPublicoALayer,
-                    'anp_estatal': clippedAnpEstatalLayer,
-                    'ramsar': clippedRamsarLayer,
-                    'sitio_arqueologico': clippedSitioArqueologicoLayer,
-                    'z_historicos': clippedZHistoricosLayer,
-                    'loc_indigenas_datos': clippedLocIndigenasLayer,
-                    'rutaWixarika': clippedRutaWixarikaLayer
-                };
+    const layerMapping = {
+        'localidades': clippedLocalitiesLayer,
+        'localidades_puntos': clippedLocalitiesPointsLayer,
+        'atlas': clippedAtlasLayer,
+        'municipios': clippedMunicipiosLayer,
+        'regiones': clippedRegionesLayer,
+        'ran': clippedRanLayer,
+        'lenguas': clippedLenguasLayer,
+        'za_publico': clippedZaPublicoLayer,
+        'za_publico_a': clippedZaPublicoALayer,
+        'anp_estatal': clippedAnpEstatalLayer,
+        'ramsar': clippedRamsarLayer,
+        'sitio_arqueologico': clippedSitioArqueologicoLayer,
+        'z_historicos': clippedZHistoricosLayer,
+        'loc_indigenas_datos': clippedLocIndigenasLayer,
+        'rutaWixarika': clippedRutaWixarikaLayer
+    };
     const correspondingLayer = layerMapping[layerName];
     if (correspondingLayer && !map.hasLayer(correspondingLayer)) {
         map.addLayer(correspondingLayer);
@@ -5188,6 +5188,16 @@ async function addKmlToSystem(file) {
 
         kmlLayers.set(kmlId, kmlEntry);
 
+        // Si es el primer KML cargado, centrar el mapa automáticamente en su extensión
+        if (kmlLayers.size === 1 && kmlEntry.bounds && kmlEntry.bounds.isValid()) {
+            map.fitBounds(kmlEntry.bounds, {
+                padding: [24, 24],
+                maxZoom: 15,
+                animate: true,
+                duration: 0.6
+            });
+        }
+
         // Actualizar UI
         updateAreasList();
         updateAreasCount();
@@ -5235,6 +5245,7 @@ function updateAreasList() {
                     <div class="d-flex align-items-center justify-content-between">
                         <div class="d-flex align-items-center">
                             <div class="color-indicator me-2" style="background-color: ${kmlEntry.color}; width: 12px; height: 12px; border-radius: 50%; ${kmlEntry.hasOverlaps ? 'border: 2px solid #ff6b35;' : ''}"></div>
+                            <i class="bi bi-geo-alt-fill text-muted me-2" title="Área KML"></i>
                             <div>
                                 <h6 class="mb-0 small">${kmlEntry.name}</h6>
                                 <small class="text-muted">${statusIcon} ${statusText}</small>
@@ -5687,7 +5698,8 @@ async function performAreaAnalysis(kmlEntry, options = {}) {
         const bufferKm = typeof options.bufferKm === 'number' ? options.bufferKm : 0.5;
 
         if (areaType === 'nucleo') {
-            updateProgress(20, 'Generando buffer de 500m...');
+            const bufferMeters = Math.round((bufferKm || 0) * 1000);
+            updateProgress(20, `Generando buffer de ${bufferMeters.toLocaleString('es-MX')} m...`);
             const buffered = T.buffer(analysisArea, bufferKm, { units: 'kilometers' });
             analysisArea = buffered;
 
@@ -5991,20 +6003,20 @@ async function performAreaAnalysis(kmlEntry, options = {}) {
 
             if (allLocalities.length > 0) {
                 const unifiedLayer = L.geoJSON(allLocalities, {
-                    style: function(feature) {
+                    style: function (feature) {
                         return { color: '#008000', weight: 2, fillOpacity: 0.1 };
                     },
-                    pointToLayer: function(feature, latlng) {
+                    pointToLayer: function (feature, latlng) {
                         // Para puntos, dibujar un círculo de 100m de radio
-                        return L.circle(latlng, { 
-                            radius: 100, 
-                            color: '#008000', 
-                            weight: 1, 
-                            fillColor: '#008000', 
-                            fillOpacity: 0.5 
+                        return L.circle(latlng, {
+                            radius: 100,
+                            color: '#008000',
+                            weight: 1,
+                            fillColor: '#008000',
+                            fillOpacity: 0.5
                         });
                     },
-                    onEachFeature: function(feature, layer) {
+                    onEachFeature: function (feature, layer) {
                         const p = feature.properties;
                         const popupContent = createPopupContent('Localidad', '🏘️', [
                             { value: p.NOMGEO || p.NOM_LOC || 'Sin nombre', isMain: true },
@@ -6030,7 +6042,7 @@ async function performAreaAnalysis(kmlEntry, options = {}) {
                     overlayGroupsByKey['localidades'] = L.featureGroup().addTo(map);
                     overlayDisplayNameByKey['localidades'] = 'Localidades';
                     if (layersControl) {
-                        try { layersControl.addOverlay(overlayGroupsByKey['localidades'], 'Localidades'); } catch (_) {}
+                        try { layersControl.addOverlay(overlayGroupsByKey['localidades'], 'Localidades'); } catch (_) { }
                     }
                 }
                 unifiedLayer.addTo(overlayGroupsByKey['localidades']);

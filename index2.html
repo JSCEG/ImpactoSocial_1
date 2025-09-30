@@ -197,10 +197,15 @@
                                         <label for="areaType" class="form-label">Tipo de área</label>
                                         <select id="areaType" class="form-select mb-2" aria-describedby="areaHelp">
                                             <option value="exacta">Área exacta (sin buffer)</option>
-                                            <option value="nucleo">Área núcleo (con buffer de 500m)</option>
+                                            <option value="nucleo">Área núcleo (con buffer)</option>
                                             <option value="directa">Área de influencia directa</option>
                                             <option value="indirecta">Área de influencia indirecta</option>
                                         </select>
+                                        <div class="input-group mb-2">
+                                            <span class="input-group-text">Buffer (m)</span>
+                                            <input type="number" id="bufferMetersInput" class="form-control" value="500"
+                                                min="0" step="10" aria-label="Buffer en metros">
+                                        </div>
                                         <div id="areaHelp" class="form-text mb-2">
                                             <small>Selecciona el tipo de área para el análisis. El área núcleo incluye
                                                 un buffer adicional de 500 metros alrededor del polígono.</small>
