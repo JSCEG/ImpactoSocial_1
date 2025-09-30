@@ -49,6 +49,7 @@
 
 <body class="bg-body">
     <!-- Preloader: se muestra mientras se cargan datos/mapa -->
+    <!-- Preloader: se muestra mientras se cargan datos/mapa -->
     <div id="preloader" hidden
         class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center bg-white"
         style="z-index: 2050; display: none;">
@@ -63,13 +64,13 @@
         </div>
     </div>
 
-    <!-- Navbar con logos (header institucional) -->
+    <!-- Header institucional con logos del gobierno -->
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm">
         <div class="container-fluid">
             <a class="navbar-brand d-flex align-items-center" href="#">
                 <img src="img/logo_gob.png" alt="Logo Gobierno" class="me-2" style="height:38px;">
                 <img src="img/logo_sener.png" alt="Logo SENER" class="me-2" style="height:38px;">
-                <span class="fw-semibold">Geovisualizador de Áreas de Interés</span>
+                <span class="fw-semibold">Geovisualizador — Versión 1</span>
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarContent"
                 aria-controls="navbarContent" aria-expanded="false" aria-label="Alternar navegación">
@@ -77,11 +78,47 @@
             </button>
             <div class="collapse navbar-collapse" id="navbarContent">
                 <ul class="navbar-nav ms-auto">
-                    <li class="nav-item"><a class="nav-link active" href="#">Inicio</a></li>
+                    <li class="nav-item"><a class="nav-link" href="index.html">Selector</a></li>
+                    <li class="nav-item"><a class="nav-link active" aria-current="page" href="index1.html">V1</a></li>
+                    <li class="nav-item"><a class="nav-link" href="index2.html">V2</a></li>
+                    <li class="nav-item"><a class="nav-link" href="index3.html">V3</a></li>
                 </ul>
             </div>
         </div>
     </nav>
+    <!-- Título de la vista y navegación rápida -->
+    <div class="container-fluid mt-3">
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+            <div>
+                <h4 class="mb-0">Geovisualizador — Versión 1 <span class="badge bg-primary ms-2">V1</span></h4>
+                <small class="text-muted">Localidades</small>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+                <a href="index1.html" class="btn btn-sm btn-primary disabled" tabindex="-1" aria-disabled="true">V1</a>
+                <a href="index2.html" class="btn btn-sm btn-outline-primary">V2</a>
+                <a href="index3.html" class="btn btn-sm btn-outline-primary">V3</a>
+                <a href="index.html" class="btn btn-sm btn-outline-secondary">Selector</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Instrucciones de uso (debajo del título) -->
+    <div class="container-fluid mt-2">
+        <div class="alert alert-info shadow-sm" role="alert">
+            <div class="d-flex align-items-start gap-2">
+                <i class="bi bi-info-circle fs-5"></i>
+                <div>
+                    <small>
+                        1) Carga un KML con polígono válido. 2) Selecciona tipo de área; para <em>Núcleo</em>, define el
+                        <em>Buffer (m)</em>.
+                        3) Ejecuta el recorte y usa la lista para navegar. 4) Exporta a Excel.
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
 
     <!-- Contenedor de alertas Bootstrap (se inyectan por JS) -->
     <div id="alertContainer" class="position-fixed top-0 start-50 translate-middle-x mt-3"

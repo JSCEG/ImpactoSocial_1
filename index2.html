@@ -132,11 +132,46 @@
             </button>
             <div class="collapse navbar-collapse" id="navbarContent">
                 <ul class="navbar-nav ms-auto">
-                    <li class="nav-item"><a class="nav-link active" href="#">Inicio</a></li>
+                    <li class="nav-item"><a class="nav-link" href="index.html">Selector</a></li>
+                    <li class="nav-item"><a class="nav-link" href="index1.html">V1</a></li>
+                    <li class="nav-item"><a class="nav-link active" href="index2.html" aria-current="page">V2</a></li>
+                    <li class="nav-item"><a class="nav-link" href="index3.html">V3</a></li>
                 </ul>
             </div>
         </div>
     </nav>
+
+    <!-- Título de la vista y navegación rápida -->
+    <div class="container-fluid mt-3">
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+            <div>
+                <h4 class="mb-0">Geovisualizador — Versión 2 <span class="badge bg-primary ms-2">V2</span></h4>
+                <small class="text-muted">Análisis Multicapa</small>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+                <a href="index1.html" class="btn btn-sm btn-outline-primary">V1</a>
+                <a href="index2.html" class="btn btn-sm btn-primary disabled" tabindex="-1" aria-disabled="true">V2</a>
+                <a href="index3.html" class="btn btn-sm btn-outline-primary">V3</a>
+                <a href="index.html" class="btn btn-sm btn-outline-secondary">Selector</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Instrucciones de uso (debajo del título) -->
+    <div class="container-fluid mt-2">
+        <div class="alert alert-info shadow-sm" role="alert">
+            <div class="d-flex align-items-start gap-2">
+                <i class="bi bi-info-circle fs-5"></i>
+                <div>
+                    <small>
+                        1) Carga tu KML. 2) Elige tipo de área y, si es <em>Núcleo</em>, ajusta el <em>Buffer (m)</em>.
+                        3) Ejecuta el análisis para ver totales por capa y gráficos. 4) Exporta reportes (Excel; PDF si
+                        aplica).
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- Contenedor para mostrar alertas y notificaciones -->
     <div id="alertContainer" class="position-fixed top-0 start-50 translate-middle-x mt-3"
