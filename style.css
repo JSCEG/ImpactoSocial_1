@@ -245,8 +245,39 @@
     #cvegeoList li {
         padding: 0.5rem 0;
     }
-    
+
     .btn {
-        min-height: 44px; /* Tamaño mínimo táctil recomendado */
+        min-height: 44px;
+        /* Tamaño mínimo táctil recomendado */
     }
+}
+
+/* Experiencia de desplazamiento suave para anclas y volver arriba */
+html {
+    scroll-behavior: smooth;
+}
+
+/* Botón volver arriba */
+.back-to-top {
+    position: fixed;
+    right: 1rem;
+    bottom: 1rem;
+    z-index: 2050;
+    border-radius: 999px;
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, .25);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(8px);
+    transition: opacity .2s ease, transform .2s ease;
+}
+
+.back-to-top.show {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
 }

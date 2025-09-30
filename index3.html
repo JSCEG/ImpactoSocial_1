@@ -7,6 +7,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Geovisualizador Multi-Área - Versión 3</title>
+    <link rel="icon" type="image/png" href="img/logo_sener.png" sizes="32x32">
+    <meta name="theme-color" content="#7C1946">
 
     <!-- Bootstrap CSS para el diseño responsive y componentes -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -186,7 +188,7 @@
         <div class="row g-3">
             <!-- Panel de controles: sidebar en desktop, full width en móvil -->
             <section class="col-12 col-lg-4 col-xl-3">
-                <div class="card shadow-sm">
+                <div class="card shadow-sm sticky-lg-top" style="top: 1rem;">
                     <div class="card-body">
                         <h2 class="h5 card-title">Controles Multi-Área</h2>
                         <div class="accordion" id="controlsAccordion">
@@ -417,6 +419,33 @@
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 
     <!-- La lógica principal se carga dinámicamente con control de versión -->
+
+    <!-- Botón volver arriba -->
+    <button id="backToTop" class="btn btn-primary back-to-top" aria-label="Regresar arriba" title="Volver arriba">
+        <i class="bi bi-arrow-up"></i>
+    </button>
+
+    <!-- UX helpers: inicializar tooltips y back-to-top -->
+    <script>
+        (function () {
+            // Bootstrap tooltips: instancia en cualquier elemento con atributo title
+            if (window.bootstrap && document.querySelectorAll) {
+                document.querySelectorAll('[title]')
+                    .forEach(function (el) { try { new bootstrap.Tooltip(el); } catch (e) { /* noop */ } });
+            }
+
+            // Back-to-top
+            var btn = document.getElementById('backToTop');
+            if (btn) {
+                var toggleBtn = function () {
+                    if (window.scrollY > 220) { btn.classList.add('show'); } else { btn.classList.remove('show'); }
+                };
+                window.addEventListener('scroll', toggleBtn, { passive: true });
+                toggleBtn();
+                btn.addEventListener('click', function () { window.scrollTo({ top: 0, behavior: 'smooth' }); });
+            }
+        })();
+    </script>
 
     <!-- Modal para configuración de área individual -->
     <div class="modal fade" id="areaConfigModal" tabindex="-1" aria-labelledby="areaConfigModalLabel"

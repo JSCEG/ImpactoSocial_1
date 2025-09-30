@@ -5,6 +5,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Geovisualizador de Áreas de Interés</title>
+    <link rel="icon" type="image/png" href="img/logo_sener.png" sizes="32x32">
+    <meta name="theme-color" content="#7C1946">
 
     <!-- Bootstrap CSS para el diseño responsive y componentes -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -182,7 +184,7 @@
         <div class="row g-3">
             <!-- Panel de controles: sidebar en desktop, full width en móvil -->
             <section class="col-12 col-lg-4 col-xl-3">
-                <div class="card shadow-sm">
+                <div class="card shadow-sm sticky-lg-top" style="top: 1rem;">
                     <div class="card-body">
                         <h2 class="h5 card-title">Controles</h2>
                         <div class="accordion" id="controlsAccordion">
@@ -236,7 +238,7 @@
                                             <option value="directa">Área de influencia directa</option>
                                             <option value="indirecta">Área de influencia indirecta</option>
                                         </select>
-                                        <div class="input-group mb-2">
+                                        <div id="bufferMetersGroup" class="input-group mb-2" style="display:none;">
                                             <span class="input-group-text">Buffer (m)</span>
                                             <input type="number" id="bufferMetersInput" class="form-control" value="500"
                                                 min="0" step="10" aria-label="Buffer en metros">
@@ -396,6 +398,46 @@
     <script src="https://code.highcharts.com/highcharts.js"></script>
     <script src="https://code.highcharts.com/modules/exporting.js"></script>
     <script src="https://code.highcharts.com/modules/export-data.js"></script>
+
+    <!-- Botón volver arriba -->
+    <button id="backToTop" class="btn btn-primary back-to-top" aria-label="Regresar arriba" title="Volver arriba">
+        <i class="bi bi-arrow-up"></i>
+    </button>
+
+    <!-- UX helpers: inicializar tooltips, back-to-top y toggle de buffer -->
+    <script>
+        (function () {
+            // Bootstrap tooltips: instancia en cualquier elemento con atributo title
+            if (window.bootstrap && document.querySelectorAll) {
+                document.querySelectorAll('[title]')
+                    .forEach(function (el) { try { new bootstrap.Tooltip(el); } catch (e) { /* noop */ } });
+            }
+
+            // Back-to-top
+            var btn = document.getElementById('backToTop');
+            if (btn) {
+                var toggleBtn = function () {
+                    if (window.scrollY > 220) { btn.classList.add('show'); } else { btn.classList.remove('show'); }
+                };
+                window.addEventListener('scroll', toggleBtn, { passive: true });
+                toggleBtn();
+                btn.addEventListener('click', function () { window.scrollTo({ top: 0, behavior: 'smooth' }); });
+            }
+
+            // Mostrar el control de Buffer solo cuando el tipo de área es "nucleo"
+            var areaTypeEl = document.getElementById('areaType');
+            var bufferGroup = document.getElementById('bufferMetersGroup');
+            var toggleBufferGroup = function () {
+                if (!areaTypeEl || !bufferGroup) return;
+                bufferGroup.style.display = (areaTypeEl.value === 'nucleo') ? '' : 'none';
+            };
+            if (areaTypeEl) {
+                areaTypeEl.addEventListener('change', toggleBufferGroup);
+                // Ajustar estado inicial al cargar
+                toggleBufferGroup();
+            }
+        })();
+    </script>
 
     <!-- Librerías para generación de PDF -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
