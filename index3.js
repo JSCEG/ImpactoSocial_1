@@ -1612,147 +1612,165 @@ function initApp() {
             const bounds = group.getBounds();
             if (bounds.isValid()) {
                 // Crear capa de highlight con estilo llamativo
-                highlightLayer = L.geoJSON(targetFeatures, {
-                    style: function (feature) {
-                        return {
-                            color: '#ffff00',        // Amarillo brillante
-                            weight: 4,
-                            opacity: 1,
-                            fillColor: '#ffff00',
-                            fillOpacity: 0.3,
-                            dashArray: '10,5'        // Línea punteada
-                        };
-                    },
-                    pointToLayer: function (feature, latlng) {
-                        return L.circleMarker(latlng, {
-                            radius: 12,
-                            color: '#ffff00',
-                            weight: 4,
-                            opacity: 1,
-                            fillColor: '#ffff00',
-                            fillOpacity: 0.4
-                        });
-                    },
-                    onEachFeature: function (feature, layer) {
-                        const props = feature.properties;
-                        let popupContent;
-                        if (layerName === 'localidades') {
-                            popupContent = createPopupContent('Localidad', '🏘️', [
-                                { value: props.NOMGEO || props.NOM_LOC || props.NOMBRE || 'Sin nombre', isMain: true },
-                                { label: 'CVEGEO', value: props.CVEGEO },
-                                { label: 'Municipio', value: props.NOM_MUN || props.MUNICIPIO },
-                                { label: 'Estado', value: props.NOM_ENT || props.ESTADO },
-                                { label: 'Ámbito', value: props.AMBITO },
-                                { label: 'Población Total', value: props.POBTOT },
-                                { label: 'Población Femenina', value: props.POBFEM },
-                                { label: 'Población Masculina', value: props.POBMAS }
-                            ]);
-                        } else if (layerName === 'localidades_puntos') {
-                            popupContent = createPopupContent('Localidad (Puntos)', '📍', [
-                                { value: props.NOM_LOC || props.NOMGEO || 'Sin nombre', isMain: true },
-                                { label: 'CVEGEO', value: props.CVEGEO },
-                                { label: 'Municipio', value: props.NOM_MUN || props.MUNICIPIO },
-                                { label: 'Estado', value: props.NOM_ENT || props.ESTADO },
-                            ]);
-                        } else if (layerName === 'atlas') {
-                            popupContent = createPopupContent('Atlas Pueblos Indígenas', '🏛️', [
-                                { value: props.CVEGEO, isMain: true },
-                                { label: 'Localidad', value: props.NOM_LOC || props.NOMBRE },
-                                { label: 'Municipio', value: props.NOM_MUN || props.MUNICIPIO }
-                            ]);
-                        } else if (layerName === 'municipios') {
-                            popupContent = createPopupContent('Municipio', '🏛️', [
-                                { value: props.NOMGEO || props.NOM_MUN || props.NOMBRE || 'Sin nombre', isMain: true },
-                                { label: 'CVEGEO', value: props.CVEGEO },
-                                { label: 'Estado', value: props.NOM_ENT || props.ESTADO },
-                                { label: 'Cabecera', value: props.NOM_CAB || props.CABECERA }
-                            ]);
-                        } else if (layerName === 'regiones') {
-                            popupContent = createPopupContent('Región Indígena', '🌄', [
-                                { value: props.Name || props.NOMBRE || 'Sin nombre', isMain: true },
-                                { label: 'Tipo', value: props.Tipo || props.TIPO },
-                                { label: 'Descripción', value: props.Descripci || props.DESCRIPCION }
-                            ]);
-                        } else if (layerName === 'ran') {
-                            popupContent = createPopupContent('RAN', '🌾', [
-                                { value: props.MUNICIPIO || props.Clv_Unica, isMain: true },
-                                { label: 'Clv_Unica', value: props.Clv_Unica },
-                                { label: 'Tipo', value: props.tipo || props.Tipo },
-                                { label: 'Estado', value: props.Estado || props.ESTADO },
-                                { label: 'Municipio', value: props.Municipio || props.MUNICIPIO }
-                            ]);
-                        } else if (layerName === 'lenguas') {
-                            popupContent = createPopupContent('Lengua Indígena', '🗣️', [
-                                { value: props.Lengua || props.LENGUA || 'Sin especificar', isMain: true },
-                                { label: 'Localidad', value: props.NOM_LOC || props.LOCALIDAD },
-                                { label: 'Municipio', value: props.NOM_MUN || props.MUNICIPIO },
-                                { label: 'Estado', value: props.NOM_ENT || props.ESTADO }
-                            ]);
-                        } else if (layerName === 'za_publico') {
-                            popupContent = createPopupContent('ZA Público', '🏞️', [
-                                { value: props["Zona Arqueológica"] || 'Sin nombre', isMain: true },
-                                { label: 'Estado', value: props.ESTADO },
-                                { label: 'Municipio', value: props.MUNICIPIO },
-                                { label: 'Localidad', value: props.LOCALIDAD }
-                            ]);
-                        } else if (layerName === 'za_publico_a') {
-                            popupContent = createPopupContent('ZA Público A', '🏞️', [
-                                { value: props["Zona Arqueológica"] || 'Sin nombre', isMain: true },
-                                { label: 'Estado', value: props.ESTADO },
-                                { label: 'Municipio', value: props.MUNICIPIO },
-                                { label: 'Localidad', value: props.LOCALIDAD }
-                            ]);
-                        } else if (layerName === 'anp_estatal') {
-                            popupContent = createPopupContent('ANP Estatal', '🌿', [
-                                { value: props.NOMBRE || 'Sin nombre', isMain: true },
-                                { label: 'Tipo', value: props.TIPO },
-                                { label: 'Categoría DEC', value: props.CAT_DEC },
-                                { label: 'Entidad', value: props.ENTIDAD },
-                                { label: 'Municipio DEC', value: props.MUN_DEC }
-                            ]);
-                        } else if (layerName === 'ramsar') {
-                            popupContent = createPopupContent('Sitio Ramsar', '🦆', [
-                                { value: props.RAMSAR || 'Sin nombre', isMain: true },
-                                { label: 'Estado', value: props.ESTADO },
-                                { label: 'Municipio', value: props.MUNICIPIOS }
-                            ]);
-                        } else if (layerName === 'sitio_arqueologico') {
-                            popupContent = createPopupContent('Sitio Arqueológico', '🏛️', [
-                                { value: props.nombre || 'Sin nombre', isMain: true },
-                                { label: 'Estado', value: props.nom_ent },
-                                { label: 'Municipio', value: props.nom_mun },
-                                { label: 'Localidad', value: props.nom_loc }
-                            ]);
-                        } else if (layerName === 'z_historicos') {
-                            popupContent = createPopupContent('Zona Histórica', '🏰', [
-                                { value: props.Nombre || 'Sin nombre', isMain: true },
-                                { label: 'Estado', value: props.ESTADO },
-                                { label: 'Municipio', value: props.MUNICIPIO },
-                                { label: 'Localidad', value: props.LOCALIDAD }
-                            ]);
-                        } else if (layerName === 'loc_indigenas_datos') {
-                            popupContent = createPopupContent('Loc Indígenas Datos', '🏘️', [
-                                { value: props.LOCALIDAD || 'Sin Localidad', isMain: true },
-                                { label: 'Entidad', value: props.ENTIDAD },
-                                { label: 'Municipio', value: props.MUNICIPIO },
-                                { label: 'Localidad', value: props.LOCALIDAD },
-                                { label: 'Población Total', value: props.POBTOTAL }
-                            ]);
-                        } else if (layerName === 'rutaWixarika') {
-                            popupContent = createPopupContent('Ruta Wixarika', '🛤️', [
-                                { value: props.Name || 'Sin nombre', isMain: true }
-                            ]);
+                if (layerName === 'localidades') {
+                    const targetFeature = features.find(f => f.properties[propertyName] === featureId);
+                    if (targetFeature) {
+                        const isPoint = targetFeature.properties._source === 'point';
+                        if (isPoint) {
+                            const center = L.geoJSON(targetFeature).getBounds().getCenter();
+                            highlightLayer = L.circle(center, {
+                                radius: 100, // 100 metros
+                                color: '#ffff00', weight: 3, fillColor: '#ffff00', fillOpacity: 0.5
+                            }).addTo(map);
                         } else {
-                            // Generic popup for other layers
-                            popupContent = `<h6>${props[propertyName] || 'Sin nombre'}</h6>`;
-                        }
-                        layer.bindPopup(popupContent);
-                        // Only open popup for single features to avoid clutter
-                        if (targetFeatures.length === 1) {
-                            layer.openPopup();
+                            highlightLayer = L.geoJSON(targetFeature, {
+                                style: { color: '#ffff00', weight: 4, fillOpacity: 0.3, dashArray: '10,5' }
+                            }).addTo(map);
                         }
                     }
-                }).addTo(map);
+                } else {
+                    highlightLayer = L.geoJSON(targetFeatures, {
+                        style: function (feature) {
+                            return {
+                                color: '#ffff00',        // Amarillo brillante
+                                weight: 4,
+                                opacity: 1,
+                                fillColor: '#ffff00',
+                                fillOpacity: 0.3,
+                                dashArray: '10,5'        // Línea punteada
+                            };
+                        },
+                        pointToLayer: function (feature, latlng) {
+                            return L.circleMarker(latlng, {
+                                radius: 12,
+                                color: '#ffff00',
+                                weight: 4,
+                                opacity: 1,
+                                fillColor: '#ffff00',
+                                fillOpacity: 0.4
+                            });
+                        },
+                        onEachFeature: function (feature, layer) {
+                            const props = feature.properties;
+                            let popupContent;
+                            if (layerName === 'localidades') {
+                                popupContent = createPopupContent('Localidad', '🏘️', [
+                                    { value: props.NOMGEO || props.NOM_LOC || props.NOMBRE || 'Sin nombre', isMain: true },
+                                    { label: 'CVEGEO', value: props.CVEGEO },
+                                    { label: 'Municipio', value: props.NOM_MUN || props.MUNICIPIO },
+                                    { label: 'Estado', value: props.NOM_ENT || props.ESTADO },
+                                    { label: 'Ámbito', value: props.AMBITO },
+                                    { label: 'Población Total', value: props.POBTOT },
+                                    { label: 'Población Femenina', value: props.POBFEM },
+                                    { label: 'Población Masculina', value: props.POBMAS }
+                                ]);
+                            } else if (layerName === 'localidades_puntos') {
+                                popupContent = createPopupContent('Localidad (Puntos)', '📍', [
+                                    { value: props.NOM_LOC || props.NOMGEO || 'Sin nombre', isMain: true },
+                                    { label: 'CVEGEO', value: props.CVEGEO },
+                                    { label: 'Municipio', value: props.NOM_MUN || props.MUNICIPIO },
+                                    { label: 'Estado', value: props.NOM_ENT || props.ESTADO },
+                                ]);
+                            } else if (layerName === 'atlas') {
+                                popupContent = createPopupContent('Atlas Pueblos Indígenas', '🏛️', [
+                                    { value: props.CVEGEO, isMain: true },
+                                    { label: 'Localidad', value: props.NOM_LOC || props.NOMBRE },
+                                    { label: 'Municipio', value: props.NOM_MUN || props.MUNICIPIO }
+                                ]);
+                            } else if (layerName === 'municipios') {
+                                popupContent = createPopupContent('Municipio', '🏛️', [
+                                    { value: props.NOMGEO || props.NOM_MUN || props.NOMBRE || 'Sin nombre', isMain: true },
+                                    { label: 'CVEGEO', value: props.CVEGEO },
+                                    { label: 'Estado', value: props.NOM_ENT || props.ESTADO },
+                                    { label: 'Cabecera', value: props.NOM_CAB || props.CABECERA }
+                                ]);
+                            } else if (layerName === 'regiones') {
+                                popupContent = createPopupContent('Región Indígena', '🌄', [
+                                    { value: props.Name || props.NOMBRE || 'Sin nombre', isMain: true },
+                                    { label: 'Tipo', value: props.Tipo || props.TIPO },
+                                    { label: 'Descripción', value: props.Descripci || props.DESCRIPCION }
+                                ]);
+                            } else if (layerName === 'ran') {
+                                popupContent = createPopupContent('RAN', '🌾', [
+                                    { value: props.MUNICIPIO || props.Clv_Unica, isMain: true },
+                                    { label: 'Clv_Unica', value: props.Clv_Unica },
+                                    { label: 'Tipo', value: props.tipo || props.Tipo },
+                                    { label: 'Estado', value: props.Estado || props.ESTADO },
+                                    { label: 'Municipio', value: props.Municipio || props.MUNICIPIO }
+                                ]);
+                            } else if (layerName === 'lenguas') {
+                                popupContent = createPopupContent('Lengua Indígena', '🗣️', [
+                                    { value: props.Lengua || props.LENGUA || 'Sin especificar', isMain: true },
+                                    { label: 'Localidad', value: props.NOM_LOC || props.LOCALIDAD },
+                                    { label: 'Municipio', value: props.NOM_MUN || props.MUNICIPIO },
+                                    { label: 'Estado', value: props.NOM_ENT || props.ESTADO }
+                                ]);
+                            } else if (layerName === 'za_publico') {
+                                popupContent = createPopupContent('ZA Público', '🏞️', [
+                                    { value: props["Zona Arqueológica"] || 'Sin nombre', isMain: true },
+                                    { label: 'Estado', value: props.ESTADO },
+                                    { label: 'Municipio', value: props.MUNICIPIO },
+                                    { label: 'Localidad', value: props.LOCALIDAD }
+                                ]);
+                            } else if (layerName === 'za_publico_a') {
+                                popupContent = createPopupContent('ZA Público A', '🏞️', [
+                                    { value: props["Zona Arqueológica"] || 'Sin nombre', isMain: true },
+                                    { label: 'Estado', value: props.ESTADO },
+                                    { label: 'Municipio', value: props.MUNICIPIO },
+                                    { label: 'Localidad', value: props.LOCALIDAD }
+                                ]);
+                            } else if (layerName === 'anp_estatal') {
+                                popupContent = createPopupContent('ANP Estatal', '🌿', [
+                                    { value: props.NOMBRE || 'Sin nombre', isMain: true },
+                                    { label: 'Tipo', value: props.TIPO },
+                                    { label: 'Categoría DEC', value: props.CAT_DEC },
+                                    { label: 'Entidad', value: props.ENTIDAD },
+                                    { label: 'Municipio DEC', value: props.MUN_DEC }
+                                ]);
+                            } else if (layerName === 'ramsar') {
+                                popupContent = createPopupContent('Sitio Ramsar', '🦆', [
+                                    { value: props.RAMSAR || 'Sin nombre', isMain: true },
+                                    { label: 'Estado', value: props.ESTADO },
+                                    { label: 'Municipio', value: props.MUNICIPIOS }
+                                ]);
+                            } else if (layerName === 'sitio_arqueologico') {
+                                popupContent = createPopupContent('Sitio Arqueológico', '🏛️', [
+                                    { value: props.nombre || 'Sin nombre', isMain: true },
+                                    { label: 'Estado', value: props.nom_ent },
+                                    { label: 'Municipio', value: props.nom_mun },
+                                    { label: 'Localidad', value: props.nom_loc }
+                                ]);
+                            } else if (layerName === 'z_historicos') {
+                                popupContent = createPopupContent('Zona Histórica', '🏰', [
+                                    { value: props.Nombre || 'Sin nombre', isMain: true },
+                                    { label: 'Estado', value: props.ESTADO },
+                                    { label: 'Municipio', value: props.MUNICIPIO },
+                                    { label: 'Localidad', value: props.LOCALIDAD }
+                                ]);
+                            } else if (layerName === 'loc_indigenas_datos') {
+                                popupContent = createPopupContent('Loc Indígenas Datos', '🏘️', [
+                                    { value: props.LOCALIDAD || 'Sin Localidad', isMain: true },
+                                    { label: 'Entidad', value: props.ENTIDAD },
+                                    { label: 'Municipio', value: props.MUNICIPIO },
+                                    { label: 'Localidad', value: props.LOCALIDAD },
+                                    { label: 'Población Total', value: props.POBTOTAL }
+                                ]);
+                            } else if (layerName === 'rutaWixarika') {
+                                popupContent = createPopupContent('Ruta Wixarika', '🛤️', [
+                                    { value: props.Name || 'Sin nombre', isMain: true }
+                                ]);
+                            } else {
+                                // Generic popup for other layers
+                                popupContent = `<h6>${props[propertyName] || 'Sin nombre'}</h6>`;
+                            }
+                            layer.bindPopup(popupContent);
+                            // Only open popup for single features to avoid clutter
+                            if (targetFeatures.length === 1) {
+                                layer.openPopup();
+                            }
+                        }
+                    }).addTo(map);
+                }
 
                 // Agregar efecto de pulso para puntos
                 if (targetFeatures.length > 0 && targetFeatures[0].geometry.type === 'Point') {
@@ -1889,7 +1907,8 @@ function initApp() {
                             if (layerName === 'localidades') {
                                 const name = f.properties.NOMGEO || f.properties.NOM_LOC || 'Sin nombre';
                                 const key = f.properties.CVEGEO;
-                                displayText = `${name} (${key})`;
+                                const icon = f.properties._source === 'point' ? '📍' : '🗺️';
+                                displayText = `${icon} ${name} (${key})`;
                             } else if (layerName === 'localidades_puntos') {
                                 const name = f.properties.NOM_LOC || f.properties.NOMGEO || 'Sin nombre';
                                 const key = f.properties.CVEGEO;
@@ -4901,23 +4920,23 @@ function navigateToGlobalLayer(layerName) {
     if (allFeatures.length === 0) return;
 
     // Activar capa si no está visible
-    const layerMapping = {
-        'localidades': clippedLocalitiesLayer,
-        'atlas': clippedAtlasLayer,
-        'municipios': clippedMunicipiosLayer,
-        'regiones': clippedRegionesLayer,
-        'ran': clippedRanLayer,
-        'lenguas': clippedLenguasLayer,
-        'za_publico': clippedZaPublicoLayer,
-        'za_publico_a': clippedZaPublicoALayer,
-        'anp_estatal': clippedAnpEstatalLayer,
-        'ramsar': clippedRamsarLayer,
-        'sitio_arqueologico': clippedSitioArqueologicoLayer,
-        'z_historicos': clippedZHistoricosLayer,
-        'loc_indigenas_datos': clippedLocIndigenasLayer,
-        'rutaWixarika': clippedRutaWixarikaLayer
-    };
-
+                const layerMapping = {
+                    'localidades': clippedLocalitiesLayer,
+                    'localidades_puntos': clippedLocalitiesPointsLayer,
+                    'atlas': clippedAtlasLayer,
+                    'municipios': clippedMunicipiosLayer,
+                    'regiones': clippedRegionesLayer,
+                    'ran': clippedRanLayer,
+                    'lenguas': clippedLenguasLayer,
+                    'za_publico': clippedZaPublicoLayer,
+                    'za_publico_a': clippedZaPublicoALayer,
+                    'anp_estatal': clippedAnpEstatalLayer,
+                    'ramsar': clippedRamsarLayer,
+                    'sitio_arqueologico': clippedSitioArqueologicoLayer,
+                    'z_historicos': clippedZHistoricosLayer,
+                    'loc_indigenas_datos': clippedLocIndigenasLayer,
+                    'rutaWixarika': clippedRutaWixarikaLayer
+                };
     const correspondingLayer = layerMapping[layerName];
     if (correspondingLayer && !map.hasLayer(correspondingLayer)) {
         map.addLayer(correspondingLayer);
@@ -5692,7 +5711,7 @@ async function performAreaAnalysis(kmlEntry, options = {}) {
 
         // Capas seleccionadas
         const selectedLayers = options.layers || {
-            localidades: true, atlas: true, municipios: true, regiones: true, ran: true, lenguas: true,
+            localidades: true, localidades_puntos: true, atlas: true, municipios: true, regiones: true, ran: true, lenguas: true,
             za_publico: true, za_publico_a: true, anp_estatal: true, ramsar: true,
             sitio_arqueologico: true, z_historicos: true, loc_indigenas_datos: true, rutaWixarika: true
         };
@@ -5751,6 +5770,17 @@ async function performAreaAnalysis(kmlEntry, options = {}) {
                             { label: 'Población Total', value: p.POBTOT || p.POBTOTAL },
                             { label: 'Población Femenina', value: p.POBFEM },
                             { label: 'Población Masculina', value: p.POBMAS }
+                        ]);
+                        break;
+                    case 'localidades_puntos':
+                        options = {
+                            pointToLayer: (f, latlng) => L.circleMarker(latlng, { radius: 5, fillColor: '#FF00FF', color: '#000', weight: 1, opacity: 1, fillOpacity: 0.8 })
+                        };
+                        popupFormatter = (p) => createPopupContent('Localidad (Puntos)', '📍', [
+                            { value: p.NOM_LOC || p.NOMGEO || 'Sin nombre', isMain: true },
+                            { label: 'CVEGEO', value: p.CVEGEO },
+                            { label: 'Municipio', value: p.NOM_MUN || p.MUNICIPIO },
+                            { label: 'Estado', value: p.NOM_ENT || p.ESTADO },
                         ]);
                         break;
                     case 'atlas':
@@ -5911,11 +5941,104 @@ async function performAreaAnalysis(kmlEntry, options = {}) {
                 // Almacenar referencia de la capa
                 if (!kmlEntry.clippedLayers) kmlEntry.clippedLayers = {};
                 kmlEntry.clippedLayers[layerName] = mapLayer;
+
+                // Asignar a variable global para que la navegación funcione en la última área analizada
+                switch (layerName) {
+                    case 'localidades': clippedLocalitiesLayer = mapLayer; break;
+                    case 'localidades_puntos': clippedLocalitiesPointsLayer = mapLayer; break;
+                    case 'atlas': clippedAtlasLayer = mapLayer; break;
+                    case 'municipios': clippedMunicipiosLayer = mapLayer; break;
+                    case 'regiones': clippedRegionesLayer = mapLayer; break;
+                    case 'ran': clippedRanLayer = mapLayer; break;
+                    case 'lenguas': clippedLenguasLayer = mapLayer; break;
+                    case 'za_publico': clippedZaPublicoLayer = mapLayer; break;
+                    case 'za_publico_a': clippedZaPublicoALayer = mapLayer; break;
+                    case 'anp_estatal': clippedAnpEstatalLayer = mapLayer; break;
+                    case 'ramsar': clippedRamsarLayer = mapLayer; break;
+                    case 'sitio_arqueologico': clippedSitioArqueologicoLayer = mapLayer; break;
+                    case 'z_historicos': clippedZHistoricosLayer = mapLayer; break;
+                    case 'loc_indigenas_datos': clippedLocIndigenasLayer = mapLayer; break;
+                    case 'rutaWixarika': clippedRutaWixarikaLayer = mapLayer; break;
+                }
             }
         };
 
         // Procesar todas las capas disponibles
-        if (selectedLayers.localidades) await processLayer(localitiesData, 'localidades', 'Localidades');
+        // Lógica unificada para Localidades (polígonos y puntos)
+        if (selectedLayers.localidades || selectedLayers.localidades_puntos) {
+            progressStep++;
+            updateProgress(20 + (progressStep / totalSteps) * 60, `Procesando Localidades...`);
+
+            const polygonFeatures = (selectedLayers.localidades && localitiesData)
+                ? localitiesData.features.filter(f => f.geometry && T.booleanIntersects(f, analysisArea))
+                : [];
+
+            const polygonCVEGEOs = new Set(polygonFeatures.map(f => f.properties.CVEGEO));
+
+            const pointFeatures = (selectedLayers.localidades_puntos && localitiesPointsData)
+                ? localitiesPointsData.features.filter(f =>
+                    f.geometry &&
+                    !polygonCVEGEOs.has(f.properties.CVEGEO) &&
+                    T.booleanIntersects(f, analysisArea)
+                )
+                : [];
+
+            const allLocalities = [
+                ...polygonFeatures.map(f => ({ ...f, properties: { ...f.properties, _source: 'polygon' } })),
+                ...pointFeatures.map(f => ({ ...f, properties: { ...f.properties, _source: 'point' } }))
+            ];
+            allLocalities.sort((a, b) => (a.properties.NOMGEO || a.properties.NOM_LOC || '').localeCompare(b.properties.NOMGEO || b.properties.NOM_LOC || ''));
+
+            if (allLocalities.length > 0) {
+                const unifiedLayer = L.geoJSON(allLocalities, {
+                    style: function(feature) {
+                        return { color: '#008000', weight: 2, fillOpacity: 0.1 };
+                    },
+                    pointToLayer: function(feature, latlng) {
+                        // Para puntos, dibujar un círculo de 100m de radio
+                        return L.circle(latlng, { 
+                            radius: 100, 
+                            color: '#008000', 
+                            weight: 1, 
+                            fillColor: '#008000', 
+                            fillOpacity: 0.5 
+                        });
+                    },
+                    onEachFeature: function(feature, layer) {
+                        const p = feature.properties;
+                        const popupContent = createPopupContent('Localidad', '🏘️', [
+                            { value: p.NOMGEO || p.NOM_LOC || 'Sin nombre', isMain: true },
+                            { label: 'CVEGEO', value: p.CVEGEO },
+                            { label: 'Municipio', value: p.NOM_MUN },
+                            { label: 'Estado', value: p.NOM_ENT },
+                            { label: 'Ámbito', value: p.AMBITO },
+                            { label: 'Población', value: p.POBTOT || p.POBTOTAL },
+                            { label: 'Fuente', value: p._source === 'polygon' ? 'Polígono' : 'Punto' }
+                        ]);
+                        layer.bindPopup(popupContent);
+                    }
+                });
+
+                results['localidades'] = {
+                    features: allLocalities,
+                    count: allLocalities.length,
+                    displayName: 'Localidades'
+                };
+                totalFound += allLocalities.length;
+
+                if (!overlayGroupsByKey['localidades']) {
+                    overlayGroupsByKey['localidades'] = L.featureGroup().addTo(map);
+                    overlayDisplayNameByKey['localidades'] = 'Localidades';
+                    if (layersControl) {
+                        try { layersControl.addOverlay(overlayGroupsByKey['localidades'], 'Localidades'); } catch (_) {}
+                    }
+                }
+                unifiedLayer.addTo(overlayGroupsByKey['localidades']);
+                if (!kmlEntry.clippedLayers) kmlEntry.clippedLayers = {};
+                kmlEntry.clippedLayers['localidades'] = unifiedLayer;
+            }
+        }
+
         if (selectedLayers.atlas) await processLayer(atlasData, 'atlas', 'Atlas Pueblos Indígenas');
         if (selectedLayers.municipios) await processLayer(municipiosData, 'municipios', 'Municipios');
         if (selectedLayers.regiones) await processLayer(regionesData, 'regiones', 'Regiones Indígenas');
@@ -6065,7 +6188,7 @@ function openAnalysisConfigDialog(params = { scope: 'single', areaName: '', defa
         };
 
         const layerList = [
-            ['localidades', 'Localidades'], ['atlas', 'Atlas Pueblos Indígenas'], ['municipios', 'Municipios'],
+            ['localidades', 'Localidades'], ['localidades_puntos', 'Localidades (Puntos)'], ['atlas', 'Atlas Pueblos Indígenas'], ['municipios', 'Municipios'],
             ['regiones', 'Regiones Indígenas'], ['ran', 'RAN'], ['lenguas', 'Lenguas Indígenas'],
             ['za_publico', 'Zonas Arqueológicas (Puntos)'], ['za_publico_a', 'Zonas Arqueológicas (Áreas)'], ['anp_estatal', 'ANP Estatal'],
             ['ramsar', 'Ramsar'], ['sitio_arqueologico', 'Sitios Arqueológicos'], ['z_historicos', 'Zonas Históricas'],
