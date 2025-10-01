@@ -70,6 +70,53 @@
     }
 }
 
+/* Scroll vertical dentro del acordeón (columna de controles) en pantallas grandes */
+@media (min-width: 992px) {
+    .sticky-lg-top .card-body {
+        max-height: calc(100vh - 140px);
+        overflow-y: auto;
+        overscroll-behavior: contain;
+    }
+}
+
+/* Sombras sutiles arriba/abajo cuando hay overflow en el acordeón */
+@media (min-width: 992px) {
+    .sticky-lg-top .card-body.scroll-shadow {
+        position: relative;
+    }
+
+    .sticky-lg-top .card-body.scroll-shadow::before,
+    .sticky-lg-top .card-body.scroll-shadow::after {
+        content: '';
+        position: absolute;
+        left: 0;
+        right: 0;
+        height: 14px;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity .2s ease;
+        z-index: 2;
+    }
+
+    .sticky-lg-top .card-body.scroll-shadow::before {
+        top: 0;
+        background: linear-gradient(to bottom, rgba(0, 0, 0, .12), rgba(0, 0, 0, 0));
+    }
+
+    .sticky-lg-top .card-body.scroll-shadow::after {
+        bottom: 0;
+        background: linear-gradient(to top, rgba(0, 0, 0, .12), rgba(0, 0, 0, 0));
+    }
+
+    .sticky-lg-top .card-body.scroll-shadow.has-shadow-top::before {
+        opacity: 1;
+    }
+
+    .sticky-lg-top .card-body.scroll-shadow.has-shadow-bottom::after {
+        opacity: 1;
+    }
+}
+
 /* Panel de lista CVEGEO */
 #cvegeoList {
     max-height: 240px;
@@ -227,6 +274,39 @@
 }
 
 #cvegeoList li:focus {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+/* Listas de resultados en el acordeón (todas las secciones) */
+.layer-content ul {
+    list-style: none;
+    padding-left: 1rem;
+    margin-bottom: 0.25rem;
+}
+
+.layer-content li {
+    padding: .25rem 0;
+    border-bottom: 1px dashed #ddd;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.layer-content li:last-child {
+    border-bottom: none;
+}
+
+.layer-content li:hover {
+    background-color: rgba(124, 25, 70, 0.05);
+}
+
+.layer-content li.active {
+    background: rgba(124, 25, 70, 0.08);
+    border-left: 3px solid var(--primary);
+    padding-left: .5rem;
+}
+
+.layer-content li:focus {
     outline: 2px solid var(--primary);
     outline-offset: 2px;
 }

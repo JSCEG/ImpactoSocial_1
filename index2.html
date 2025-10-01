@@ -74,6 +74,86 @@
         })();
     </script>
 
+    <!-- Reporte Excel: Lenguas agregadas por idioma (sin repeticiones) -->
+    <script>
+        (function () {
+            var btn = document.getElementById('downloadReportBtn');
+            if (!btn) return;
+
+            function getFeatures(layer) {
+                try {
+                    if (layer && typeof layer.toGeoJSON === 'function') {
+                        var gj = layer.toGeoJSON();
+                        return Array.isArray(gj.features) ? gj.features : [];
+                    }
+                } catch (_) { }
+                return [];
+            }
+
+            function safeCount(layer) { return getFeatures(layer).length; }
+
+            btn.addEventListener('click', function () {
+                try {
+                    if (!window.XLSX) { alert('No se encontró la librería XLSX.'); return; }
+
+                    // Preparar libro
+                    var wb = XLSX.utils.book_new();
+
+                    // Hoja Resumen (si hay datos)
+                    var resumen = [];
+                    var capas = [
+                        ['Localidades', (typeof clippedLocalitiesLayer !== 'undefined') ? safeCount(clippedLocalitiesLayer) : 0],
+                        ['Atlas de Pueblos Indígenas', (typeof clippedAtlasLayer !== 'undefined') ? safeCount(clippedAtlasLayer) : 0],
+                        ['Municipios', (typeof clippedMunicipiosLayer !== 'undefined') ? safeCount(clippedMunicipiosLayer) : 0],
+                        ['Regiones Indígenas', (typeof clippedRegionesLayer !== 'undefined') ? safeCount(clippedRegionesLayer) : 0],
+                        ['RAN', (typeof clippedRanLayer !== 'undefined') ? safeCount(clippedRanLayer) : 0],
+                        ['Lenguas Indígenas (features)', (typeof clippedLenguasLayer !== 'undefined') ? safeCount(clippedLenguasLayer) : 0],
+                        ['Zonas Arqueológicas (Público)', (typeof clippedZaPublicoLayer !== 'undefined') ? safeCount(clippedZaPublicoLayer) : 0],
+                        ['Zonas Arqueológicas (Público A)', (typeof clippedZaPublicoALayer !== 'undefined') ? safeCount(clippedZaPublicoALayer) : 0],
+                        ['ANP Estatal', (typeof clippedAnpEstatalLayer !== 'undefined') ? safeCount(clippedAnpEstatalLayer) : 0],
+                        ['Ramsar', (typeof clippedRamsarLayer !== 'undefined') ? safeCount(clippedRamsarLayer) : 0],
+                        ['Sitios Arqueológicos', (typeof clippedSitioArqueologicoLayer !== 'undefined') ? safeCount(clippedSitioArqueologicoLayer) : 0],
+                        ['Zonas Históricas', (typeof clippedZHistoricosLayer !== 'undefined') ? safeCount(clippedZHistoricosLayer) : 0],
+                        ['Localidades Indígenas (Datos)', (typeof clippedLocIndigenasLayer !== 'undefined') ? safeCount(clippedLocIndigenasLayer) : 0],
+                        ['Ruta Wixarika', (typeof clippedRutaWixarikaLayer !== 'undefined') ? safeCount(clippedRutaWixarikaLayer) : 0],
+                        ['Localidades (puntos 100m)', (typeof clippedLocalitiesPointsLayer !== 'undefined') ? safeCount(clippedLocalitiesPointsLayer) : 0]
+                    ];
+                    capas.forEach(function (row) { if (row[1] > 0) resumen.push({ Capa: row[0], Total: row[1] }); });
+                    if (resumen.length > 0) {
+                        var wsResumen = XLSX.utils.json_to_sheet(resumen);
+                        XLSX.utils.book_append_sheet(wb, wsResumen, 'Resumen');
+                    }
+
+                    // Hoja de Lenguas: conteo único por lengua
+                    var lenguasFeatures = (typeof clippedLenguasLayer !== 'undefined') ? getFeatures(clippedLenguasLayer) : [];
+                    if (lenguasFeatures.length > 0) {
+                        var counts = new Map();
+                        lenguasFeatures.forEach(function (f) {
+                            var p = f && f.properties ? f.properties : {};
+                            var nombre = p.Lengua || p.LENGUA || p.len || 'Sin dato';
+                            if (typeof nombre === 'string') nombre = nombre.trim();
+                            var key = (nombre || 'Sin dato').toUpperCase();
+                            counts.set(key, (counts.get(key) || 0) + 1);
+                        });
+
+                        var rows = Array.from(counts.entries())
+                            .sort(function (a, b) { return b[1] - a[1]; })
+                            .map(function (e) { return { Lengua: e[0], Conteo: e[1] }; });
+
+                        var wsLen = XLSX.utils.json_to_sheet(rows);
+                        XLSX.utils.book_append_sheet(wb, wsLen, 'Lenguas (conteo)');
+                    }
+
+                    var fileName = 'reporte_v2_' + new Date().toISOString().split('T')[0] + '.xlsx';
+                    XLSX.writeFile(wb, fileName);
+                } catch (e) {
+                    console.error('Excel error:', e);
+                    alert('No se pudo generar el Excel.');
+                }
+            });
+        })();
+    </script>
+
     <!-- Bootstrap Icons para iconos del footer y botones -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
 

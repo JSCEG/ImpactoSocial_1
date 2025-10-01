@@ -643,6 +643,7 @@ function initApp() {
         const kmlPopulationChartEl = document.getElementById('kmlPopulationChart');
         const reloadDataBtn = document.getElementById('reloadDataBtn');
         const clearMapBtn = document.getElementById('clearMap');
+        const downloadReportBtn = document.getElementById('downloadReportBtn');
         // Per-area Excel button removed; we keep a single export entry point
 
         // Estado inicial: limpiar input KML
@@ -779,6 +780,13 @@ function initApp() {
                 // Habilitar Excel global si hay alguna analizada
                 const downloadReportBtn = document.getElementById('downloadReportBtn');
                 if (downloadReportBtn) downloadReportBtn.disabled = Array.from(kmlLayers.values()).every(k => !k.isAnalyzed);
+            });
+        }
+
+        // Wire global Excel export (Reporte Excel Global)
+        if (downloadReportBtn) {
+            downloadReportBtn.addEventListener('click', () => {
+                try { generateExcelGlobalReport(); } catch (e) { console.error('Excel global error', e); showAlert('No se pudo generar el Excel global.', 'danger', 5000); }
             });
         }
 
@@ -3345,6 +3353,112 @@ function initApp() {
                 console.error('Error generando reporte Excel:', error);
                 showAlert('Error al generar el reporte Excel. Intenta nuevamente.', 'danger', 4000);
             }
+        }
+
+        /**
+         * Genera un reporte Excel GLOBAL consolidando todas las áreas analizadas en V3
+         * - Hoja "Resumen": una fila por área con métricas y conteos por capa (Lenguas = únicas)
+         * - Hoja "Lenguas (conteo)": filas por (Área, Lengua, Conteo) y bloque Global agregado
+         */
+        function generateExcelGlobalReport() {
+            const analyzed = Array.from(kmlLayers.values()).filter(k => k.isAnalyzed && k.results);
+            if (analyzed.length === 0) { showAlert('No hay áreas analizadas para exportar.', 'warning'); return; }
+            if (!window.XLSX) { showAlert('Librería XLSX no disponible.', 'danger'); return; }
+
+            const wb = XLSX.utils.book_new();
+
+            // 1) Resumen por área
+            const headerResumen = [
+                'Área', 'Tipo', 'Área (km²)', 'Perímetro (km)', 'Población', 'Densidad Loc (loc/km²)', 'Densidad Pobl (hab/km²)',
+                'Localidades', 'Atlas', 'Municipios', 'Regiones', 'RAN', 'Lenguas (únicas)', 'ZA público', 'ZA áreas',
+                'ANP', 'Ramsar', 'Sitios Arqueológicos', 'Zonas Históricas', 'Loc Indígenas Datos', 'Ruta Wixarika'
+            ];
+            const rowsResumen = [headerResumen];
+
+            // Totales globales
+            const globalTotals = {
+                localidades: 0, atlas: 0, municipios: 0, regiones: 0, ran: 0, lenguasU: 0,
+                za_publico: 0, za_publico_a: 0, anp_estatal: 0, ramsar: 0, sitio_arqueologico: 0,
+                z_historicos: 0, loc_indigenas_datos: 0, rutaWixarika: 0
+            };
+
+            analyzed.forEach(k => {
+                const name = k.name || 'Área';
+                const tipo = (k.areaType && typeof k.areaType === 'string') ? k.areaType : 'exacta';
+                const metrics = k.metrics || k.kmlMetrics || {};
+                const r = k.results || {};
+
+                const count = (key) => (r[key] && Array.isArray(r[key].features)) ? r[key].features.length : 0;
+                const lenguasU = (r.lenguas && r.lenguas.features) ? new Set(r.lenguas.features.map(f => f.properties?.Lengua || f.properties?.LENGUA)).size : 0;
+
+                // Update globals
+                globalTotals.localidades += count('localidades');
+                globalTotals.atlas += count('atlas');
+                globalTotals.municipios += count('municipios');
+                globalTotals.regiones += count('regiones');
+                globalTotals.ran += count('ran');
+                globalTotals.lenguasU += lenguasU;
+                globalTotals.za_publico += count('za_publico');
+                globalTotals.za_publico_a += count('za_publico_a');
+                globalTotals.anp_estatal += count('anp_estatal');
+                globalTotals.ramsar += count('ramsar');
+                globalTotals.sitio_arqueologico += count('sitio_arqueologico');
+                globalTotals.z_historicos += count('z_historicos');
+                globalTotals.loc_indigenas_datos += count('loc_indigenas_datos');
+                globalTotals.rutaWixarika += count('rutaWixarika');
+
+                rowsResumen.push([
+                    name,
+                    tipo,
+                    (metrics.area != null ? Number(metrics.area) : '').toString(),
+                    (metrics.perimeter != null ? Number(metrics.perimeter) : '').toString(),
+                    (metrics.totalPopulation != null ? Number(metrics.totalPopulation) : '').toString(),
+                    (metrics.localityDensity != null ? Number(metrics.localityDensity) : '').toString(),
+                    (metrics.populationDensity != null ? Number(metrics.populationDensity) : '').toString(),
+                    count('localidades'), count('atlas'), count('municipios'), count('regiones'), count('ran'), lenguasU,
+                    count('za_publico'), count('za_publico_a'), count('anp_estatal'), count('ramsar'), count('sitio_arqueologico'), count('z_historicos'), count('loc_indigenas_datos'), count('rutaWixarika')
+                ]);
+            });
+
+            // Fila global
+            rowsResumen.push([]);
+            rowsResumen.push(['Global', '', '', '', '', '', '',
+                globalTotals.localidades, globalTotals.atlas, globalTotals.municipios, globalTotals.regiones, globalTotals.ran, globalTotals.lenguasU,
+                globalTotals.za_publico, globalTotals.za_publico_a, globalTotals.anp_estatal, globalTotals.ramsar, globalTotals.sitio_arqueologico, globalTotals.z_historicos, globalTotals.loc_indigenas_datos, globalTotals.rutaWixarika
+            ]);
+
+            XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rowsResumen), 'Resumen');
+
+            // 2) Lenguas (conteo)
+            const lenguasSheet = [['Área', 'Lengua', 'Conteo']];
+            const globalCounts = new Map();
+            analyzed.forEach(k => {
+                const areaName = k.name || 'Área';
+                const feats = k.results?.lenguas?.features || [];
+                const mapCounts = new Map();
+                feats.forEach(f => {
+                    const lengua = (f.properties?.Lengua || f.properties?.LENGUA || 'Sin dato').toString().trim();
+                    if (!lengua) return;
+                    mapCounts.set(lengua, (mapCounts.get(lengua) || 0) + 1);
+                    globalCounts.set(lengua.toUpperCase(), (globalCounts.get(lengua.toUpperCase()) || 0) + 1);
+                });
+                Array.from(mapCounts.entries()).sort((a, b) => a[0].localeCompare(b[0])).forEach(([lng, cnt]) => {
+                    lenguasSheet.push([areaName, lng, cnt]);
+                });
+                if (mapCounts.size === 0) {
+                    lenguasSheet.push([areaName, '(sin lenguas)', 0]);
+                }
+            });
+            lenguasSheet.push([]);
+            lenguasSheet.push(['Global', '—', '—']);
+            Array.from(globalCounts.entries()).sort((a, b) => b[1] - a[1]).forEach(([lngU, cnt]) => {
+                lenguasSheet.push(['Global', lngU, cnt]);
+            });
+            XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(lenguasSheet), 'Lenguas (conteo)');
+
+            const file = 'reporte_global_' + new Date().toISOString().split('T')[0] + '.xlsx';
+            XLSX.writeFile(wb, file);
+            showAlert('Reporte Excel global generado.', 'success', 4000);
         }
 
         /**
