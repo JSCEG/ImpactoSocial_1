@@ -144,6 +144,8 @@ let atlasData = null;           // Atlas de Pueblos Indígenas
 let municipiosData = null;      // Municipios
 let regionesData = null;        // Regiones Indígenas
 let ranData = null;             // Registro Agrario Nacional
+let ranNoGeomData = null;       // RAN sin geometría (datos tabulares)
+let ranLookupMap = new Map();   // Índice Clv_Unica -> propiedades tabulares
 let lenguasData = null;         // Lenguas Indígenas
 let zaPublicoData = null;       // Zonas de Amortiguamiento Público
 let zaPublicoAData = null;      // Zonas de Amortiguamiento Público A
@@ -596,6 +598,7 @@ function initApp() {
             municipios: 'https://cdn.sassoapps.com/Gabvy/municipios_4326.geojson',
             regiones: 'https://cdn.sassoapps.com/Gabvy/regionesindigenas.geojson',
             ran: 'https://cdn.sassoapps.com/Gabvy/RAN_4326.geojson',
+            ran_sin_geom: 'https://cdn.sassoapps.com/Gabvy/RAN_4326_sin_geometria.geojson',
             lenguas: 'https://cdn.sassoapps.com/Gabvy/lenguasindigenas.geojson',
             za_publico: 'https://cdn.sassoapps.com/Gabvy/ZA_publico.geojson',
             za_publico_a: 'https://cdn.sassoapps.com/Gabvy/ZA_publico_a.geojson',
@@ -616,6 +619,7 @@ function initApp() {
             municipios: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.municipios),
             regiones: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.regiones),
             ran: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.ran),
+            ran_sin_geom: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.ran_sin_geom),
             lenguas: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.lenguas),
             za_publico: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.za_publico),
             za_publico_a: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.za_publico_a),
@@ -973,6 +977,30 @@ function initApp() {
 
                 updateProgress(25, 'Cargando RAN...');
                 ranData = await loadSingleLayer(urls.ran, 'RAN');
+
+                updateProgress(28, 'Cargando RAN (datos tabulares)...');
+                ranNoGeomData = await loadSingleLayer(urls.ran_sin_geom, 'RAN (sin geometría)');
+                // Construir índice por Clv_Unica
+                ranLookupMap = new Map();
+                if (ranNoGeomData && Array.isArray(ranNoGeomData.features)) {
+                    ranNoGeomData.features.forEach(f => {
+                        const k = (f.properties?.Clv_Unica ?? f.properties?.CLV_UNICA ?? '').toString().trim();
+                        if (k) ranLookupMap.set(k, { ...f.properties });
+                    });
+                    console.log('[DEBUG] [V3] RAN lookup construido con', ranLookupMap.size, 'claves');
+                }
+
+                // Enriquecer ranData con datos tabulares usando Clv_Unica
+                if (ranData && ranLookupMap.size > 0) {
+                    ranData.features.forEach(feature => {
+                        const k = (feature.properties?.Clv_Unica ?? feature.properties?.CLV_UNICA ?? '').toString().trim();
+                        const extra = ranLookupMap.get(k);
+                        if (extra) {
+                            Object.assign(feature.properties, extra);
+                        }
+                    });
+                    console.log('[DEBUG] [V3] RAN data enriquecido con lookup');
+                }
 
                 updateProgress(30, 'Cargando lenguas indígenas...');
                 lenguasData = await loadSingleLayer(urls.lenguas, 'Lenguas Indígenas');
@@ -1447,7 +1475,8 @@ function initApp() {
                             ]);
                         } else if (layerName === 'ran') {
                             popupContent = createPopupContent('RAN', '🌾', [
-                                { value: props.MUNICIPIO || props.Clv_Unica, isMain: true },
+                                { value: props.NOM_NUC || props.MUNICIPIO || props.Clv_Unica || 'Sin nombre', isMain: true },
+                                { label: 'Nombre del Núcleo', value: props.NOM_NUC },
                                 { label: 'Clv_Unica', value: props.Clv_Unica },
                                 { label: 'Tipo', value: props.tipo || props.Tipo },
                                 { label: 'Estado', value: props.Estado || props.ESTADO },
@@ -1939,7 +1968,7 @@ function initApp() {
                                 const key = f.properties.CVEGEO;
                                 displayText = `${name} (${key})`;
                             } else if (layerName === 'ran') {
-                                const name = f.properties.MUNICIPIO || 'Sin municipio';
+                                const name = f.properties.NOM_NUC || f.properties.MUNICIPIO || 'Sin municipio';
                                 const key = f.properties.Clv_Unica;
                                 displayText = `${name} (${key})`;
                             }
@@ -2841,12 +2870,39 @@ function initApp() {
                     const ranResult = clipLayer(ranData, "Clv_Unica",
                         { style: { color: '#ff0000', weight: 2, fillOpacity: 0.1 } },
                         p => createPopupContent('RAN', '🌾', [
-                            { value: p.MUNICIPIO || p.Clv_Unica, isMain: true },
+                            { value: p.NOM_NUC || p.MUNICIPIO || p.Clv_Unica, isMain: true },
+                            { label: 'Nombre del Núcleo', value: p.NOM_NUC },
                             { label: 'Clv_Unica', value: p.Clv_Unica },
                             { label: 'Tipo', value: p.tipo || p.Tipo },
                             { label: 'Estado', value: p.Estado || p.ESTADO },
                             { label: 'Municipio', value: p.Municipio || p.MUNICIPIO }
                         ]), clipArea);
+                    // Enriquecer propiedades con datos tabulares
+                    if (Array.isArray(ranResult.clipped) && ranLookupMap && ranLookupMap.size) {
+                        ranResult.clipped.forEach(f => {
+                            const key = (f.properties?.Clv_Unica ?? '').toString().trim();
+                            const extra = key ? ranLookupMap.get(key) : null;
+                            if (extra) Object.assign(f.properties, extra);
+                        });
+                        // Re-vincular popups con propiedades enriquecidas (NOM_NUC, etc.)
+                        try {
+                            ranResult.layer.eachLayer(l => {
+                                const p = l.feature?.properties || {};
+                                const content = createPopupContent('RAN', '🌾', [
+                                    { value: p.NOM_NUC || p.MUNICIPIO || p.Clv_Unica || 'Sin nombre', isMain: true },
+                                    { label: 'Nombre del Núcleo', value: p.NOM_NUC },
+                                    { label: 'Clv_Unica', value: p.Clv_Unica },
+                                    { label: 'Tipo', value: p.tipo || p.Tipo },
+                                    { label: 'Estado', value: p.Estado || p.ESTADO },
+                                    { label: 'Municipio', value: p.Municipio || p.MUNICIPIO }
+                                ]);
+                                l.unbindPopup();
+                                l.bindPopup(content);
+                            });
+                        } catch (e) {
+                            console.warn('[V3] Rebind RAN popups failed:', e);
+                        }
+                    }
                     clippedRanLayer = ranResult.layer.addTo(map);
                     layersControl.addOverlay(clippedRanLayer, "RAN");
                     layersData.ran = { features: ranResult.clipped };
@@ -3198,7 +3254,7 @@ function initApp() {
                     atlas: { property: 'CVEGEO', headers: ['CVEGEO', 'Localidad'] },
                     municipios: { property: 'CVEGEO', headers: ['CVEGEO', 'Municipio'] },
                     regiones: { property: 'Name', headers: ['Nombre'] },
-                    ran: { property: 'Clv_Unica', headers: ['Clv_Unica', 'Municipio', 'Tipo'] },
+                    ran: { property: 'Clv_Unica', headers: ['NOM_NUC', 'Clv_Unica', 'Municipio', 'Estado', 'Tipo'] },
                     lenguas: { property: 'Lengua', headers: ['Lengua', 'Total'] },
                     za_publico: { property: 'Zona Arqueológica', headers: ['Nombre', 'Estado', 'Municipio'] },
                     za_publico_a: { property: 'Zona Arqueológica', headers: ['Nombre', 'Estado', 'Municipio'] },
@@ -3251,6 +3307,12 @@ function initApp() {
                                     case 'Tipo':
                                         value = feature.properties.TIPO || feature.properties.Tipo || feature.properties.tipo || '';
                                         break;
+                                    case 'NOM_NUC':
+                                        value = feature.properties.NOM_NUC || '';
+                                        break;
+                                    case 'Estado':
+                                        value = feature.properties.Estado || feature.properties.ESTADO || '';
+                                        break;
                                     case 'Descripción':
                                         value = feature.properties.Descripci || feature.properties.DESCRIPCION || '';
                                         break;
@@ -3265,6 +3327,9 @@ function initApp() {
                                         break;
                                     case 'Clv_Unica':
                                         value = feature.properties.Clv_Unica || '';
+                                        break;
+                                    case 'NOM_NUC':
+                                        value = feature.properties.NOM_NUC || '';
                                         break;
                                     case 'Lengua':
                                         value = feature.properties.Lengua || feature.properties.LENGUA || '';
@@ -3464,6 +3529,99 @@ function initApp() {
                 lenguasSheet.push(['Global', lngU, cnt]);
             });
             XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(lenguasSheet), 'Lenguas (conteo)');
+
+            // 3) Detalle por capa (todas las áreas) — una hoja por capa, filas con columna 'Área'
+            const layerConfigs = {
+                localidades: { property: 'CVEGEO', headers: ['Área', 'CVEGEO', 'Localidad', 'Municipio', 'Estado', 'Ámbito', 'Población Total'] },
+                atlas: { property: 'CVEGEO', headers: ['Área', 'CVEGEO', 'Localidad', 'Municipio'] },
+                municipios: { property: 'CVEGEO', headers: ['Área', 'CVEGEO', 'Municipio', 'Estado', 'Cabecera'] },
+                regiones: { property: 'Name', headers: ['Área', 'Nombre', 'Tipo', 'Descripción'] },
+                ran: { property: 'Clv_Unica', headers: ['Área', 'NOM_NUC', 'Clv_Unica', 'Municipio', 'Estado', 'Tipo'] },
+                za_publico: { property: 'Zona Arqueológica', headers: ['Área', 'Nombre', 'Estado', 'Municipio', 'Localidad'] },
+                za_publico_a: { property: 'Zona Arqueológica', headers: ['Área', 'Nombre', 'Estado', 'Municipio', 'Localidad'] },
+                anp_estatal: { property: 'NOMBRE', headers: ['Área', 'Nombre', 'Tipo', 'Categoría DEC', 'Entidad', 'Municipio DEC'] },
+                ramsar: { property: 'RAMSAR', headers: ['Área', 'Nombre', 'Estado', 'Municipio'] },
+                sitio_arqueologico: { property: 'nombre', headers: ['Área', 'Nombre', 'Estado', 'Municipio', 'Localidad'] },
+                z_historicos: { property: 'Nombre', headers: ['Área', 'Nombre', 'Estado', 'Municipio'] },
+                loc_indigenas_datos: { property: 'LOCALIDAD', headers: ['Área', 'Entidad', 'Municipio', 'Localidad', 'Población Total', 'PIHOGARES', 'pPIHOGARES', 'TIPOLOC_PI', 'POB_AFRO', 'pPOB_AFRO', 'TIPOLOC_AF', 'cve_ent', 'cve_mun', 'cve_loc', 'cvegeo'] },
+                rutaWixarika: { property: 'Name', headers: ['Área', 'Nombre'] }
+            };
+
+            const getVal = (feature, header, config) => {
+                let value = '';
+                switch (header) {
+                    case 'CVEGEO': value = feature.properties.CVEGEO || ''; break;
+                    case 'Localidad': value = feature.properties.NOMGEO || feature.properties.NOM_LOC || feature.properties.nom_loc || feature.properties.LOCALIDAD || feature.properties.Localidad || ''; break;
+                    case 'Municipio': value = feature.properties.NOMGEO || feature.properties.NOM_MUN || feature.properties.nom_mun || feature.properties.MUNICIPIO || feature.properties.MUNICIPIOS || ''; break;
+                    case 'Estado': value = feature.properties.NOM_ENT || feature.properties.nom_ent || feature.properties.Estado || feature.properties.ESTADO || ''; break;
+                    case 'Ámbito': value = feature.properties.AMBITO || ''; break;
+                    case 'Población Total': value = feature.properties.POBTOT || feature.properties.POBTOTAL || ''; break;
+                    case 'Cabecera': value = feature.properties.NOM_CAB || feature.properties.CABECERA || ''; break;
+                    case 'Nombre': value = feature.properties[config.property] || feature.properties.NOMBRE || feature.properties.nombre || feature.properties.Name || ''; break;
+                    case 'Tipo': value = feature.properties.TIPO || feature.properties.Tipo || feature.properties.tipo || ''; break;
+                    case 'Descripción': value = feature.properties.Descripci || feature.properties.DESCRIPCION || ''; break;
+                    case 'Categoría DEC': value = feature.properties.CAT_DEC || ''; break;
+                    case 'Entidad': value = feature.properties.ENTIDAD || ''; break;
+                    case 'Municipio DEC': value = feature.properties.MUN_DEC || ''; break;
+                    case 'Clv_Unica': value = feature.properties.Clv_Unica || ''; break;
+                    case 'NOM_NUC': value = feature.properties.NOM_NUC || ''; break;
+                    case 'Zona Arqueológica': value = feature.properties['Zona Arqueológica'] || ''; break;
+                    case 'RAMSAR': value = feature.properties.RAMSAR || ''; break;
+                    case 'PIHOGARES': value = feature.properties.PIHOGARES || ''; break;
+                    case 'pPIHOGARES': value = feature.properties.pPIHOGARES || ''; break;
+                    case 'TIPOLOC_PI': value = feature.properties.TIPOLOC_PI || ''; break;
+                    case 'POB_AFRO': value = feature.properties.POB_AFRO || ''; break;
+                    case 'pPOB_AFRO': value = feature.properties.pPOB_AFRO || ''; break;
+                    case 'TIPOLOC_AF': value = feature.properties.TIPOLOC_AF || ''; break;
+                    case 'cve_ent': value = feature.properties.cve_ent || ''; break;
+                    case 'cve_mun': value = feature.properties.cve_mun || ''; break;
+                    case 'cve_loc': value = feature.properties.cve_loc || ''; break;
+                    case 'cvegeo': value = feature.properties.cvegeo || ''; break;
+                    default: value = feature.properties[header] || '';
+                }
+                return value;
+            };
+
+            Object.entries(layerConfigs).forEach(([layerName, config]) => {
+                // Build rows with header
+                const rows = [config.headers.slice()];
+                analyzed.forEach(k => {
+                    const areaName = k.name || 'Área';
+                    const feats = k.results?.[layerName]?.features || [];
+                    feats.forEach(f => {
+                        const row = [areaName];
+                        // Skip first header 'Área' when mapping values
+                        config.headers.slice(1).forEach(h => row.push(getVal(f, h, config)));
+                        rows.push(row);
+                    });
+                });
+
+                // Only add sheet if there is at least one data row
+                if (rows.length > 1) {
+                    const displayName = getLayerDisplayName(layerName);
+                    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), displayName.substring(0, 31));
+                }
+            });
+
+            // 4) Lenguas (detalle) — listado por área
+            const lenguasDetalle = [['Área', 'Lengua', 'Localidad', 'Municipio', 'Estado']];
+            analyzed.forEach(k => {
+                const areaName = k.name || 'Área';
+                const feats = k.results?.lenguas?.features || [];
+                feats.forEach(f => {
+                    const p = f.properties || {};
+                    lenguasDetalle.push([
+                        areaName,
+                        p.Lengua || p.LENGUA || 'Sin especificar',
+                        p.NOM_LOC || p.LOCALIDAD || '',
+                        p.NOM_MUN || p.MUNICIPIO || '',
+                        p.NOM_ENT || p.ESTADO || ''
+                    ]);
+                });
+            });
+            if (lenguasDetalle.length > 1) {
+                XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(lenguasDetalle), 'Lenguas (detalle)');
+            }
 
             const file = 'reporte_global_' + new Date().toISOString().split('T')[0] + '.xlsx';
             XLSX.writeFile(wb, file);
@@ -5952,7 +6110,7 @@ async function performAreaAnalysis(kmlEntry, options = {}) {
                     case 'ran':
                         options = { style: { color: '#ff0000', weight: 2, fillOpacity: 0.1 } };
                         popupFormatter = (p) => createPopupContent('RAN', '🌾', [
-                            { value: p.MUNICIPIO || p.Clv_Unica || 'Sin nombre', isMain: true },
+                            { value: p.NOM_NUC || p.Clv_Unica || 'Sin nombre', isMain: true },
                             { label: 'Clv_Unica', value: p.Clv_Unica },
                             { label: 'Tipo', value: p.tipo || p.Tipo },
                             { label: 'Estado', value: p.Estado || p.ESTADO },
@@ -6543,7 +6701,7 @@ function generateGlobalExcelReport() {
             atlas: { property: 'CVEGEO', headers: ['CVEGEO', 'Localidad'] },
             municipios: { property: 'CVEGEO', headers: ['CVEGEO', 'Municipio'] },
             regiones: { property: 'Name', headers: ['Nombre'] },
-            ran: { property: 'Clv_Unica', headers: ['Clv_Unica', 'Municipio', 'Tipo'] },
+            ran: { property: 'Clv_Unica', headers: ['Clv_Unica', 'NOM_NUC', 'Municipio', 'Tipo'] },
             lenguas: { property: 'Lengua', headers: ['Lengua', 'Total'] },
             za_publico: { property: 'Zona Arqueológica', headers: ['Nombre', 'Estado', 'Municipio'] },
             za_publico_a: { property: 'Zona Arqueológica', headers: ['Nombre', 'Estado', 'Municipio'] },

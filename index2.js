@@ -77,6 +77,8 @@ let atlasData = null;           // Atlas de Pueblos Indígenas
 let municipiosData = null;      // Municipios
 let regionesData = null;        // Regiones Indígenas
 let ranData = null;             // Registro Agrario Nacional
+let ranNoGeomData = null;       // RAN sin geometría (datos tabulares)
+let ranLookupMap = new Map();   // Índice Clv_Unica -> propiedades tabulares
 let lenguasData = null;         // Lenguas Indígenas
 let zaPublicoData = null;       // Zonas de Amortiguamiento Público
 let zaPublicoAData = null;      // Zonas de Amortiguamiento Público A
@@ -494,6 +496,7 @@ function initApp() {
             municipios: 'https://cdn.sassoapps.com/Gabvy/municipios_4326.geojson',
             regiones: 'https://cdn.sassoapps.com/Gabvy/regionesindigenas.geojson',
             ran: 'https://cdn.sassoapps.com/Gabvy/RAN_4326.geojson',
+            ran_sin_geom: 'https://cdn.sassoapps.com/Gabvy/RAN_4326_sin_geometria.geojson',
             lenguas: 'https://cdn.sassoapps.com/Gabvy/lenguasindigenas.geojson',
             za_publico: 'https://cdn.sassoapps.com/Gabvy/ZA_publico.geojson',
             za_publico_a: 'https://cdn.sassoapps.com/Gabvy/ZA_publico_a.geojson',
@@ -514,6 +517,7 @@ function initApp() {
             municipios: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.municipios),
             regiones: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.regiones),
             ran: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.ran),
+            ran_sin_geom: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.ran_sin_geom),
             lenguas: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.lenguas),
             za_publico: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.za_publico),
             za_publico_a: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.za_publico_a),
@@ -716,6 +720,18 @@ function initApp() {
 
                 updateProgress(25, 'Cargando RAN...');
                 ranData = await loadSingleLayer(urls.ran, 'RAN');
+
+                updateProgress(28, 'Cargando RAN (datos tabulares)...');
+                ranNoGeomData = await loadSingleLayer(urls.ran_sin_geom, 'RAN (sin geometría)');
+                // Construir índice por Clv_Unica
+                ranLookupMap = new Map();
+                if (ranNoGeomData && Array.isArray(ranNoGeomData.features)) {
+                    ranNoGeomData.features.forEach(f => {
+                        const k = (f.properties?.Clv_Unica ?? f.properties?.CLV_UNICA ?? '').toString().trim();
+                        if (k) ranLookupMap.set(k, { ...f.properties });
+                    });
+                    console.log('[DEBUG] RAN lookup construido con', ranLookupMap.size, 'claves');
+                }
 
                 updateProgress(30, 'Cargando lenguas indígenas...');
                 lenguasData = await loadSingleLayer(urls.lenguas, 'Lenguas Indígenas');
@@ -1448,7 +1464,7 @@ function initApp() {
                                 const key = f.properties.CVEGEO;
                                 displayText = `${name} (${key})`;
                             } else if (layerName === 'ran') {
-                                const name = f.properties.MUNICIPIO || 'Sin municipio';
+                                const name = f.properties.NOM_NUC || f.properties.MUNICIPIO || 'Sin municipio';
                                 const key = f.properties.Clv_Unica;
                                 displayText = `${name} (${key})`;
                             }
@@ -2550,12 +2566,21 @@ function initApp() {
                     const ranResult = clipLayer(ranData, "Clv_Unica",
                         { style: { color: '#ff0000', weight: 2, fillOpacity: 0.1 } },
                         p => createPopupContent('RAN', '🌾', [
-                            { value: p.MUNICIPIO || p.Clv_Unica, isMain: true },
+                            { value: p.NOM_NUC || p.MUNICIPIO || p.Clv_Unica, isMain: true },
+                            { label: 'Nombre del Núcleo', value: p.NOM_NUC },
                             { label: 'Clv_Unica', value: p.Clv_Unica },
                             { label: 'Tipo', value: p.tipo || p.Tipo },
                             { label: 'Estado', value: p.Estado || p.ESTADO },
                             { label: 'Municipio', value: p.Municipio || p.MUNICIPIO }
                         ]), clipArea);
+                    // Enriquecer propiedades de las features recortadas con datos tabulares
+                    if (Array.isArray(ranResult.clipped) && ranLookupMap && ranLookupMap.size) {
+                        ranResult.clipped.forEach(f => {
+                            const key = (f.properties?.Clv_Unica ?? '').toString().trim();
+                            const extra = key ? ranLookupMap.get(key) : null;
+                            if (extra) Object.assign(f.properties, extra);
+                        });
+                    }
                     clippedRanLayer = ranResult.layer.addTo(map);
                     layersControl.addOverlay(clippedRanLayer, "RAN");
                     layersData.ran = { features: ranResult.clipped };
@@ -3045,7 +3070,7 @@ function initApp() {
                     atlas: { property: 'CVEGEO', headers: ['CVEGEO', 'Localidad'] },
                     municipios: { property: 'CVEGEO', headers: ['CVEGEO', 'Municipio'] },
                     regiones: { property: 'Name', headers: ['Nombre'] },
-                    ran: { property: 'Clv_Unica', headers: ['Clv_Unica', 'Municipio', 'Tipo'] },
+                    ran: { property: 'Clv_Unica', headers: ['NOM_NUC', 'Clv_Unica', 'Municipio', 'Estado', 'Tipo'] },
                     lenguas: { property: 'Lengua', headers: ['Lengua', 'Total'] },
                     za_publico: { property: 'Zona Arqueológica', headers: ['Nombre', 'Estado', 'Municipio'] },
                     za_publico_a: { property: 'Zona Arqueológica', headers: ['Nombre', 'Estado', 'Municipio'] },
@@ -3097,6 +3122,12 @@ function initApp() {
                                         break;
                                     case 'Tipo':
                                         value = feature.properties.TIPO || feature.properties.Tipo || feature.properties.tipo || '';
+                                        break;
+                                    case 'NOM_NUC':
+                                        value = feature.properties.NOM_NUC || '';
+                                        break;
+                                    case 'Estado':
+                                        value = feature.properties.Estado || feature.properties.ESTADO || '';
                                         break;
                                     case 'Descripción':
                                         value = feature.properties.Descripci || feature.properties.DESCRIPCION || '';
