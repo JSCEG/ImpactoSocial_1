@@ -405,6 +405,11 @@ function updateProgress(percent, message) {
  * Inicializa la aplicación multi-KML: configura el mapa, enlaces de eventos y carga inicial
  */
 function initApp() {
+    if (window.__V3_INIT_DONE__) {
+        console.warn('[V3] initApp already executed; skipping re-init');
+        return;
+    }
+    window.__V3_INIT_DONE__ = true;
     console.log('[DEBUG] initApp v3 started');
     try {
         const MAP_CONTAINER_ID = 'map';
@@ -643,8 +648,9 @@ function initApp() {
         const kmlPopulationChartEl = document.getElementById('kmlPopulationChart');
         const reloadDataBtn = document.getElementById('reloadDataBtn');
         const clearMapBtn = document.getElementById('clearMap');
+        // Referencia para Excel global (solo wiring más adelante, idempotente)
         const downloadReportBtn = document.getElementById('downloadReportBtn');
-        // Per-area Excel button removed; we keep a single export entry point
+        if (downloadReportBtn) downloadReportBtn.dataset.excelWired = downloadReportBtn.dataset.excelWired || '0';
 
         // Estado inicial: limpiar input KML
         if (kmlFileInput) kmlFileInput.value = '';
@@ -784,11 +790,14 @@ function initApp() {
         }
 
         // Wire global Excel export (Reporte Excel Global)
-        if (downloadReportBtn) {
-            downloadReportBtn.addEventListener('click', () => {
+        (function wireExcelButtonOnce() {
+            var btn = document.getElementById('downloadReportBtn');
+            if (!btn || btn.dataset.excelWired === '1') return;
+            btn.addEventListener('click', () => {
                 try { generateExcelGlobalReport(); } catch (e) { console.error('Excel global error', e); showAlert('No se pudo generar el Excel global.', 'danger', 5000); }
             });
-        }
+            btn.dataset.excelWired = '1';
+        })();
 
         // ====================================================================
         // FUNCIONES DE MANEJO DE DATOS GEOESPACIALES
@@ -4544,15 +4553,18 @@ function initApp() {
             }
         }
 
-        // Descargar reporte Excel (único botón): abrir modal de selección de áreas
-        const downloadReportBtn = document.getElementById('downloadReportBtn');
-        if (downloadReportBtn) {
-            downloadReportBtn.addEventListener('click', openExcelSelectionModal);
-        }
+        // Descargar reporte Excel (único botón): abrir modal de selección de áreas (idempotente)
+        (function wireGlobalExcelBtn() {
+            var btn = document.getElementById('downloadReportBtn');
+            if (!btn || btn.dataset.excelWired === '1') return;
+            btn.addEventListener('click', openExcelSelectionModal);
+            btn.dataset.excelWired = '1';
+        })();
 
         // Descargar reporte PDF global
-        const downloadPdfBtn = document.getElementById('downloadPdfBtn');
-        if (downloadPdfBtn) {
+        (function wireGlobalPdfBtn() {
+            var downloadPdfBtn = document.getElementById('downloadPdfBtn');
+            if (!downloadPdfBtn || downloadPdfBtn.dataset.pdfWired === '1') return;
             downloadPdfBtn.addEventListener('click', () => {
                 showModal({
                     title: 'Opciones del Reporte PDF Global',
@@ -4584,7 +4596,8 @@ function initApp() {
                     }
                 });
             });
-        }
+            downloadPdfBtn.dataset.pdfWired = '1';
+        })();
 
     } catch (error) {
         console.error('Error inicializando aplicación v3:', error);
