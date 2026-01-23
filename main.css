@@ -1,0 +1,771 @@
+/*
+    Geovisualizador - Estilo Unificado y Consolidado (main.css)
+    Contiene todos los estilos para la página de inicio y las versiones V0, V1, V2 y V3.
+    Diseño: Mobile-First, Institucional (Blanco/Negro/Vino/Dorado).
+*/
+
+/* --- Fuentes Institucionales --- */
+@font-face {
+    font-family: 'Patria';
+    src: url('tipografias/Patria_Regular.otf') format('opentype');
+    font-weight: 400;
+    /* Regular */
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'Patria';
+    src: url('tipografias/Patria_Bold.otf') format('opentype');
+    font-weight: 700;
+    /* Bold */
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'Noto Sans';
+    src: url('tipografias/NotoSans-Regular.ttf') format('truetype');
+    font-weight: 400;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'Noto Sans';
+    src: url('tipografias/NotoSans-Bold.ttf') format('truetype');
+    font-weight: 700;
+    font-style: normal;
+}
+
+:root {
+    /* Paleta Institucional Premium (Actualizada) */
+    --primary: #800020;
+    /* Deep Burgundy */
+    --primary-600: #5c0017;
+    --secondary: #B8860B;
+    /* Muted Gold */
+    --secondary-dark: #8B6508;
+    --accent: #D4C19C;
+    /* Soft Gold Highlight */
+
+    --accent-pink: #D8A7B1;
+    /* New Accent */
+
+    --muted: #FDFCF8;
+    /* Soft Parchment */
+
+    --white: #ffffff;
+    --dark: #121212;
+
+    /* Mapeos Semánticos */
+    --color-primary: var(--primary);
+    --color-secondary: var(--secondary);
+    --color-accent: var(--accent);
+    --color-bg: var(--muted);
+}
+
+/* --- Base y Reset --- */
+body {
+    background-color: var(--muted);
+    min-height: 100vh;
+    font-family: 'Noto Sans', 'Inter', sans-serif;
+    /* Updated to Noto */
+    color: var(--dark);
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+}
+
+.serif-heading {
+    font-family: 'Patria', serif;
+    /* Updated to Patria */
+}
+
+h1,
+h2,
+h3,
+h4,
+.modal-title {
+    font-family: 'Patria', serif;
+    /* Updated to Patria */
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
+/* --- Utilidades Premium --- */
+.glass-panel {
+    backdrop-filter: blur(8px);
+    background-color: rgba(255, 255, 255, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.backdrop-blur-md {
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+}
+
+.shadow-premium {
+    box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.08), 0 4px 12px -3px rgba(0, 0, 0, 0.04);
+}
+
+.rounded-xl {
+    border-radius: 0.75rem !important;
+}
+
+.rounded-2xl {
+    border-radius: 1rem !important;
+}
+
+/* --- Overrides de Bootstrap (Hacia Paleta Institucional) --- */
+.bg-primary {
+    background-color: var(--primary) !important;
+}
+
+.text-primary {
+    color: var(--primary) !important;
+}
+
+.btn-primary {
+    background-color: var(--primary);
+    border-color: var(--primary);
+    color: white;
+    border-radius: 0.5rem;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.btn-primary:hover,
+.btn-primary:focus,
+.btn-primary:active {
+    background-color: var(--primary-600) !important;
+    border-color: var(--primary-600) !important;
+    color: white !important;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(138, 28, 60, 0.25);
+}
+
+.btn-success {
+    background-color: var(--secondary);
+    border-color: var(--secondary);
+    color: white;
+}
+
+.btn-outline-danger {
+    border-color: #dc3545;
+    color: #dc3545;
+}
+
+.btn-outline-danger:hover {
+    background: #dc3545;
+    color: #fff;
+}
+
+.bg-body {
+    background-color: var(--muted) !important;
+}
+
+/* --- Navegación Premium --- */
+.navbar-light {
+    background-color: rgba(255, 255, 255, 0.9) !important;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.navbar-light .navbar-brand,
+.navbar-light .navbar-nav .nav-link {
+    color: var(--dark);
+    transition: all 0.2s ease;
+}
+
+.navbar-light .navbar-nav .nav-link:hover {
+    color: var(--primary);
+}
+
+.navbar-light .navbar-nav .nav-link.active {
+    color: var(--primary);
+    font-weight: 700;
+    border-bottom: 2px solid var(--accent);
+}
+
+.navbar-dark .navbar-brand,
+.navbar-dark .navbar-nav .nav-link {
+    color: rgba(255, 255, 255, 0.85);
+    transition: color 0.2s ease;
+}
+
+.navbar-dark .navbar-nav .nav-link:hover {
+    color: #fff;
+}
+
+.navbar-dark .navbar-nav .nav-link.active {
+    color: #fff;
+    font-weight: 600;
+    border-bottom: 2px solid var(--accent);
+}
+
+/* --- Componentes de Mapa y UI --- */
+#map {
+    width: 100%;
+    height: 60vh;
+    min-height: 360px;
+    border-radius: .5rem;
+    background-color: #eee;
+}
+
+@media (min-width: 992px) {
+    #map {
+        height: calc(100vh - 220px);
+    }
+
+    .sticky-lg-top .card-body {
+        max-height: calc(100vh - 140px);
+        overflow-y: auto;
+        overscroll-behavior: contain;
+    }
+}
+
+/* Preloader */
+#preloader {
+    display: none;
+    opacity: 1;
+    transition: opacity 0.4s ease, visibility 0.4s;
+    z-index: 2050;
+    background-color: white;
+}
+
+#preloader[hidden] {
+    display: none !important;
+    opacity: 0 !important;
+}
+
+.preloader-hide {
+    opacity: 0;
+    visibility: hidden;
+}
+
+.progress {
+    background-color: #e9ecef;
+    border-radius: 20px;
+    overflow: hidden;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, .1);
+}
+
+.progress-bar {
+    transition: width 0.3s ease;
+}
+
+.spinner-border.text-primary {
+    color: var(--secondary) !important;
+}
+
+/* Acordeón Institucional */
+.accordion-button {
+    background-color: #ffffff;
+    color: #333;
+}
+
+.accordion-button:not(.collapsed) {
+    color: #fff;
+    background-color: var(--primary);
+    box-shadow: inset 0 -1px 0 rgba(0, 0, 0, .125);
+}
+
+.accordion-button:focus {
+    box-shadow: 0 0 0 .25rem rgba(124, 25, 70, .25);
+}
+
+.accordion-item {
+    border-color: rgba(0, 0, 0, .075);
+}
+
+/* Footer Institucional */
+.gov-footer {
+    background-color: #5c102e;
+    position: relative;
+    color: white;
+}
+
+.gov-footer a.link-light {
+    text-decoration: none;
+    color: white;
+}
+
+.gov-footer a.link-light:hover {
+    text-decoration: underline;
+}
+
+.gov-footer .footer-pattern {
+    height: 56px;
+    background-image: linear-gradient(90deg, rgba(0, 0, 0, 0) 0, rgba(0, 0, 0, 0) 40px),
+        repeating-linear-gradient(45deg, #7C1946 0, #7C1946 14px, #8c264f 14px, #8c264f 28px);
+    border-top: 6px solid #7C1946;
+}
+
+/* Botón Volver Arriba */
+.back-to-top {
+    position: fixed;
+    bottom: 90px;
+    /* Adjusted to sit above mobile nav */
+    right: 25px;
+    display: none;
+    z-index: 1030;
+    width: 45px !important;
+    /* Force width to avoid mobile btn stretch */
+    height: 45px !important;
+    border-radius: 50%;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+    /* Dorado Institucional Gradient */
+    background: linear-gradient(135deg, #D4C19C 0%, #9F8A60 100%);
+    color: white !important;
+    transition: all 0.3s ease;
+    text-decoration: none;
+    border: none;
+}
+
+.back-to-top.show {
+    display: flex;
+}
+
+.back-to-top:hover {
+    transform: translateY(-5px);
+    background: linear-gradient(135deg, #e3cfac 0%, #b39b6b 100%);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+}
+
+@media (min-width: 768px) {
+    .back-to-top {
+        bottom: 25px;
+        /* Restoration for desktop */
+    }
+}
+
+/* --- Estilos Específicos por Versión --- */
+
+/* V0/V1: Lista CVEGEO */
+#cvegeoList {
+    max-height: 240px;
+    overflow-y: auto;
+}
+
+#cvegeoList ul {
+    list-style: none;
+    padding-left: 1rem;
+}
+
+#cvegeoList li {
+    padding: .25rem 0;
+    border-bottom: 1px dashed #ddd;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+#cvegeoList li:last-child {
+    border-bottom: none;
+}
+
+#cvegeoList li:hover {
+    background-color: rgba(124, 25, 70, 0.05);
+}
+
+#cvegeoList li.active {
+    background: rgba(124, 25, 70, 0.08);
+    border-left: 3px solid var(--primary);
+    padding-left: .5rem;
+}
+
+/* V2/V3: Lista de Capas y Secciones Colapsibles */
+#layersContainer {
+    max-height: 480px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+#layersContainer .layer-section {
+    margin-bottom: 12px;
+    padding: 0;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    border-radius: 0.75rem;
+    background-color: #fff;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+}
+
+#layersContainer .layer-section h6 {
+    margin: 0;
+    color: var(--primary);
+    font-size: 0.85rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    padding: 12px 16px;
+    border-radius: 0;
+    transition: background-color 0.2s ease;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: rgba(138, 28, 60, 0.03);
+}
+
+#layersContainer .layer-section h6:hover {
+    background-color: rgba(138, 28, 60, 0.08);
+}
+
+#layersContainer .layer-section h6::after {
+    content: '▼';
+    font-size: 0.7em;
+    transition: transform 0.2s;
+}
+
+#layersContainer .layer-section.collapsed h6::after {
+    transform: rotate(-90deg);
+}
+
+#layersContainer .layer-section.collapsed .layer-content {
+    display: none;
+}
+
+#layersContainer .layer-content {
+    max-height: 250px;
+    overflow-y: auto;
+    padding: 8px 0;
+}
+
+#layersContainer ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+#layersContainer li {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #f8f9fa;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: all 0.2s ease;
+}
+
+#layersContainer li:last-child {
+    border-bottom: none;
+}
+
+#layersContainer li:hover {
+    background-color: #fcfcfc;
+    color: var(--primary);
+    transform: translateX(3px);
+}
+
+#layersContainer li.active {
+    background: rgba(138, 28, 60, 0.06) !important;
+    border-left: 4px solid var(--primary);
+    padding-left: 1rem;
+    font-weight: 600;
+    color: var(--primary);
+}
+
+/* --- Landing Page Specific (index.html) --- */
+.hero-section-wrapper {
+    background-color: var(--white);
+    padding: 5rem 0;
+    color: var(--dark);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    position: relative;
+    overflow: hidden;
+}
+
+.version-card {
+    transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
+    border: 1px solid rgba(0, 0, 0, 0.05);
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);
+    height: 100%;
+    position: relative;
+    border-radius: 1.25rem;
+    overflow: hidden;
+    background: white;
+}
+
+.version-card:hover {
+    transform: translateY(-8px);
+    box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.12);
+    border-color: var(--primary);
+}
+
+.version-badge {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    z-index: 10;
+    font-size: 0.7rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    padding: 4px 10px;
+    border-radius: 20px;
+    background: var(--primary);
+    color: white;
+}
+
+.feature-list {
+    list-style: none;
+    padding: 0;
+}
+
+.feature-list li {
+    padding: 0.5rem 0;
+    border-bottom: 1px solid #f5f5f5;
+    font-size: 0.95rem;
+}
+
+.feature-list i {
+    color: var(--secondary);
+    margin-right: 0.6rem;
+}
+
+.btn-version {
+    background: linear-gradient(45deg, var(--accent), var(--secondary));
+    border: none;
+    padding: 12px 30px;
+    font-weight: 700;
+    color: white !important;
+    transition: all 0.3s ease;
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-version:hover {
+    transform: translateY(-2px);
+    filter: brightness(1.1);
+    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.22);
+}
+
+.hero-section {
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(8px);
+    border-radius: 15px;
+    border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+/* --- Mejoras de Leaflet --- */
+.leaflet-popup-content-wrapper {
+    border-radius: 8px !important;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15) !important;
+    border: 1px solid #e0e0e0 !important;
+}
+
+.leaflet-popup-content {
+    margin: 12px !important;
+    line-height: 1.5 !important;
+    font-size: 13px !important;
+    color: #333;
+}
+
+.popup-title {
+    color: var(--primary);
+    font-size: 15px;
+    font-weight: 700;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 6px;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.popup-info strong {
+    color: var(--primary);
+    font-weight: 600;
+}
+
+.cvegeo-label span {
+    white-space: nowrap;
+    line-height: 1;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    padding: 2px 4px;
+    background: white;
+    border-radius: 3px;
+    border: 1px solid #ccc;
+    font-weight: 600;
+    font-size: 11px;
+}
+
+/* --- Scrollbars Premium --- */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.1);
+    border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.2);
+}
+
+/* --- Utilidades de Fondo (Inspiradas en el ejemplo) --- */
+.map-bg-overlay {
+    position: fixed;
+    inset: 0;
+    background-image: url(https://lh3.googleusercontent.com/aida-public/AB6AXuCc3N0_Q3sI-dMH36chIcbQGLcclNEbum6aLnAHUF1N8Ju-xlDpmH549j99-leq_cXco6GtlsSDEaiVtgW9iYxpIz7C-0SrBvPu9F5mwvSV_8O4FPJAoJ4I0EwXrSRBSvXVDlm1fKCRnwf6SLIb3GdQ_-hlkikaUJF3vjezyplZC679HloVGZo_nWgiK3DsLBtvyBkpTni-ZgY32ubknRjMVr8NCoMCiternX9mvEI7A68-nn7Xf7RVU_aXocr7LWu8CTk3zFySJxg);
+    background-size: cover;
+    background-position: center;
+    opacity: 0.05;
+    pointer-events: none;
+    z-index: -1;
+}
+
+/* --- Mejoras de Acordeón y Paneles --- */
+.accordion-item {
+    border: none;
+    margin-bottom: 0.75rem;
+    border-radius: 0.75rem !important;
+    overflow: hidden;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.03);
+}
+
+.accordion-button {
+    font-size: 0.9rem;
+    font-weight: 600;
+    padding: 1rem 1.25rem;
+}
+
+.accordion-button::after {
+    transform: scale(0.8);
+}
+
+/* --- Popups de Leaflet Re-estilizados --- */
+.leaflet-popup-content-wrapper {
+    border-radius: 12px !important;
+    border: 1px solid rgba(0, 0, 0, 0.05) !important;
+    padding: 0 !important;
+}
+
+.popup-header {
+    background: var(--primary);
+    color: white;
+    padding: 8px 12px;
+    border-radius: 11px 11px 0 0;
+    font-size: 13px;
+    font-weight: 700;
+    margin: -13px -13px 10px -13px;
+}
+
+.popup-body {
+    padding: 4px 0;
+}
+
+/* --- Utilidades --- */
+.text-xs-caps {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    font-weight: 800;
+    letter-spacing: 1px;
+    color: #999;
+}
+
+.badge-premium {
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 0.7rem;
+    font-weight: 700;
+}
+
+/* --- Utilidades --- */
+[title] {
+    cursor: help;
+}
+
+.form-text {
+    color: #6c757d;
+    font-size: 0.875rem;
+    line-height: 1.4;
+}
+
+.color-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: .5rem;
+    border: 1px solid rgba(0, 0, 0, .2);
+}
+
+.text-oscuro {
+    color: var(--dark) !important;
+}
+
+/* --- Responsividad --- */
+@media (max-width: 767.98px) {
+    .container-fluid {
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+
+    .btn {
+        width: 100%;
+        margin-bottom: 0.6rem;
+    }
+
+    .hero-section-wrapper {
+        padding: 2.5rem 0;
+    }
+
+    h1 {
+        font-size: 2rem;
+    }
+}
+
+@media (pointer: coarse) {
+
+    .btn,
+    .nav-link,
+    .accordion-button,
+    #layersContainer li,
+    #cvegeoList li {
+        min-height: 48px;
+        display: flex;
+        align-items: center;
+    }
+}
+
+/* --- Mobile Nav Fixes for Version Pages (Preflight: false override) --- */
+.mobile-nav-fix {
+    background-color: rgba(255, 255, 255, 0.9) !important;
+    border-top: 1px solid rgba(0, 0, 0, 0.05) !important;
+}
+
+.mobile-nav-fix button {
+    background-color: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+/* --- Footer Estilo Institucional --- */
+.footer-guinda {
+    background-color: var(--primary) !important;
+    color: white !important;
+}
+
+.footer-guinda a {
+    color: rgba(255, 255, 255, 0.8) !important;
+    text-decoration: none;
+    transition: color 0.2s ease;
+}
+
+.footer-guinda a:hover {
+    color: var(--accent) !important;
+}
+
+.footer-guinda ul {
+    list-style: none;
+    padding: 0;
+}

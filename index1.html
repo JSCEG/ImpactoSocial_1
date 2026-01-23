@@ -4,386 +4,583 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Geovisualizador de Áreas de Interés</title>
-    <link rel="icon" type="image/png" href="img/logo_sener.png" sizes="32x32">
-    <meta name="theme-color" content="#7C1946">
+    <title>Geovisualizador — V1 (Análisis de Localidades)</title>
 
-    <!-- Bootstrap CSS (para diseño mobile-first y componentes) -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-
-    <!-- Leaflet CSS -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-
-    <!-- Estilos propios (sobrescribe Bootstrap cuando sea necesario) se cargan con versión para evitar caché -->
-    <!-- Cache-busting loader: actualiza APP_VERSION para invalidar caché de style.css, togeojson.js e index.js -->
+    <!-- Tailwind CSS (CDN para prototipado rápido) -->
+    <script src="https://cdn.tailwindcss.com"></script>
     <script>
-        window.APP_VERSION = '20250807-2';
-        (function () {
-            function withV(url) { return url + (url.indexOf('?') > -1 ? '&' : '?') + 'v=' + encodeURIComponent(window.APP_VERSION); }
-            function loadCss(href) { var l = document.createElement('link'); l.rel = 'stylesheet'; l.href = withV(href); document.head.appendChild(l); }
-            function loadScript(src, cb) { var s = document.createElement('script'); s.src = withV(src); s.onload = function () { cb && cb(); }; document.head.appendChild(s); }
-            function whenLeafletReady(cb, tries) {
-                tries = tries || 100; // ~10-15s
-                (function wait() {
-                    if (window.L && typeof window.L.map === 'function') { cb(); return; }
-                    if (--tries <= 0) { cb(); return; }
-                    setTimeout(wait, 120);
-                })();
+        tailwind.config = {
+            prefix: 'tw-',
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#800020', // Guinda Oficial
+                        secondary: '#B38E5D', // Dorado Oficial
+                        dark: '#1A202C',
+                    },
+                    fontFamily: {
+                        display: ['Montserrat', 'sans-serif'],
+                        body: ['Inter', 'sans-serif'],
+                    }
+                }
             }
-            // Cargar CSS propio versionado
-            loadCss('style.css');
-            // Cargar togeojson versionado y esperar a Leaflet para cargar la app
-            loadScript('togeojson.js');
-            whenLeafletReady(function () { loadScript('index1.js'); });
-        })();
+        }
     </script>
 
-    <!-- Bootstrap Icons para redes sociales en el footer -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+    <!-- Google Fonts -->
+    <link
+        href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&family=Inter:wght@300;400;500;600&display=swap"
+        rel="stylesheet">
+    <!-- Material Symbols -->
+    <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
 
-    <!-- Librerías JS de mapas y utilidades -->
+    <!-- Leaflet & Plugins -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://cdn.maptiler.com/maptiler-sdk-js/v3.6.1/maptiler-sdk.umd.min.js"></script>
-    <script src="https://cdn.maptiler.com/leaflet-maptilersdk/v4.1.0/leaflet-maptilersdk.umd.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/leaflet-omnivore@0.3.4/leaflet-omnivore.min.js"></script>
     <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+    <script src="https://unpkg.com/@mapbox/togeojson@0.16.0/togeojson.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <!-- Bootstrap JS para Modal (Opcional, si se usa) -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc;
+            overflow: hidden;
+        }
+
+        .font-display {
+            font-family: 'Montserrat', sans-serif;
+        }
+
+        /* Map Container Full Height */
+        #map {
+            height: 100vh;
+            width: 100vw;
+            z-index: 1;
+        }
+
+        /* Premium Markers - Sin efecto de temblor */
+        .premium-marker {
+            filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.3));
+            transition: all 0.2s ease;
+        }
+
+        .premium-marker:hover {
+            filter: drop-shadow(0 6px 8px rgba(128, 0, 32, 0.5));
+            stroke: white;
+            stroke-width: 3px;
+        }
+
+        /* Custom Scrollbar */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+            height: 4px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.05);
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        /* Animations */
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .animate-fade-in {
+            animation: fadeIn 0.5s ease-out forwards;
+        }
+
+        @keyframes pulse-ring {
+            0% {
+                transform: scale(0.8);
+                opacity: 0.5;
+                box-shadow: 0 0 0 0 rgba(128, 0, 32, 0.7);
+            }
+
+            70% {
+                transform: scale(1);
+                opacity: 1;
+                box-shadow: 0 0 0 10px rgba(128, 0, 32, 0);
+            }
+
+            100% {
+                transform: scale(0.8);
+                opacity: 0.5;
+                box-shadow: 0 0 0 0 rgba(128, 0, 32, 0);
+            }
+        }
+
+        .pulse-animation {
+            animation: pulse-ring 2s infinite;
+        }
+
+        /* Glassmorphism */
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+        }
+
+        .glass-dark {
+            background: rgba(26, 32, 44, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* Toggle Switch */
+        .toggle-checkbox:checked {
+            right: 0;
+            border-color: #10b981;
+        }
+
+        .toggle-checkbox:checked+.toggle-label {
+            background-color: #10b981;
+        }
+
+        .layer-toggle-mini input {
+            display: none;
+        }
+
+        .layer-toggle-mini .toggle-slider {
+            width: 28px;
+            height: 16px;
+            background-color: #cbd5e1;
+            border-radius: 9999px;
+            position: relative;
+            transition: 0.3s;
+            cursor: pointer;
+            display: block;
+        }
+
+        .layer-toggle-mini .toggle-slider:before {
+            content: "";
+            position: absolute;
+            height: 12px;
+            width: 12px;
+            left: 2px;
+            bottom: 2px;
+            background-color: white;
+            transition: 0.3s;
+            border-radius: 50%;
+        }
+
+        .layer-toggle-mini input:checked+.toggle-slider {
+            background-color: #800020;
+        }
+
+        .layer-toggle-mini input:checked+.toggle-slider:before {
+            transform: translateX(12px);
+        }
+
+        /* Preloader */
+        #preloader {
+            transition: opacity 0.4s ease, visibility 0.4s;
+        }
+
+        #preloader.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        #preloader:not(.active) {
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+        }
+
+        /* Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .modal-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .modal-container {
+            background: white;
+            width: 95%;
+            max-width: 1200px;
+            height: 90vh;
+            border-radius: 1rem;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            display: flex;
+            flex-direction: column;
+            transform: scale(0.95);
+            transition: all 0.3s ease;
+            overflow: hidden;
+        }
+
+        .modal-overlay.active .modal-container {
+            transform: scale(1);
+        }
+    </style>
 </head>
 
-<body class="bg-body">
-    <!-- Preloader: se muestra mientras se cargan datos/mapa -->
-    <!-- Preloader: se muestra mientras se cargan datos/mapa -->
-    <div id="preloader" hidden
-        class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center bg-white"
-        style="z-index: 2050; display: none;">
-        <div class="text-center">
-            <img src="img/mujer.png" alt="Cargando" style="max-height: 120px; object-fit: contain;" class="mb-3">
-            <div class="spinner-border text-primary" role="status" aria-label="Cargando"></div>
-            <div class="progress mt-3 mx-auto" style="height: 10px; width: min(80vw, 420px);">
-                <div id="preProgressBar" class="progress-bar bg-success" role="progressbar" style="width: 0%;"
-                    aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div>
+<body class="tw-text-gray-800">
+
+    <!-- PRELOADER -->
+    <div id="preloader"
+        class="tw-fixed tw-inset-0 tw-z-[10000] tw-bg-white tw-flex tw-flex-col tw-items-center tw-justify-center">
+        <div class="tw-w-24 tw-h-24 tw-mb-6 tw-relative">
+            <div class="tw-absolute tw-inset-0 tw-border-4 tw-border-gray-100 tw-rounded-full"></div>
+            <div
+                class="tw-absolute tw-inset-0 tw-border-4 tw-border-primary tw-rounded-full tw-border-t-transparent tw-animate-spin">
             </div>
-            <p id="preloaderMessage" class="mt-2 mb-0 small text-muted">Preparando…</p>
+            <img src="img/logo_sener.png" class="tw-absolute tw-inset-0 tw-m-auto tw-w-12 tw-opacity-80" alt="Logo">
+        </div>
+        <h3 class="tw-text-lg tw-font-bold tw-text-gray-800 tw-mb-2 tw-tracking-wide">CARGANDO RECURSOS</h3>
+        <p class="tw-text-xs tw-text-gray-400 tw-uppercase tw-tracking-widest" id="preloaderStatus">Inicializando V1...
+        </p>
+        <div class="tw-w-64 tw-h-1 tw-bg-gray-100 tw-rounded-full tw-mt-6 tw-overflow-hidden">
+            <div id="preloaderBar" class="tw-h-full tw-bg-primary tw-w-0 tw-transition-all tw-duration-300"></div>
         </div>
     </div>
 
-    <!-- Header institucional con logos del gobierno -->
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm">
-        <div class="container-fluid">
-            <a class="navbar-brand d-flex align-items-center" href="#">
-                <img src="img/logo_gob.png" alt="Logo Gobierno" class="me-2" style="height:38px;">
-                <img src="img/logo_sener.png" alt="Logo SENER" class="me-2" style="height:38px;">
-                <span class="fw-semibold">Geovisualizador — Versión 1</span>
-            </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarContent"
-                aria-controls="navbarContent" aria-expanded="false" aria-label="Alternar navegación">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarContent">
-                <ul class="navbar-nav ms-auto">
-                    <li class="nav-item"><a class="nav-link" href="index.html">Selector</a></li>
-                    <li class="nav-item"><a class="nav-link active" aria-current="page" href="index1.html">V1</a></li>
-                    <li class="nav-item"><a class="nav-link" href="index2.html">V2</a></li>
-                    <li class="nav-item"><a class="nav-link" href="index3.html">V3</a></li>
-                </ul>
-            </div>
-        </div>
+    <!-- MAP CONTAINER -->
+    <div id="map"></div>
+
+    <!-- NAVBAR FLOTANTE -->
+    <nav
+        class="tw-fixed tw-top-4 tw-left-1/2 tw-transform -tw-translate-x-1/2 tw-z-[1000] tw-bg-primary/90 tw-backdrop-blur-md tw-rounded-full tw-px-4 tw-py-2 tw-flex tw-items-center tw-gap-4 tw-shadow-xl tw-border tw-border-white/10">
+        <a href="index0.html"
+            class="tw-text-white/70 hover:tw-text-white tw-text-[10px] tw-font-bold tw-uppercase tw-tracking-widest tw-transition-colors">V0</a>
+        <div class="tw-h-3 tw-w-px tw-bg-white/20"></div>
+        <a href="#"
+            class="tw-text-white tw-text-[10px] tw-font-black tw-uppercase tw-tracking-widest tw-flex tw-items-center tw-gap-2">
+            <span class="tw-w-1.5 tw-h-1.5 tw-rounded-full tw-bg-white tw-animate-pulse"></span>
+            V1
+        </a>
+        <div class="tw-h-3 tw-w-px tw-bg-white/20"></div>
+        <a href="index2.html"
+            class="tw-text-white/70 hover:tw-text-white tw-text-[10px] tw-font-bold tw-uppercase tw-tracking-widest tw-transition-colors">V2</a>
+        <div class="tw-h-3 tw-w-px tw-bg-white/20"></div>
+        <a href="index3.html"
+            class="tw-text-white/70 hover:tw-text-white tw-text-[10px] tw-font-bold tw-uppercase tw-tracking-widest tw-transition-colors">V3</a>
     </nav>
-    <!-- Título de la vista y navegación rápida -->
-    <div class="container-fluid mt-3">
-        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
-            <div>
-                <h4 class="mb-0">Geovisualizador — Versión 1 <span class="badge bg-primary ms-2">V1</span></h4>
-                <small class="text-muted">Localidades</small>
-            </div>
-            <div class="d-flex flex-wrap gap-2">
-                <a href="index1.html" class="btn btn-sm btn-primary disabled" tabindex="-1" aria-disabled="true">V1</a>
-                <a href="index2.html" class="btn btn-sm btn-outline-primary">V2</a>
-                <a href="index3.html" class="btn btn-sm btn-outline-primary">V3</a>
-                <a href="index.html" class="btn btn-sm btn-outline-secondary">Selector</a>
-            </div>
-        </div>
-    </div>
 
-    <!-- Instrucciones de uso (debajo del título) -->
-    <div class="container-fluid mt-2">
-        <div class="alert alert-info shadow-sm" role="alert">
-            <div class="d-flex align-items-start gap-2">
-                <i class="bi bi-info-circle fs-5"></i>
-                <div>
-                    <small>
-                        1) Carga un KML con polígono válido. 2) Selecciona tipo de área; para <em>Núcleo</em>, define el
-                        <em>Buffer (m)</em>.
-                        3) Ejecuta el recorte y usa la lista para navegar. 4) Exporta a Excel.
-                    </small>
+    <!-- SIDEBAR DE CONTROL -->
+    <div class="tw-fixed tw-top-0 tw-left-0 tw-h-full tw-w-[380px] tw-z-[2000] tw-transform -tw-translate-x-full tw-transition-transform tw-duration-500 glass-panel tw-flex tw-flex-col"
+        id="controlPanel">
+        <!-- Header -->
+        <div class="tw-p-6 tw-bg-gradient-to-r tw-from-primary tw-to-[#600018] tw-relative tw-overflow-hidden">
+            <div class="tw-absolute tw-top-0 tw-right-0 tw-p-4 tw-opacity-10">
+                <span class="material-symbols-outlined tw-text-6xl tw-text-white">location_on</span>
+            </div>
+            <div class="tw-relative tw-z-10 tw-flex tw-justify-between tw-items-start">
+                <div class="tw-space-y-1">
+                    <h1 class="font-display tw-text-2xl tw-text-white tw-font-bold tw-leading-tight">Centro de Control
+                        V1</h1>
+                    <span
+                        class="tw-inline-block tw-px-3 tw-py-1 tw-bg-white/10 tw-text-white/90 tw-text-[10px] tw-font-black tw-tracking-widest tw-uppercase tw-rounded-lg">Análisis
+                        de Localidades</span>
                 </div>
+                <button id="closeControlBtn" class="tw-text-white/80 hover:tw-text-white tw-transition-colors">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
             </div>
         </div>
-    </div>
 
+        <!-- Scrollable Content -->
+        <div class="tw-flex-1 tw-overflow-y-auto custom-scrollbar tw-p-6 tw-space-y-8">
 
+            <!-- 1. Carga de Archivo -->
+            <div class="tw-space-y-3">
+                <div class="tw-flex tw-items-center tw-gap-2 tw-text-primary tw-mb-2">
+                    <span class="material-symbols-outlined tw-text-lg">upload_file</span>
+                    <h3 class="tw-text-xs tw-font-black tw-uppercase tw-tracking-widest">1. Geometría KML/KMZ</h3>
+                </div>
 
-    <!-- Contenedor de alertas Bootstrap (se inyectan por JS) -->
-    <div id="alertContainer" class="position-fixed top-0 start-50 translate-middle-x mt-3"
-        style="z-index: 2100; width: min(92vw, 720px);"></div>
-
-    <!-- Contenido principal: mobile-first -->
-    <main class="container-fluid py-3">
-        <div class="row g-3">
-            <!-- Panel de controles: ocupa todo en móvil y se vuelve sidebar en pantallas grandes -->
-            <section class="col-12 col-lg-4 col-xl-3">
-                <div class="card shadow-sm sticky-lg-top" style="top: 1rem;">
-                    <div class="card-body">
-                        <h2 class="h5 card-title">Controles</h2>
-                        <div class="accordion" id="controlsAccordion">
-                            <!-- 1. Cargar KML -->
-                            <div class="accordion-item">
-                                <h2 class="accordion-header" id="headingKml">
-                                    <button class="accordion-button" type="button" data-bs-toggle="collapse"
-                                        data-bs-target="#collapseKml" aria-expanded="true"
-                                        aria-controls="collapseKml">1) Cargar KML</button>
-                                </h2>
-                                <div id="collapseKml" class="accordion-collapse collapse show"
-                                    aria-labelledby="headingKml" data-bs-parent="#controlsAccordion">
-                                    <div class="accordion-body">
-                                        <label for="kmlFile" class="form-label">Selecciona archivo KML</label>
-                                        <input type="file" id="kmlFile" accept=".kml,.kmz" class="form-control mb-2"
-                                            aria-describedby="kmlHelp">
-                                        <div id="kmlHelp" class="form-text mb-2">
-                                            <small>El archivo debe contener un polígono válido que defina el área de
-                                                interés.</small>
-                                        </div>
-                                        <button id="uploadKmlBtn" class="btn btn-primary w-100" disabled
-                                            title="Cargar y visualizar el archivo KML seleccionado">
-                                            <i class="bi bi-upload me-1"></i>Subir KML
-                                        </button>
-                                        <button id="centerKmlBtn" class="btn btn-outline-secondary w-100 mt-2" disabled
-                                            title="Centrar el mapa en el área del KML cargado">
-                                            <i class="bi bi-crosshair me-1"></i>Centrar en KML
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- 2. Recorte -->
-                            <div class="accordion-item">
-                                <h2 class="accordion-header" id="headingClip">
-                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
-                                        data-bs-target="#collapseClip" aria-expanded="false"
-                                        aria-controls="collapseClip">2) Recorte de Localidades</button>
-                                </h2>
-                                <div id="collapseClip" class="accordion-collapse collapse" aria-labelledby="headingClip"
-                                    data-bs-parent="#controlsAccordion">
-                                    <div class="accordion-body">
-                                        <label for="areaType" class="form-label">Tipo de área</label>
-                                        <select id="areaType" class="form-select mb-2" aria-describedby="areaHelp">
-                                            <option value="exacta">Área exacta (sin buffer)</option>
-                                            <option value="nucleo">Área núcleo (con buffer)</option>
-                                            <option value="directa">Área de influencia directa</option>
-                                            <option value="indirecta">Área de influencia indirecta</option>
-                                        </select>
-                                        <div id="bufferMetersGroup" class="mb-2" style="display:none;">
-                                            <label for="bufferMetersInput" class="form-label">Buffer (m)</label>
-                                            <input id="bufferMetersInput" type="number" class="form-control" min="0"
-                                                step="50" value="500" />
-                                        </div>
-                                        <div id="areaHelp" class="form-text mb-2">
-                                            <small>Cuando elijas "Área núcleo", puedes configurar el tamaño del buffer
-                                                en metros.</small>
-                                        </div>
-                                        <button id="performClipBtn" class="btn btn-success w-100" disabled
-                                            title="Iniciar el análisis geoespacial con el área seleccionada">
-                                            <i class="bi bi-scissors me-1"></i>Realizar Recorte
-                                        </button>
-                                        <button id="resetViewBtn" class="btn btn-outline-secondary w-100 mt-2" disabled
-                                            title="Volver a la vista del área de resultados">
-                                            <i class="bi bi-arrow-clockwise me-1"></i>Restaurar vista del área
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- 3. Lista de CVEGEO -->
-                            <div class="accordion-item">
-                                <h2 class="accordion-header" id="headingList">
-                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
-                                        data-bs-target="#collapseList" aria-expanded="false"
-                                        aria-controls="collapseList">
-                                        3) Localidades encontradas
-                                        <span id="foundCountBadge" class="badge bg-secondary ms-2">0</span>
-                                    </button>
-                                </h2>
-                                <div id="collapseList" class="accordion-collapse collapse" aria-labelledby="headingList"
-                                    data-bs-parent="#controlsAccordion">
-                                    <div class="accordion-body">
-                                        <div id="summaryCounts"
-                                            class="d-flex align-items-center justify-content-between small mb-2">
-                                            <span>Criterio actual: <strong id="currentCriteria">—</strong></span>
-                                            <span>Total: <strong id="totalFound">0</strong></span>
-                                        </div>
-                                        <p class="mb-2">Claves Geoestadísticas (CVEGEO) y colores en el mapa:</p>
-                                        <div id="cvegeoList" class="border rounded p-2 bg-light small">
-                                            <p class="mb-0 text-muted">Sube un KML y realiza el recorte para ver la
-                                                lista.</p>
-                                        </div>
-                                        <div id="chartsContainer" style="display: none;">
-                                            <h6 class="text-primary mb-3">📊 Distribución de Elementos por Capa</h6>
-                                            <div id="layerChart" style="height: 300px;"></div>
-                                            <h6 class="text-primary mb-3 mt-4">🏘️ Top 10 Localidades por Población</h6>
-                                            <div id="populationChart" style="height: 300px;"></div>
-                                        </div>
-                                        <div class="d-grid gap-2 mt-3">
-                                            <button id="downloadReportBtn" class="btn btn-success" disabled
-                                                title="Descargar reporte Excel con todos los datos analizados">
-                                                <i class="bi bi-file-earmark-excel me-1"></i>Descargar Reporte Excel
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- 4. Limpiar -->
-                            <div class="accordion-item">
-                                <h2 class="accordion-header" id="headingClear">
-                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
-                                        data-bs-target="#collapseClear" aria-expanded="false"
-                                        aria-controls="collapseClear">4) Limpiar Mapa</button>
-                                </h2>
-                                <div id="collapseClear" class="accordion-collapse collapse"
-                                    aria-labelledby="headingClear" data-bs-parent="#controlsAccordion">
-                                    <div class="accordion-body">
-                                        <button id="clearMap" class="btn btn-outline-danger w-100"
-                                            title="Eliminar todas las capas del mapa y reiniciar la aplicación">
-                                            <i class="bi bi-trash me-1"></i>Limpiar Todo
-                                        </button>
-                                        <div class="form-text mt-2">
-                                            <small>Esta acción eliminará todas las capas del mapa y permitirá comenzar
-                                                con un nuevo análisis.</small>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
+                <div class="tw-relative tw-group">
+                    <input type="file" id="kmlFile" accept=".kml,.kmz"
+                        class="tw-absolute tw-inset-0 tw-w-full tw-h-full tw-opacity-0 tw-cursor-pointer z-10">
+                    <div
+                        class="tw-border-2 tw-border-dashed tw-border-gray-300 group-hover:tw-border-primary tw-rounded-xl tw-p-6 tw-text-center tw-transition-all tw-bg-white/50 group-hover:tw-bg-primary/5">
+                        <div class="tw-mb-2 tw-text-gray-400 group-hover:tw-text-primary tw-transition-colors">
+                            <span class="material-symbols-outlined tw-text-3xl">cloud_upload</span>
                         </div>
+                        <p class="tw-text-xs tw-font-bold tw-text-gray-600 group-hover:tw-text-primary tw-uppercase"
+                            id="fileNameLabel">SELECCIONAR ARCHIVO</p>
+                        <p class="tw-text-[10px] tw-text-gray-400 tw-mt-1">Arrastra tu archivo aquí o haz clic para
+                            buscar</p>
                     </div>
                 </div>
-            </section>
+            </div>
 
-            <!-- Mapa: ocupa todo el ancho en móvil -->
-            <section class="col-12 col-lg-8 col-xl-9">
-                <div class="card shadow-sm h-100">
-                    <div class="card-body p-2 p-md-3">
-                        <div id="map" class="w-100"></div>
+            <!-- 2. Configuración de Buffer -->
+            <div class="tw-space-y-3">
+                <div class="tw-flex tw-items-center tw-gap-2 tw-text-primary tw-mb-2">
+                    <span class="material-symbols-outlined tw-text-lg">straighten</span>
+                    <h3 class="tw-text-xs tw-font-black tw-uppercase tw-tracking-widest">2. Configuración de Recorte
+                    </h3>
+                </div>
+
+                <div class="tw-bg-white tw-rounded-xl tw-p-1 tw-border tw-border-gray-200 tw-shadow-sm">
+                    <select id="clipTypeSelect"
+                        class="tw-w-full tw-bg-transparent tw-border-0 tw-text-xs tw-font-bold tw-text-gray-700 tw-px-3 tw-py-3 focus:tw-ring-0 tw-cursor-pointer">
+                        <option value="exact">Área exacta (Sin buffer)</option>
+                        <option value="direct" selected>Área de influencia directa (+2 km)</option>
+                        <option value="indirect">Área de influencia indirecta (+5 km)</option>
+                        <option value="custom">Personalizado (Definir kms)</option>
+                    </select>
+                </div>
+
+                <!-- Input para Buffer Personalizado (Oculto por defecto) -->
+                <div id="customBufferContainer" class="tw-hidden tw-animate-fade-in">
+                    <div
+                        class="tw-flex tw-items-center tw-gap-2 tw-bg-white tw-border tw-border-gray-200 tw-rounded-xl tw-p-2">
+                        <span class="material-symbols-outlined tw-text-gray-400 tw-text-sm tw-ml-2">edit_road</span>
+                        <input type="number" id="customBufferInput" min="0" max="100" step="0.1" value="1"
+                            class="tw-w-full tw-border-0 tw-text-xs tw-font-bold tw-text-gray-700 focus:tw-ring-0"
+                            placeholder="Kms">
+                        <span class="tw-text-[10px] tw-font-black tw-text-gray-400 tw-mr-2">KM</span>
                     </div>
                 </div>
-            </section>
-        </div>
-    </main>
-
-    <!-- Footer institucional -->
-    <footer class="gov-footer mt-4 pt-4 text-white">
-        <div class="container-fluid px-4">
-            <div class="row gy-4">
-                <div class="col-12 col-md-3 d-flex align-items-start">
-                    <img src="img/logo_gob.png" alt="Gobierno de México" style="height:54px" class="me-3 mt-1">
-                </div>
-                <div class="col-12 col-md-3">
-                    <h6 class="text-uppercase fw-semibold">Enlaces</h6>
-                    <ul class="list-unstyled mt-3 mb-0">
-                        <li><a href="#" class="link-light">Datos</a></li>
-                        <li><a href="#" class="link-light">Transparencia</a></li>
-                        <li><a href="#" class="link-light">PNT</a></li>
-                        <li><a href="#" class="link-light">INAI</a></li>
-                        <li><a href="#" class="link-light">Alerta</a></li>
-                        <li><a href="#" class="link-light">Denuncia</a></li>
-                    </ul>
-                </div>
-                <div class="col-12 col-md-3">
-                    <h6 class="text-uppercase fw-semibold">¿Qué es gob.mx?</h6>
-                    <p class="small mt-3 mb-2">Es el portal único de trámites, información y participación
-                        ciudadana. Leer más</p>
-                    <ul class="list-unstyled small mb-0">
-                        <li><a href="#" class="link-light">English</a></li>
-                        <li><a href="#" class="link-light">Declaración de Accesibilidad</a></li>
-                        <li><a href="#" class="link-light">Términos y Condiciones</a></li>
-                    </ul>
-                </div>
-                <div class="col-12 col-md-3">
-                    <h6 class="text-uppercase fw-semibold">Contacto</h6>
-                    <p class="small mt-3 mb-2">Dudas e información a<br>
-                        <a class="link-light" href="mailto:calidad@energia.gob.mx">calidad@energia.gob.mx</a>
+                <div class="tw-flex tw-gap-2 tw-p-3 tw-bg-blue-50 tw-rounded-lg tw-border tw-border-blue-100">
+                    <span class="material-symbols-outlined tw-text-blue-500 tw-text-sm">info</span>
+                    <p class="tw-text-[10px] tw-text-blue-600 tw-leading-relaxed">
+                        <span class="tw-font-bold">ÁREA DE INFLUENCIA DIRECTA:</span> Analiza elementos dentro del
+                        polígono KML más un buffer de 2 kilómetros.
                     </p>
-                    <div class="mt-3">
-                        <span class="small d-block mb-2">Síguenos en</span>
-                        <div class="d-flex gap-3 fs-4">
-                            <a class="link-light" href="#" aria-label="Facebook"><i class="bi bi-facebook"></i></a>
-                            <a class="link-light" href="#" aria-label="X"><i class="bi bi-twitter-x"></i></a>
-                            <a class="link-light" href="#" aria-label="YouTube"><i class="bi bi-youtube"></i></a>
-                            <a class="link-light" href="#" aria-label="Instagram"><i class="bi bi-instagram"></i></a>
-                        </div>
-                    </div>
                 </div>
             </div>
+
+            <!-- 3. Selección de Capas (SOLO LOCALIDADES) -->
+            <div class="tw-space-y-3">
+                <div class="tw-flex tw-items-center tw-justify-between tw-text-primary tw-mb-2">
+                    <div class="tw-flex tw-items-center tw-gap-2">
+                        <span class="material-symbols-outlined tw-text-lg">checklist</span>
+                        <h3 class="tw-text-xs tw-font-black tw-uppercase tw-tracking-widest">3. Capas a Analizar</h3>
+                    </div>
+                </div>
+
+                <div class="tw-grid tw-grid-cols-1 tw-gap-2" id="layerOptions">
+                    <!-- Grupo: Básico -->
+                    <div class="tw-text-[10px] tw-font-black tw-text-gray-400 tw-uppercase tw-mt-2">Geografía Base</div>
+                    <label
+                        class="tw-flex tw-items-center tw-p-3 tw-bg-white tw-border tw-border-gray-100 tw-rounded-xl hover:tw-shadow-sm tw-cursor-pointer">
+                        <input type="checkbox" checked value="localidades"
+                            class="tw-rounded-full tw-text-primary focus:tw-ring-primary tw-mr-3">
+                        <span class="tw-text-xs tw-font-bold tw-text-gray-700">Localidades (Polígonos)</span>
+                    </label>
+                    <label
+                        class="tw-flex tw-items-center tw-p-3 tw-bg-white tw-border tw-border-gray-100 tw-rounded-xl hover:tw-shadow-sm tw-cursor-pointer">
+                        <input type="checkbox" checked value="puntos"
+                            class="tw-rounded-full tw-text-primary focus:tw-ring-primary tw-mr-3">
+                        <span class="tw-text-xs tw-font-bold tw-text-gray-700">Localidades (Puntos)</span>
+                    </label>
+                </div>
+            </div>
+
         </div>
-        <div class="footer-pattern"></div>
-    </footer>
 
-    <!-- Bootstrap JS (componentes como navbar/accordion) -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-    <!-- Lógica de la app se inyecta vía loader con versión (ver APP_VERSION en <head>) -->
+        <!-- Footer Actions -->
+        <div class="tw-p-6 tw-bg-white tw-border-t tw-border-gray-100">
+            <div class="tw-flex tw-gap-3">
+                <button id="clearMap"
+                    class="tw-p-4 tw-rounded-xl tw-border tw-border-gray-200 tw-text-gray-400 hover:tw-bg-red-50 hover:tw-text-red-500 hover:tw-border-red-100 tw-transition-colors">
+                    <span class="material-symbols-outlined">delete</span>
+                </button>
+                <!-- Botón Visualizar KML eliminado -->
+                <button id="performClipBtn" disabled
+                    class="tw-flex-1 tw-bg-primary tw-text-white tw-font-bold tw-text-xs tw-uppercase tw-tracking-widest tw-rounded-xl tw-shadow-lg tw-shadow-primary/30 hover:tw-shadow-primary/50 hover:tw-bg-[#600018] tw-transition-all tw-flex tw-items-center tw-justify-center tw-gap-2 disabled:tw-opacity-50 disabled:tw-cursor-not-allowed">
+                    <span class="material-symbols-outlined tw-text-lg">play_arrow</span>
+                    Ejecutar Análisis
+                </button>
+            </div>
+        </div>
+    </div>
 
-    <!-- Librerías para generación de reportes Excel -->
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
-
-    <!-- Librerías para gráficos Highcharts -->
-    <script src="https://code.highcharts.com/highcharts.js"></script>
-    <script src="https://code.highcharts.com/modules/exporting.js"></script>
-    <script src="https://code.highcharts.com/modules/export-data.js"></script>
-
-    <!-- Botón volver arriba -->
-    <button id="backToTop" class="btn btn-primary back-to-top" aria-label="Regresar arriba" title="Volver arriba">
-        <i class="bi bi-arrow-up"></i>
+    <!-- BOTÓN FLOTANTE PARA ABRIR CONTROL -->
+    <button id="openControl"
+        class="tw-fixed tw-top-6 tw-left-6 tw-z-[500] tw-w-12 tw-h-12 tw-bg-white tw-text-primary tw-rounded-xl tw-shadow-xl tw-flex tw-items-center tw-justify-center hover:tw-scale-110 tw-transition-transform">
+        <span class="material-symbols-outlined">menu</span>
     </button>
 
-    <!-- UX helpers: inicializar tooltips y back-to-top -->
-    <script>
-        (function () {
-            // Bootstrap tooltips: instancia en cualquier elemento con atributo title
-            if (window.bootstrap && document.querySelectorAll) {
-                document.querySelectorAll('[title]')
-                    .forEach(function (el) { try { new bootstrap.Tooltip(el); } catch (e) { /* noop */ } });
-            }
+    <!-- PANEL DE RESULTADOS (INFERIOR) -->
+    <div id="floatingResultsBtn" class="tw-fixed tw-bottom-6 tw-right-6 tw-z-[900] tw-hidden tw-animate-bounce">
+        <button onclick="openResultsModal()"
+            class="tw-bg-white tw-text-primary tw-px-6 tw-py-4 tw-rounded-full tw-shadow-2xl tw-font-black tw-text-xs tw-uppercase tw-tracking-widest tw-flex tw-items-center tw-gap-3 hover:tw-scale-105 tw-transition-transform border tw-border-gray-100">
+            <span class="tw-relative">
+                <span class="material-symbols-outlined">analytics</span>
+                <span
+                    class="tw-absolute -tw-top-1 -tw-right-1 tw-w-3 tw-h-3 tw-bg-green-500 tw-rounded-full tw-border-2 tw-border-white"></span>
+            </span>
+            Ver Resultados
+            <span id="resultsBadgeCount"
+                class="tw-bg-primary tw-text-white tw-px-2 tw-py-0.5 tw-rounded-md tw-text-[10px]">0</span>
+        </button>
+    </div>
 
-            // Back-to-top
-            var btn = document.getElementById('backToTop');
-            if (btn) {
-                var toggleBtn = function () {
-                    if (window.scrollY > 220) { btn.classList.add('show'); } else { btn.classList.remove('show'); }
-                };
-                window.addEventListener('scroll', toggleBtn, { passive: true });
-                toggleBtn();
-                btn.addEventListener('click', function () { window.scrollTo({ top: 0, behavior: 'smooth' }); });
-            }
-        })();
-    </script>
-
-    <!-- Modal genérico para avisos (usado en recorte) -->
-    <div class="modal fade" id="appModal" tabindex="-1" aria-labelledby="appModalLabel" aria-hidden="true">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="appModalLabel">Aviso</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+    <!-- MODAL DE RESULTADOS (ESTILO GUINDA) -->
+    <div id="resultsModal" class="modal-overlay">
+        <div class="modal-container">
+            <!-- Modal Header -->
+            <div
+                class="tw-h-16 tw-bg-gradient-to-r tw-from-primary tw-to-[#600018] tw-flex tw-items-center tw-justify-between tw-px-6 tw-flex-shrink-0">
+                <div class="tw-flex tw-items-center tw-gap-4">
+                    <div class="tw-w-10 tw-h-10 tw-bg-white/10 tw-rounded-lg tw-flex tw-items-center tw-justify-center">
+                        <span class="material-symbols-outlined tw-text-white">assessment</span>
+                    </div>
+                    <div>
+                        <h2 class="tw-text-white tw-font-bold tw-text-sm tw-uppercase tw-tracking-wider">Reporte de
+                            Análisis V1</h2>
+                        <p class="tw-text-white/60 tw-text-[10px] tw-font-medium" id="totalElementsCount">Cargando
+                            datos...</p>
+                    </div>
                 </div>
-                <div class="modal-body" id="appModalBody">Mensaje</div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" id="appModalCancelBtn" data-bs-dismiss="modal"
-                        style="display:none">Cancelar</button>
-                    <button type="button" class="btn btn-primary" id="appModalOkBtn"
-                        data-bs-dismiss="modal">Aceptar</button>
+                <div class="tw-flex tw-items-center tw-gap-3">
+                    <button onclick="window.exportMapToPNG()"
+                        class="tw-bg-white/10 hover:tw-bg-white/20 tw-text-white tw-px-4 tw-py-2 tw-rounded-lg tw-text-[10px] tw-font-bold tw-uppercase tw-tracking-wide tw-flex tw-items-center tw-gap-2 tw-transition-colors">
+                        <span class="material-symbols-outlined tw-text-sm">image</span> Mapa PNG
+                    </button>
+                    <button onclick="window.downloadModalExcel()"
+                        class="tw-bg-white/10 hover:tw-bg-white/20 tw-text-white tw-px-4 tw-py-2 tw-rounded-lg tw-text-[10px] tw-font-bold tw-uppercase tw-tracking-wide tw-flex tw-items-center tw-gap-2 tw-transition-colors">
+                        <span class="material-symbols-outlined tw-text-sm">download</span> Excel
+                    </button>
+                    <button onclick="closeResultsModal()"
+                        class="tw-w-8 tw-h-8 tw-rounded-full tw-bg-white/10 hover:tw-bg-white/20 tw-flex tw-items-center tw-justify-center tw-text-white tw-transition-colors">
+                        <span class="material-symbols-outlined tw-text-sm">close</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Modal Body -->
+            <div class="tw-flex tw-flex-1 tw-overflow-hidden">
+                <!-- Sidebar Filtros -->
+                <div
+                    class="tw-w-64 tw-bg-gray-50 tw-border-r tw-border-gray-100 tw-flex tw-flex-col tw-overflow-hidden">
+                    <div class="tw-p-4 tw-border-b tw-border-gray-100">
+                        <h3 class="tw-text-xs tw-font-black tw-text-gray-400 tw-uppercase tw-tracking-widest">Capas con
+                            Datos</h3>
+                    </div>
+                    <div class="tw-flex-1 tw-overflow-y-auto custom-scrollbar tw-p-3 tw-space-y-2" id="layerFilters">
+                        <!-- Filtros generados dinámicamente -->
+                    </div>
+                </div>
+
+                <!-- Contenido Tabla -->
+                <div class="tw-flex-1 tw-bg-white tw-flex tw-flex-col tw-overflow-hidden">
+                    <div class="tw-flex-1 tw-overflow-y-auto custom-scrollbar tw-p-6" id="layerResultsContainer">
+                        <!-- Tabla generada dinámicamente -->
+                        <div class="tw-h-full tw-flex tw-flex-col tw-items-center tw-justify-center tw-text-gray-300">
+                            <span class="material-symbols-outlined tw-text-6xl tw-mb-4">table_chart</span>
+                            <p class="tw-text-sm tw-font-medium">Selecciona una capa para ver los detalles</p>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
+
+    <!-- CONTROLES DE MAPA (Eliminados a petición) -->
+    <!--
+    <div class="tw-fixed tw-bottom-6 tw-left-6 tw-z-[400] tw-flex tw-flex-col tw-gap-2">
+        <div class="tw-bg-white tw-rounded-xl tw-shadow-lg tw-p-1 tw-border tw-border-gray-100">
+            <button onclick="map.setZoom(map.getZoom()+1)"
+                class="tw-w-10 tw-h-10 tw-flex tw-items-center tw-justify-center tw-text-gray-600 hover:tw-bg-gray-50 hover:tw-text-primary tw-rounded-lg tw-transition-colors">
+                <span class="material-symbols-outlined">add</span>
+            </button>
+            <button onclick="map.setZoom(map.getZoom()-1)"
+                class="tw-w-10 tw-h-10 tw-flex tw-items-center tw-justify-center tw-text-gray-600 hover:tw-bg-gray-50 hover:tw-text-primary tw-rounded-lg tw-transition-colors">
+                <span class="material-symbols-outlined">remove</span>
+            </button>
+        </div>
+    </div>
+    -->
+
+    <!-- LEYENDA FLOTANTE -->
+    <div id="mapLegend"
+        class="tw-fixed tw-bottom-6 tw-right-6 tw-bg-white/90 tw-backdrop-blur-sm tw-p-4 tw-rounded-xl tw-shadow-xl tw-border tw-border-gray-100 tw-z-[400] tw-hidden tw-max-w-xs tw-mb-20">
+        <h4 class="tw-text-[10px] tw-font-black tw-text-gray-400 tw-uppercase tw-mb-3 tw-tracking-widest">Simbología
+        </h4>
+        <div class="tw-space-y-2 tw-text-xs" id="legendItems"></div>
+    </div>
+
+    <!-- CONTROL LATERAL DE CAPAS (VISIBILIDAD RÁPIDA) -->
+    <div id="lateralLayerControl"
+        class="tw-fixed tw-right-4 tw-top-1/2 tw-transform -tw-translate-y-1/2 tw-bg-white/90 tw-backdrop-blur-md tw-p-2 tw-rounded-full tw-shadow-xl tw-border tw-border-gray-100 tw-z-[400] tw-flex tw-flex-col tw-gap-3 tw-hidden">
+        <!-- Generado dinámicamente -->
+    </div>
+
+    <!-- TOAST CONTAINER -->
+    <div id="toastContainer"></div>
+
+    <!-- SCRIPTS -->
+    <script>
+        // Control del Panel Lateral
+        const controlPanel = document.getElementById('controlPanel');
+        const openBtn = document.getElementById('openControl');
+        const closeBtn = document.getElementById('closeControlBtn');
+        const selectAllBtn = document.getElementById('selectAllBtn');
+
+        function openControl() {
+            controlPanel.classList.remove('-tw-translate-x-full');
+            openBtn.classList.add('tw-scale-0');
+        }
+
+        function closeControl() {
+            controlPanel.classList.add('-tw-translate-x-full');
+            openBtn.classList.remove('tw-scale-0');
+        }
+
+        openBtn.addEventListener('click', openControl);
+        closeBtn.addEventListener('click', closeControl);
+
+        // Abrir automáticamente al inicio
+        setTimeout(openControl, 500);
+
+        // Cargar script principal dinámicamente
+        window.addEventListener('load', () => {
+            // Verificar dependencias críticas
+            const checkDeps = setInterval(() => {
+                if (window.L && window.toGeoJSON && window.turf) {
+                    clearInterval(checkDeps);
+                    const script = document.createElement('script');
+                    script.src = 'index1.js?v=' + new Date().getTime(); // Cache busting
+                    document.body.appendChild(script);
+                }
+            }, 100);
+        });
+    </script>
 </body>
 
 </html>

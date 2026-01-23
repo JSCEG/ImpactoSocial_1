@@ -1,0 +1,1461 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Geovisualizador — V0 (Análisis Indígena)</title>
+    <link rel="icon" type="image/png" href="img/logo_sener.png" sizes="32x32">
+    <meta name="theme-color" content="#7C1946">
+
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- Tailwind CSS -->
+    <link href="https://fonts.googleapis.com" rel="preconnect" />
+    <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect" />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@600;700&family=Inter:wght@400;500;600&display=swap"
+        rel="stylesheet" />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
+        rel="stylesheet" />
+    <script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
+    <script>
+        tailwind.config = {
+            prefix: 'tw-',
+            corePlugins: { preflight: false },
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        primary: "#7D0E24", // Sophisticated Burgundy
+                        secondary: "#D4AF37", // Gold accent
+                        "background-light": "#F9F8F6", // Elegant off-white
+                        "background-dark": "#121212",
+                    },
+                    fontFamily: {
+                        display: ["'Crimson Pro'", "serif"],
+                        sans: ["'Inter'", "sans-serif"],
+                    },
+                    borderRadius: {
+                        DEFAULT: "12px",
+                        'xl': '20px',
+                        '2xl': '28px',
+                    },
+                },
+            },
+        };
+    </script>
+
+    <!-- Leaflet & MapTiler -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.maptiler.com/maptiler-sdk-js/v2.3.0/maptiler-sdk.umd.min.js"></script>
+    <script src="https://cdn.maptiler.com/leaflet-maptilersdk/v2.0.0/leaflet-maptilersdk.js"></script>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
+
+    <!-- App Loader -->
+    <script>
+        window.APP_VERSION = '20251001-MODE-MODAL';
+        (function () {
+            function withV(url) { return url + (url.indexOf('?') > -1 ? '&' : '?') + 'v=' + encodeURIComponent(window.APP_VERSION); }
+            function loadCss(href) { var l = document.createElement('link'); l.rel = 'stylesheet'; l.href = withV(href); document.head.appendChild(l); }
+            function loadScript(src, cb) { var s = document.createElement('script'); s.src = withV(src); s.onload = function () { cb && cb(); }; document.head.appendChild(s); }
+            loadCss('main.css');
+            loadScript('togeojson.js');
+            loadScript('https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js');
+
+            // Cargar index0.js asegurando que L, toGeoJSON y turf estén listos
+            window.addEventListener('load', () => {
+                const checkL = setInterval(() => {
+                    if (window.L && window.toGeoJSON && window.turf) {
+                        clearInterval(checkL);
+                        loadScript('index0.js');
+                    }
+                }, 100);
+            });
+        })();
+    </script>
+
+    <style>
+        :root {
+            --primary: #800020;
+            --secondary: #B8860B;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: 'Noto Sans', sans-serif;
+        }
+
+        #map {
+            width: 100vw;
+            height: 100vh;
+            z-index: 0;
+        }
+
+        /* FAB Styled as a Command Button */
+        .fab-trigger {
+            position: fixed;
+            bottom: 2.5rem;
+            left: 2rem;
+            z-index: 1000;
+            width: 64px;
+            height: 64px;
+            background: var(--primary);
+            color: white;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 12px 30px rgba(128, 0, 32, 0.4);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            cursor: pointer;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .fab-trigger:hover {
+            transform: scale(1.1) rotate(5deg);
+            background: #961c3c;
+            box-shadow: 0 15px 40px rgba(128, 0, 32, 0.5);
+        }
+
+        /* Modal Premium Styles */
+        .modal-content {
+            border-radius: 32px;
+            border: none;
+            overflow: hidden;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        }
+
+        .modal-header {
+            background: linear-gradient(135deg, #641c34 0%, #800020 100%);
+            color: white;
+            padding: 2rem;
+            border: none;
+        }
+
+        .layer-card {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            padding: 1rem;
+            border-radius: 16px;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .layer-card:hover {
+            border-color: var(--primary);
+            background: white;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        }
+
+        .layer-card.active {
+            border-color: var(--primary);
+            background: rgba(128, 0, 32, 0.05);
+        }
+
+        .custom-file-upload {
+            border: 2px dashed #e2e8f0;
+            padding: 2.5rem;
+            border-radius: 24px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .custom-file-upload:hover {
+            border-color: var(--primary);
+            background: rgba(128, 0, 32, 0.02);
+        }
+
+        .btn-premium {
+            background: var(--primary);
+            color: white;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            padding: 1rem 2rem;
+            border-radius: 16px;
+            border: none;
+            transition: all 0.3s ease;
+        }
+
+        .btn-premium:hover {
+            background: #641c34;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 15px rgba(128, 0, 32, 0.2);
+        }
+
+        /* FLOATING RESULTS BUTTON */
+        .floating-results-btn {
+            position: fixed;
+            bottom: 8rem;
+            left: 2rem;
+            z-index: 1100;
+            width: 64px;
+            height: 64px;
+            background: linear-gradient(135deg, #166534 0%, #15803d 100%);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 8px 24px rgba(22, 101, 52, 0.4);
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            border: 3px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .floating-results-btn:hover {
+            transform: scale(1.1);
+            box-shadow: 0 12px 32px rgba(22, 101, 52, 0.5);
+        }
+
+        .floating-results-btn .badge-count {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            background: #ef4444;
+            color: white;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 900;
+            border: 3px solid white;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.1);
+            }
+        }
+
+        /* FLOATING RESULTS PANEL */
+        .floating-results-panel {
+            position: fixed;
+            bottom: 8rem;
+            left: 2rem;
+            width: 450px;
+            max-height: 70vh;
+            background: white;
+            border-radius: 24px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            z-index: 1099;
+            transform: scale(0) translateY(100px);
+            transform-origin: bottom left;
+            opacity: 0;
+            transition: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .floating-results-panel.active {
+            transform: scale(1) translateY(0);
+            opacity: 1;
+        }
+
+        /* Responsivo */
+        @media (max-width: 768px) {
+            .floating-results-panel {
+                width: calc(100vw - 2rem);
+                left: 1rem;
+                bottom: 6rem;
+                max-height: 60vh;
+            }
+
+            .floating-results-btn {
+                bottom: 6rem;
+                left: 1rem;
+                width: 56px;
+                height: 56px;
+            }
+        }
+
+        .results-restore-btn {
+            position: fixed;
+            bottom: 1rem;
+            right: 1rem;
+            z-index: 1100;
+            width: 48px;
+            height: 48px;
+            background: var(--primary);
+            color: white;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            cursor: pointer;
+            transition: transform 0.2s ease;
+        }
+
+        .results-restore-btn:hover {
+            transform: scale(1.05);
+        }
+
+
+        .results-drag-handle {
+            width: 40px;
+            height: 4px;
+            background: #e2e8f0;
+            border-radius: 2px;
+            margin: 12px auto;
+        }
+
+        /* Scrollbar personalizado */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f5f9;
+            border-radius: 3px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        /* Animación suave para el panel */
+        #bottomResultsPanel.active {
+            bottom: 0 !important;
+        }
+
+        .close-btn-gold {
+            background: var(--secondary) !important;
+            color: white !important;
+            border-radius: 12px !important;
+            width: 40px !important;
+            height: 40px !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            border: none !important;
+            transition: all 0.2s ease !important;
+            box-shadow: 0 4px 12px rgba(212, 175, 55, 0.3) !important;
+        }
+
+        .close-btn-gold:hover {
+            transform: rotate(90deg) scale(1.1);
+        }
+
+        /* PREMIUM MODE SWITCH */
+        .mode-switch-wrapper {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1rem 1.5rem;
+            background: rgba(0, 0, 0, 0.03);
+            border-radius: 20px;
+            border: 1px solid rgba(0, 0, 0, 0.05);
+        }
+
+        .mode-switch-label {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .mode-switch-title {
+            font-size: 11px;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: #64748b;
+        }
+
+        .mode-switch-desc {
+            font-size: 10px;
+            color: #94a3b8;
+        }
+
+        .mode-switch {
+            position: relative;
+            width: 60px;
+            height: 32px;
+            cursor: pointer;
+        }
+
+        .mode-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .mode-switch-slider {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #10b981;
+            /* Emerald for Auto */
+            transition: .4s cubic-bezier(0.4, 0, 0.2, 1);
+            border-radius: 34px;
+        }
+
+        .mode-switch-slider:before {
+            position: absolute;
+            content: "";
+            height: 24px;
+            width: 24px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s cubic-bezier(0.4, 0, 0.2, 1);
+            border-radius: 50%;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        input:checked+.mode-switch-slider {
+            background-color: var(--primary);
+            /* Burgundy for Manual */
+        }
+
+        input:checked+.mode-switch-slider:before {
+            transform: translateX(28px);
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 18px;
+        }
+
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 14px;
+            width: 14px;
+            left: 2px;
+            bottom: 2px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        input:checked+.toggle-slider {
+            background-color: #10b981;
+        }
+
+        input:checked+.toggle-slider:before {
+            transform: translateX(14px);
+        }
+
+        .glass-badge {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(4px);
+            padding: 0.5rem 1rem;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 700;
+        }
+
+        /* PREMIUM MAP CONTROLS */
+        .ios-blur {
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            background: rgba(255, 255, 255, 0.85);
+        }
+
+        .custom-zoom-control {
+            position: fixed;
+            top: 2rem;
+            right: 2rem;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(0, 0, 0, 0.05);
+        }
+
+        .custom-zoom-control button {
+            width: 44px;
+            height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #1e293b;
+            background: white;
+            border: none;
+            transition: all 0.2s ease;
+        }
+
+        .custom-zoom-control button:hover {
+            background: #f1f5f9;
+        }
+
+        .custom-zoom-control .divider {
+            height: 1px;
+            background: #e2e8f0;
+            margin: 0 8px;
+        }
+
+        .basemap-panel {
+            position: fixed;
+            top: 8.5rem;
+            right: 2rem;
+            z-index: 1000;
+            width: 210px;
+            border-radius: 20px;
+            padding: 8px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
+            transform: translateX(120%);
+        }
+
+        .basemap-panel.active {
+            transform: translateX(0);
+        }
+
+        .basemap-option {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 12px;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            margin-bottom: 2px;
+        }
+
+        .basemap-option:hover {
+            background: rgba(0, 0, 0, 0.03);
+        }
+
+        .basemap-option.selected {
+            background: rgba(0, 0, 0, 0.05);
+        }
+
+        .basemap-option .info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .basemap-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            border: 2px solid #cbd5e1;
+            transition: all 0.2s ease;
+        }
+
+        .basemap-option.selected .basemap-dot {
+            background-color: var(--primary);
+            box-shadow: 0 0 0 4px rgba(128, 0, 32, 0.1);
+        }
+
+        /* LEYENDA DEL MAPA */
+        .map-legend {
+            position: fixed;
+            bottom: 1.5rem;
+            right: 1.5rem;
+            z-index: 1000;
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            border-radius: 20px;
+            padding: 12px 16px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            transform: translateY(0);
+            max-width: 250px;
+        }
+
+        .map-legend.hidden {
+            transform: translateY(150%);
+            opacity: 0;
+        }
+
+        .legend-title {
+            font-size: 10px;
+            font-weight: 800;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 8px;
+            display: block;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 6px;
+            transition: opacity 0.3s ease;
+        }
+
+        .legend-item.inactive {
+            opacity: 0.35;
+        }
+
+        .legend-item.no-data {
+            opacity: 0.25;
+            filter: grayscale(1);
+            pointer-events: none;
+        }
+
+        .legend-item.no-data .legend-label::after {
+            content: ' (0)';
+            font-size: 8px;
+            opacity: 0.6;
+        }
+
+        .legend-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 4px;
+            border: 2px solid rgba(255, 255, 255, 0.8);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .legend-label {
+            font-size: 11px;
+            font-weight: 600;
+            color: #334155;
+        }
+
+        /* CONTROL LATERAL DE CAPAS */
+        .lateral-layer-control {
+            position: fixed;
+            right: 1.5rem;
+            top: 50%;
+            transform: translateY(-50%);
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            border-radius: 24px;
+            padding: 12px 8px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+            transition: all 0.4s ease;
+        }
+
+        .lateral-layer-control.hidden {
+            right: -100px;
+            opacity: 0;
+        }
+
+        .lateral-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            cursor: pointer;
+            padding: 8px;
+            border-radius: 16px;
+            transition: all 0.2s ease;
+            position: relative;
+        }
+
+        .lateral-item:hover {
+            background: rgba(0, 0, 0, 0.03);
+        }
+
+        .lateral-dot {
+            width: 32px;
+            height: 32px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .lateral-item.inactive .lateral-dot {
+            background: #e2e8f0 !important;
+            color: #94a3b8;
+            box-shadow: none;
+            transform: scale(0.9);
+        }
+
+        .lateral-badge {
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            border: 2px solid white;
+            background: #10b981;
+            z-index: 1;
+        }
+
+        .lateral-item.inactive .lateral-badge {
+            background: #cbd5e1;
+        }
+
+        .lateral-item.no-data {
+            opacity: 0.4;
+            filter: grayscale(0.8);
+            cursor: not-allowed !important;
+        }
+
+        .lateral-item.no-data .lateral-dot {
+            background: #f1f5f9 !important;
+            color: #cbd5e1 !important;
+            box-shadow: none;
+        }
+
+        .lateral-item.no-data .lateral-badge {
+            display: none;
+        }
+
+        .lateral-dot span {
+            font-size: 18px;
+        }
+
+        /* PRELOADER INTERACTIVO */
+        .preloader-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(255, 255, 255, 0.95) !important;
+            backdrop-filter: blur(15px);
+            z-index: 100000;
+            display: none;
+            /* Cambiado de opacity:0 */
+            align-items: center;
+            justify-content: center;
+        }
+
+        .preloader-overlay.active {
+            display: flex !important;
+        }
+
+        .preloader-content {
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .preloader-ring {
+            position: absolute;
+            inset: -8px;
+            border: 2px solid transparent;
+            border-top-color: #13322B;
+            /* Verde Institucional */
+            border-radius: 50%;
+            animation: spin 2s linear infinite;
+        }
+
+        .preloader-ring-inner {
+            position: absolute;
+            inset: 4px;
+            border: 2px solid transparent;
+            border-bottom-color: #7D0E24;
+            border-radius: 50%;
+            animation: spin-reverse 1.5s linear infinite;
+        }
+
+        @keyframes spin {
+            from {
+                transform: rotate(0deg);
+            }
+
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        @keyframes spin-reverse {
+            from {
+                transform: rotate(360deg);
+            }
+
+            to {
+                transform: rotate(0deg);
+            }
+        }
+
+        /* COMPLEMENTARIOS MÓVIL */
+        .basemap-label {
+            font-size: 13px;
+            font-weight: 500;
+            color: #334155;
+        }
+
+        .basemap-option.selected .basemap-label {
+            color: #000;
+            font-weight: 700;
+        }
+
+        .basemap-thumb {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            overflow: hidden;
+            border: 1px solid white;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .basemap-toggle-btn {
+            position: fixed;
+            top: 2rem;
+            right: 5.5rem;
+            z-index: 1000;
+            width: 44px;
+            height: 44px;
+            background: white;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(0, 0, 0, 0.05);
+            color: #1e293b;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .basemap-toggle-btn:hover {
+            background: #f1f5f9;
+            color: var(--primary);
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- PRELOADER INTERACTIVO -->
+    <div id="preloader" class="preloader-overlay">
+        <div class="preloader-content">
+            <div class="tw-relative tw-w-24 tw-h-24 tw-mb-6">
+                <div class="preloader-ring"></div>
+                <div class="preloader-ring-inner"></div>
+                <div class="tw-absolute tw-inset-0 tw-flex tw-items-center tw-justify-center">
+                    <img src="img/logo_sener.png" class="tw-w-16 tw-object-contain tw-animate-pulse" alt="SENER">
+                </div>
+            </div>
+            <h3 class="tw-text-primary tw-text-xl tw-font-bold tw-mb-2">PROCESANDO ANÁLISIS</h3>
+            <p id="preloaderStatus"
+                class="tw-text-[#13322B] tw-text-xs tw-font-black tw-uppercase tw-tracking-widest tw-mb-4">
+                INICIANDO...</p>
+
+            <div class="tw-w-64 tw-h-1.5 tw-bg-gray-200 tw-rounded-full tw-overflow-hidden tw-mb-4">
+                <div id="preloaderBar" class="tw-h-full tw-bg-[#13322B] tw-transition-all tw-duration-300"
+                    style="width: 0%"></div>
+            </div>
+
+            <div class="tw-flex tw-items-center tw-gap-2 tw-text-[10px] tw-text-gray-400 tw-font-bold tw-uppercase">
+                <span class="tw-w-2 tw-h-2 tw-bg-[#13322B] tw-rounded-full tw-animate-ping"></span>
+                GEOPROCESAMIENTO EN TIEMPO REAL
+            </div>
+        </div>
+    </div>
+
+    <!-- MAPA -->
+    <div id="map"></div>
+
+    <!-- FLOATING LOGOS -->
+    <div class="fixed top-8 right-8 z-40 flex items-center gap-4">
+        <div
+            class="bg-white/90 backdrop-blur px-5 py-3 rounded-2xl shadow-premium border border-white/50 flex items-center gap-4">
+            <img src="img/logo_gob.png" alt="Gob" class="h-6 brightness-0 opacity-70">
+            <div class="h-5 w-px bg-slate-300"></div>
+            <img src="img/logo_sener.png" alt="Sener" class="h-6 brightness-0 opacity-70">
+        </div>
+    </div>
+
+    <!-- LEYENDA DEL MAPA -->
+    <div id="mapLegend" class="map-legend hidden">
+        <span class="legend-title">Capas Intersectadas</span>
+        <div id="legendItems"></div>
+    </div>
+
+    <!-- CONTROL LATERAL DE CAPAS -->
+    <div id="lateralLayerControl" class="lateral-layer-control hidden">
+        <!-- Generado dinámicamente -->
+    </div>
+
+    <!-- BOTONES DE MAPA PREMIUM -->
+    <div class="custom-zoom-control">
+        <button onclick="map.zoomIn()" title="Zoom In"><span class="material-icons-round">add</span></button>
+        <div class="divider"></div>
+        <button onclick="map.zoomOut()" title="Zoom Out"><span class="material-icons-round">remove</span></button>
+    </div>
+
+    <button class="basemap-toggle-btn" onclick="document.getElementById('basemapPanel').classList.toggle('active')">
+        <span class="material-icons-round">layers</span>
+    </button>
+
+    <div id="basemapPanel" class="basemap-panel ios-blur">
+        <div class="tw-flex tw-flex-col">
+            <div class="basemap-option" onclick="changeBasemap('SENER Oscuro', this)">
+                <div class="info">
+                    <div class="basemap-dot"></div>
+                    <span class="basemap-label">SENER Oscuro</span>
+                </div>
+            </div>
+            <div class="basemap-option selected" onclick="changeBasemap('SENER Light', this)">
+                <div class="info">
+                    <div class="basemap-dot"></div>
+                    <span class="basemap-label">SENER Light</span>
+                </div>
+            </div>
+            <div class="basemap-option" onclick="changeBasemap('Google Satellite', this)">
+                <div class="info">
+                    <div class="basemap-dot"></div>
+                    <span class="basemap-label">Google Satellite</span>
+                </div>
+                <div class="basemap-thumb">
+                    <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuDdHoHnSi-Eol0HvCcNBLvbS5UGFhqIEUjjdH0MNxHgJ7fPNsxuB2RG76x7CfMn0VZ1ByIqL0hvml2fqy5AwYg2rkR038cGhGe2RRmbR_U-Ai1gHHtDcddgn6w3zjYOiJoxOoE4keqLVVansNXh7gPlSw6vaLONXQ-FwgWisgv80NgrsgQLcdetFvWR_WGvS9PPKYz1p2EvxGIKgLlhbKM2ZrLJwAGdrsVftO9UDRWOVH6AZVV_iyu29O1hvLgZGI7hr2mejbYhplVD"
+                        alt="Sat">
+                </div>
+            </div>
+            <div class="tw-mt-3 tw-px-2">
+                <button onclick="document.getElementById('basemapPanel').classList.remove('active')"
+                    class="tw-w-full tw-py-2 tw-bg-primary tw-text-white tw-text-[11px] tw-font-bold tw-rounded-xl tw-shadow-lg hover:tw-brightness-110 tw-transition-all tw-uppercase tw-tracking-widest">
+                    Confirmar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- BOTÓN DE MANDO -->
+    <button class="fab-trigger" onclick="openControlCenter()">
+        <span class="material-icons-round text-3xl">tune</span>
+    </button>
+
+    <!-- MODAL DE CONTROL CENTRALIZADO (OPACITY ULTRA-PREMIUM) -->
+    <div class="modal fade" id="controlModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+        <div class="modal-dialog modal-dialog-centered modal-md">
+            <div class="modal-content !tw-bg-white !tw-rounded-[32px] tw-overflow-hidden tw-border-0 tw-shadow-2xl">
+
+                <!-- CABECERA BURGUNDY -->
+                <header class="tw-bg-primary tw-p-6 tw-relative">
+                    <div class="tw-flex tw-justify-between tw-items-start">
+                        <div class="tw-space-y-1">
+                            <h1 class="font-display tw-text-2xl tw-text-white tw-font-bold tw-leading-tight">Centro de
+                                Control V0</h1>
+                            <span
+                                class="tw-inline-block tw-px-3 tw-py-1 tw-bg-white/10 tw-text-white/90 tw-text-[10px] tw-font-black tw-tracking-widest tw-uppercase tw-rounded-lg">Análisis
+                                de Impacto Indígena</span>
+                        </div>
+                        <button type="button" class="close-btn-gold" data-bs-dismiss="modal">
+                            <span class="material-symbols-outlined tw-text-xl">close</span>
+                        </button>
+                    </div>
+                </header>
+
+                <div class="tw-flex-1 tw-overflow-y-auto tw-p-6 tw-space-y-8 tw-max-h-[70vh] tw-bg-transparent">
+
+                    <!-- SWITCH DE MODO PREMIUM -->
+                    <div class="mode-switch-wrapper">
+                        <div class="mode-switch-label">
+                            <span class="mode-switch-title" id="mode-text">MODO AUTOMÁTICO</span>
+                            <span class="mode-switch-desc" id="mode-desc">Ejecución inmediata al cargar KML</span>
+                        </div>
+                        <label class="mode-switch">
+                            <input type="checkbox" id="modeToggle" onchange="toggleAnalysisMode(this.checked)">
+                            <span class="mode-switch-slider"></span>
+                        </label>
+                    </div>
+
+                    <!-- SECCIÓN 1: CARGA DE ARCHIVO -->
+                    <section class="tw-space-y-3">
+                        <h3 class="tw-text-[11px] tw-font-bold tw-text-gray-400 tw-tracking-widest tw-uppercase">1.
+                            Geometría KML/KMZ</h3>
+                        <input type="file" id="kmlFile" accept=".kml,.kmz" class="tw-hidden"
+                            onchange="handleFileSelect(this)">
+                        <div class="tw-border-2 tw-border-dashed tw-border-gray-200 tw-rounded-2xl tw-p-8 tw-flex tw-flex-col tw-items-center tw-justify-center tw-space-y-3 tw-bg-white/40 tw-group hover:tw-border-primary/50 tw-transition-colors tw-cursor-pointer"
+                            onclick="document.getElementById('kmlFile').click()">
+                            <div
+                                class="tw-w-12 tw-h-12 tw-bg-primary/5 tw-rounded-full tw-flex tw-items-center tw-justify-center group-hover:tw-bg-primary/10 tw-transition-colors">
+                                <span class="material-symbols-outlined tw-text-primary tw-text-3xl">cloud_upload</span>
+                            </div>
+                            <div class="tw-text-center">
+                                <p class="tw-text-sm tw-font-bold tw-text-gray-800" id="fileNameLabel">SELECCIONAR
+                                    ARCHIVO</p>
+                                <p class="tw-text-[10px] tw-text-gray-400 tw-uppercase">Arrastra tu archivo aquí o haz
+                                    clic para buscar</p>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- STATUS AUTO -->
+                    <div class="tw-flex tw-items-center tw-gap-3 tw-p-4 tw-bg-emerald-50 tw-border tw-border-emerald-100 tw-rounded-xl"
+                        id="auto-status">
+                        <span class="material-symbols-outlined tw-text-emerald-600">check_circle</span>
+                        <p class="tw-text-[11px] tw-font-bold tw-text-emerald-800 tw-uppercase tw-tracking-wide">
+                            Análisis automático activo. Listo para disparar.</p>
+                    </div>
+
+                    <!-- PERSONALIZAR MANUAL (OCULTO POR DEFECTO) -->
+                    <section class="tw-space-y-4 tw-hidden" id="manual-layers">
+                        <div class="tw-flex tw-justify-between tw-items-center">
+                            <h3 class="tw-text-[11px] tw-font-bold tw-text-gray-400 tw-tracking-widest tw-uppercase">2.
+                                Personalizar Análisis</h3>
+                            <button onclick="toggleAllLayers(true)"
+                                class="tw-text-[9px] tw-font-bold tw-text-primary tw-border tw-border-primary/20 tw-px-2 tw-py-1 tw-rounded hover:tw-bg-primary/5 tw-transition-colors tw-uppercase">Seleccionar
+                                Todo</button>
+                        </div>
+                        <div class="tw-grid tw-grid-cols-1 tw-gap-2" id="layerOptions">
+                            <label
+                                class="tw-flex tw-items-center tw-p-4 tw-bg-white tw-border tw-border-gray-100 tw-rounded-xl hover:tw-shadow-md tw-transition-shadow tw-cursor-pointer">
+                                <input type="checkbox" checked value="atlas"
+                                    class="tw-rounded-full tw-w-5 tw-h-5 tw-text-primary focus:tw-ring-primary tw-mr-4">
+                                <div class="tw-flex-1">
+                                    <h4 class="tw-text-xs tw-font-bold tw-text-gray-800 tw-uppercase tw-tracking-wide">
+                                        Atlas Indígena</h4>
+                                    <p class="tw-text-[10px] tw-text-gray-400 tw-uppercase">Territorios</p>
+                                </div>
+                            </label>
+                            <label
+                                class="tw-flex tw-items-center tw-p-4 tw-bg-white tw-border tw-border-gray-100 tw-rounded-xl hover:tw-shadow-md tw-transition-shadow tw-cursor-pointer">
+                                <input type="checkbox" checked value="regiones"
+                                    class="tw-rounded-full tw-w-5 tw-h-5 tw-text-primary focus:tw-ring-primary tw-mr-4">
+                                <div class="tw-flex-1">
+                                    <h4 class="tw-text-xs tw-font-bold tw-text-gray-800 tw-uppercase tw-tracking-wide">
+                                        Regiones</h4>
+                                    <p class="tw-text-[10px] tw-text-gray-400 tw-uppercase">Influencia</p>
+                                </div>
+                            </label>
+                            <label
+                                class="tw-flex tw-items-center tw-p-4 tw-bg-white tw-border tw-border-gray-100 tw-rounded-xl hover:tw-shadow-md tw-transition-shadow tw-cursor-pointer">
+                                <input type="checkbox" checked value="lenguas"
+                                    class="tw-rounded-full tw-w-5 tw-h-5 tw-text-primary focus:tw-ring-primary tw-mr-4">
+                                <div class="tw-flex-1">
+                                    <h4 class="tw-text-xs tw-font-bold tw-text-gray-800 tw-uppercase tw-tracking-wide">
+                                        Lenguas</h4>
+                                    <p class="tw-text-[10px] tw-text-gray-400 tw-uppercase">Variantes</p>
+                                </div>
+                            </label>
+                            <label
+                                class="tw-flex tw-items-center tw-p-4 tw-bg-white tw-border tw-border-gray-100 tw-rounded-xl hover:tw-shadow-md tw-transition-shadow tw-cursor-pointer">
+                                <input type="checkbox" checked value="loc_ind"
+                                    class="tw-rounded-full tw-w-5 tw-h-5 tw-text-primary focus:tw-ring-primary tw-mr-4">
+                                <div class="tw-flex-1">
+                                    <h4 class="tw-text-xs tw-font-bold tw-text-gray-800 tw-uppercase tw-tracking-wide">
+                                        Datos Indígenas</h4>
+                                    <p class="tw-text-[10px] tw-text-gray-400 tw-uppercase">Contexto Social</p>
+                                </div>
+                            </label>
+                            <label
+                                class="tw-flex tw-items-center tw-p-4 tw-bg-white tw-border tw-border-gray-100 tw-rounded-xl hover:tw-shadow-md tw-transition-shadow tw-cursor-pointer">
+                                <input type="checkbox" checked value="ruta"
+                                    class="tw-rounded-full tw-w-5 tw-h-5 tw-text-primary focus:tw-ring-primary tw-mr-4">
+                                <div class="tw-flex-1">
+                                    <h4 class="tw-text-xs tw-font-bold tw-text-gray-800 tw-uppercase tw-tracking-wide">
+                                        Ruta Wixarika</h4>
+                                    <p class="tw-text-[10px] tw-text-gray-400 tw-uppercase">Cultura</p>
+                                </div>
+                            </label>
+                            <label
+                                class="tw-flex tw-items-center tw-p-4 tw-bg-white tw-border tw-border-gray-100 tw-rounded-xl hover:tw-shadow-md tw-transition-shadow tw-cursor-pointer">
+                                <input type="checkbox" checked value="localidades"
+                                    class="tw-rounded-full tw-w-5 tw-h-5 tw-text-primary focus:tw-ring-primary tw-mr-4">
+                                <div class="tw-flex-1">
+                                    <h4 class="tw-text-xs tw-font-bold tw-text-gray-800 tw-uppercase tw-tracking-wide">
+                                        Localidades (Pol)</h4>
+                                    <p class="tw-text-[10px] tw-text-gray-400 tw-uppercase">Límites</p>
+                                </div>
+                            </label>
+                            <label
+                                class="tw-flex tw-items-center tw-p-4 tw-bg-white tw-border tw-border-gray-100 tw-rounded-xl hover:tw-shadow-md tw-transition-shadow tw-cursor-pointer">
+                                <input type="checkbox" checked value="puntos"
+                                    class="tw-rounded-full tw-w-5 tw-h-5 tw-text-primary focus:tw-ring-primary tw-mr-4">
+                                <div class="tw-flex-1">
+                                    <h4 class="tw-text-xs tw-font-bold tw-text-gray-800 tw-uppercase tw-tracking-wide">
+                                        Localidades (Pnt)</h4>
+                                    <p class="tw-text-[10px] tw-text-gray-400 tw-uppercase">Ubicación</p>
+                                </div>
+                            </label>
+                        </div>
+                    </section>
+                </div>
+
+                <footer
+                    class="tw-p-6 tw-bg-white/40 tw-border-t tw-border-white/20 tw-flex tw-items-center tw-gap-3 tw-backdrop-blur-md">
+                    <button id="clearMap"
+                        class="tw-w-12 tw-h-12 tw-flex tw-items-center tw-justify-center tw-bg-white/60 tw-border tw-border-white/40 tw-rounded-2xl tw-text-gray-400 hover:tw-text-red-500 tw-transition-colors"
+                        title="Limpiar">
+                        <span class="material-symbols-outlined">delete</span>
+                    </button>
+                    <div class="tw-flex-1 tw-flex tw-gap-2">
+                        <button id="downloadReportBtn" disabled
+                            class="tw-flex-1 tw-bg-emerald-100/60 tw-text-emerald-700 tw-font-bold tw-text-[11px] tw-py-3 tw-rounded-2xl hover:tw-bg-emerald-200/80 tw-transition-colors tw-uppercase tw-tracking-widest">
+                            EXCEL
+                        </button>
+                        <button id="uploadKmlBtn" disabled
+                            class="tw-flex-[2] tw-bg-primary tw-text-white tw-font-bold tw-text-[11px] tw-py-3 tw-rounded-2xl tw-shadow-lg tw-shadow-primary/20 hover:tw-scale-[0.98] tw-transition-all active:tw-scale-95 tw-uppercase tw-tracking-widest">
+                            EJECUTAR ANÁLISIS
+                        </button>
+                    </div>
+                </footer>
+            </div>
+        </div>
+    </div>
+
+    <!-- FLOATING RESULTS BUTTON -->
+    <div id="floatingResultsBtn" class="floating-results-btn tw-hidden" onclick="openResultsModal()">
+        <span class="material-symbols-outlined tw-text-3xl">analytics</span>
+        <div id="resultsBadgeCount" class="badge-count">0</div>
+    </div>
+
+    <!-- FLOATING RESULTS PANEL -->
+    <div id="floatingResultsPanel" class="floating-results-panel">
+        <!-- CABECERA -->
+        <div
+            class="tw-p-4 tw-bg-gradient-to-r tw-from-green-700 tw-to-green-600 tw-text-white tw-flex tw-items-center tw-justify-between">
+            <div class="tw-flex tw-items-center tw-gap-3">
+                <span class="material-symbols-outlined tw-text-2xl">inventory_2</span>
+                <div>
+                    <h3 class="tw-text-sm tw-font-black tw-uppercase tw-tracking-wide">Hallazgos</h3>
+                    <p id="totalFoundBadge" class="tw-text-[10px] tw-opacity-90">-- elementos</p>
+                </div>
+            </div>
+            <div class="tw-flex tw-items-center tw-gap-2">
+                <button onclick="event.stopPropagation(); downloadExcelFromPanel()" title="Descargar Excel"
+                    class="tw-w-9 tw-h-9 tw-rounded-full tw-bg-white/20 tw-flex tw-items-center tw-justify-center hover:tw-bg-white/30 tw-transition-colors">
+                    <span class="material-symbols-outlined tw-text-lg">download</span>
+                </button>
+                <button onclick="event.stopPropagation(); toggleFloatingResults()" title="Cerrar"
+                    class="tw-w-9 tw-h-9 tw-rounded-full tw-bg-white/20 tw-flex tw-items-center tw-justify-center hover:tw-bg-white/30 tw-transition-colors">
+                    <span class="material-symbols-outlined tw-text-lg">close</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- PESTAÑAS -->
+        <div id="resultsTabsNav"
+            class="tw-flex tw-items-center tw-gap-2 tw-overflow-x-auto tw-px-4 tw-py-3 tw-border-b tw-border-gray-100 no-scrollbar tw-bg-white">
+            <!-- Se llena dinámicamente -->
+        </div>
+
+        <!-- CONTENIDO -->
+        <div id="resultsTabsContent" class="tw-flex-1 tw-overflow-y-auto tw-bg-gray-50/50 tw-p-4 custom-scrollbar">
+            <!-- Se llena dinámicamente -->
+        </div>
+
+        <!-- FOOTER -->
+        <div class="tw-p-3 tw-bg-white tw-border-t tw-border-gray-100">
+            <button onclick="downloadExcelFromPanel()"
+                class="tw-w-full tw-bg-green-700 tw-text-white tw-font-black tw-text-[9px] tw-py-2.5 tw-rounded-lg tw-shadow-lg tw-shadow-green-700/30 hover:tw-scale-[0.98] tw-transition-all tw-uppercase tw-tracking-widest tw-flex tw-items-center tw-justify-center tw-gap-2">
+                <span class="material-symbols-outlined tw-text-sm">file_download</span>
+                Descargar Excel
+            </button>
+        </div>
+    </div>
+
+    <!-- LEYENDA DEL MAPA -->
+    <div id="mapLegend" class="map-legend hidden">
+        <span class="legend-title">Capas Intersectadas</span>
+        <div id="legendItems"></div>
+    </div>
+
+    <!-- CONTROL LATERAL DE CAPAS -->
+    <div id="lateralLayerControl" class="lateral-layer-control hidden">
+        <!-- Generado dinámicamente -->
+    </div>
+
+    <!-- SCRIPTS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+
+    <script>
+        let controlModal;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            controlModal = new bootstrap.Modal(document.getElementById('controlModal'));
+
+            // Auto-open on first load
+            setTimeout(() => controlModal.show(), 1000);
+        });
+
+        function openControlCenter() { controlModal.show(); }
+
+        function handleFileSelect(input) {
+            const fileNameLabel = document.getElementById('fileNameLabel');
+            const uploadBtn = document.getElementById('uploadKmlBtn');
+            if (input.files && input.files[0]) {
+                fileNameLabel.textContent = input.files[0].name.toUpperCase();
+                uploadBtn.disabled = false;
+            } else {
+                fileNameLabel.textContent = "Seleccionar Archivo";
+                uploadBtn.disabled = true;
+            }
+        }
+
+        function toggleAllLayers(state) {
+            document.querySelectorAll('#layerOptions input[type="checkbox"]').forEach(cb => cb.checked = state);
+        }
+
+        // Toggle del menú flotante de resultados
+        function toggleFloatingResults() {
+            const panel = document.getElementById('floatingResultsPanel');
+            const btn = document.getElementById('floatingResultsBtn');
+
+            if (panel.classList.contains('active')) {
+                panel.classList.remove('active');
+                btn.style.display = 'flex';
+            } else {
+                panel.classList.add('active');
+                btn.style.display = 'none';
+            }
+        }
+
+        // Descargar Excel desde el panel
+        function downloadExcelFromPanel() {
+            if (typeof window.generateExcelReport === 'function') {
+                window.generateExcelReport();
+            } else {
+                alert('Error: No se pudo encontrar la función de descarga.');
+            }
+        }
+
+        // --- BUSINESS LOGIC HOOKS ---
+        (function () {
+            const _origUpdate = window.updateLayersDisplay;
+            window.updateLayersDisplay = function (data) {
+                if (typeof _origUpdate === 'function') _origUpdate.apply(this, arguments);
+
+                const resultsPanel = document.getElementById('resultsPanel');
+                const badge = document.getElementById('totalFoundBadge');
+                const total = document.getElementById('totalFound');
+                const downloadBtn = document.getElementById('downloadReportBtn');
+
+                if (resultsPanel) resultsPanel.classList.remove('tw-hidden');
+                if (badge && total) badge.textContent = total.textContent;
+                if (downloadBtn) downloadBtn.disabled = false;
+
+                // Mirror summary to modal if available
+                const modalContainer = document.getElementById('layersContainer');
+                const mainContainer = document.getElementById('layersContainer_original'); // No longer exists but we catch output
+            };
+        })();
+    </script>
+
+    <!-- ========================================
+         MODAL DE RESULTADOS MEJORADO
+         ======================================== -->
+    <style>
+        /* Modal backdrop */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background-color: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+            z-index: 9998;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        /* Animations */
+        @keyframes slideUp {
+            from {
+                transform: translateY(100%);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .modal-content-results {
+            animation: slideUp 0.3s ease-out;
+        }
+
+        /* Scrollbar styling */
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+
+        .hide-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        /* Scrollbar para filtros de capas - visible */
+        #layerFilters::-webkit-scrollbar {
+            height: 4px;
+        }
+
+        #layerFilters::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        #layerFilters::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 10px;
+        }
+
+        #layerFilters::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        /* Color primario guinda */
+        :root {
+            --primary-guinda: #800020;
+            --guinda-soft: #fdf2f4;
+            --guinda-border: #f4cfd7;
+        }
+
+        /* Tabla compacta */
+        .data-table-compact td,
+        .data-table-compact th {
+            padding-top: 0.5rem;
+            padding-bottom: 0.5rem;
+            padding-left: 0.75rem;
+            padding-right: 0.75rem;
+        }
+    </style>
+
+    <!-- Modal Overlay -->
+    <div id="resultsModal" class="modal-overlay">
+        <div class="tw-relative tw-z-20 modal-content-results"
+            style="width: 90%; max-width: 28rem; background: white; border-radius: 2rem; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); overflow: hidden; border: 1px solid #e2e8f0; max-height: 90vh; display: flex; flex-direction: column;">
+
+            <!-- Header Guinda con Gradiente -->
+            <div
+                style="background: linear-gradient(to bottom right, #800020, #600018); padding: 1.25rem; padding-bottom: 1.75rem; color: white; flex-shrink: 0;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                    <div style="display: flex; gap: 0.75rem; align-items: center;">
+                        <div
+                            style="width: 2.5rem; height: 2.5rem; background: rgba(255, 255, 255, 0.15); border-radius: 0.5rem; display: flex; align-items: center; justify-content: center;">
+                            <span class="material-symbols-outlined" style="font-size: 1.5rem;">database</span>
+                        </div>
+                        <div>
+                            <h1 style="font-size: 1.125rem; font-weight: 800; letter-spacing: -0.025em;">HALLAZGOS</h1>
+                            <p id="totalElementsCount"
+                                style="color: rgba(255, 255, 255, 0.7); font-size: 0.75rem; font-weight: 600;">0
+                                REGISTROS ENCONTRADOS</p>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button onclick="downloadModalExcel()"
+                            style="width: 2.25rem; height: 2.25rem; background: rgba(255, 255, 255, 0.1); border-radius: 0.5rem; display: flex; align-items: center; justify-content: center; transition: background-color 0.2s; border: none; cursor: pointer;"
+                            onmouseover="this.style.background='rgba(255, 255, 255, 0.2)'"
+                            onmouseout="this.style.background='rgba(255, 255, 255, 0.1)'" title="Descargar Excel">
+                            <span class="material-symbols-outlined"
+                                style="font-size: 1.25rem; color: white;">download</span>
+                        </button>
+                        <button onclick="closeResultsModal()"
+                            style="width: 2.25rem; height: 2.25rem; background: rgba(255, 255, 255, 0.1); border-radius: 0.5rem; display: flex; align-items: center; justify-content: center; transition: background-color 0.2s; border: none; cursor: pointer;"
+                            onmouseover="this.style.background='rgba(255, 255, 255, 0.2)'"
+                            onmouseout="this.style.background='rgba(255, 255, 255, 0.1)'" title="Cerrar">
+                            <span class="material-symbols-outlined"
+                                style="font-size: 1.25rem; color: white;">close</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Contenido del Modal -->
+            <div class="hide-scrollbar"
+                style="background: white; margin-top: -1rem; border-radius: 1.5rem 1.5rem 0 0; padding: 1.25rem 1rem 1rem 1rem; overflow-y: auto; flex: 1;">
+
+                <!-- Filtros de Capas -->
+                <div id="layerFilters"
+                    style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem; overflow-x: auto; overflow-y: hidden; padding-bottom: 0.5rem; -webkit-overflow-scrolling: touch; scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent;">
+                    <!-- Los filtros se generarán dinámicamente -->
+                </div>
+
+                <!-- Contenedor de Resultados por Capa -->
+                <div id="layerResultsContainer">
+                    <!-- El contenido se generará dinámicamente -->
+                </div>
+
+                <!-- Barra de Progreso -->
+                <div style="margin-top: 1rem; padding: 0 0.25rem;">
+                    <div
+                        style="display: flex; justify-content: space-between; font-size: 9px; font-weight: 700; color: #94a3b8; margin-bottom: 0.25rem; text-transform: uppercase;">
+                        <span>Carga de datos</span>
+                        <span style="color: #800020;">100% Completo</span>
+                    </div>
+                    <div
+                        style="width: 100%; height: 0.375rem; background: #f1f5f9; border-radius: 9999px; overflow: hidden;">
+                        <div style="background: #800020; width: 100%; height: 100%;"></div>
+                    </div>
+                </div>
+
+                <!-- Botón de Descarga -->
+                <div style="margin-top: 1.5rem;">
+                    <button onclick="downloadModalExcel()"
+                        style="width: 100%; background: #800020; color: white; font-weight: 700; padding: 0.875rem; border-radius: 0.75rem; box-shadow: 0 10px 15px -3px rgba(128, 0, 32, 0.2); display: flex; align-items: center; justify-content: center; gap: 0.5rem; transition: all 0.2s; border: none; cursor: pointer; margin-bottom: 0.75rem;"
+                        onmouseover="this.style.background='#600018'; this.style.transform='scale(0.98)'"
+                        onmouseout="this.style.background='#800020'; this.style.transform='scale(1)'">
+                        <span class="material-symbols-outlined" style="font-size: 1.25rem;">description</span>
+                        <span style="letter-spacing: 0.1em; text-transform: uppercase; font-size: 0.75rem;">Descargar
+                            Excel</span>
+                    </button>
+
+                    <button onclick="exportMapToPNG()"
+                        style="width: 100%; background: #1e293b; color: white; font-weight: 700; padding: 0.875rem; border-radius: 0.75rem; box-shadow: 0 10px 15px -3px rgba(30, 41, 59, 0.2); display: flex; align-items: center; justify-content: center; gap: 0.5rem; transition: all 0.2s; border: none; cursor: pointer;"
+                        onmouseover="this.style.background='#0f172a'; this.style.transform='scale(0.98)'"
+                        onmouseout="this.style.background='#1e293b'; this.style.transform='scale(1)'">
+                        <span class="material-symbols-outlined" style="font-size: 1.25rem;">image</span>
+                        <span style="letter-spacing: 0.1em; text-transform: uppercase; font-size: 0.75rem;">Exportar
+                            Mapa PNG</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Indicador de arrastre (iOS style) -->
+            <div
+                style="height: 0.375rem; width: 4rem; background: #cbd5e1; margin: 0 auto 0.75rem auto; border-radius: 9999px;">
+            </div>
+        </div>
+    </div>
+
+</body>
+
+</html>

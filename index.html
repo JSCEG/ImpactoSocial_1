@@ -1,680 +1,684 @@
 <!DOCTYPE html>
-<html lang="es">
+<html class="light" lang="es">
 
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Geovisualizador de Áreas de Interés - Selector de Versión</title>
-
-    <!-- Bootstrap CSS para el diseño responsive -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- Bootstrap Icons para los iconos de la interfaz -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
-    <!-- Fuente Noto Sans siguiendo las guías institucionales -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700&display=swap" rel="stylesheet">
-
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>Geovisualizador - Home</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap"
+        rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet" />
+    <script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        primary: "#641c34", // Deep burgundy from Mexican Gov branding
+                        secondary: "#4a4a4a",
+                        "background-light": "#ffffff",
+                        "background-dark": "#121212",
+                        "version-0": "#6c757d",
+                        "version-1": "#8d203d",
+                        "version-2": "#2e7d32",
+                        "version-3": "#d97706",
+                    },
+                    fontFamily: {
+                        sans: ["Inter", "sans-serif"],
+                        display: ["Inter", "sans-serif"],
+                    },
+                    borderRadius: {
+                        DEFAULT: "12px",
+                        'xl': '20px',
+                    },
+                },
+            },
+        };
+    </script>
     <style>
-        :root {
-            /* Paleta de colores institucional del gobierno mexicano */
-            --vino-7420: #9C2348;
-            /* Vino claro */
-            --vino-7421: #621333;
-            /* Vino oscuro */
-            --dorado-1255: #A6802D;
-            /* Dorado institucional */
-            --beige-7402: #E7D295;
-            /* Beige claro */
-            --verde-626: #1E5B4F;
-            /* Verde institucional */
-            --verde-627: #002F2A;
-            /* Verde oscuro */
-            --gris-cool7: #98989A;
-            /* Gris neutro */
-            --negro-neutral: #171B1E;
-            /* Negro para texto */
+        body {
+            font-family: 'Inter', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
 
-            /* Variables semánticas para usar en el CSS */
-            --color-primary: var(--vino-7421);
-            --color-secondary: var(--verde-626);
-            --color-accent: var(--dorado-1255);
-            --color-bg: var(--beige-7402);
-            --color-text-on-dark: #FFFFFF;
+        .ios-blur {
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+        }
+
+        .card-shadow {
+            box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05);
         }
 
         body {
-            background: linear-gradient(135deg, var(--color-primary) 0%, var(--verde-627) 100%);
-            min-height: 100vh;
-            font-family: 'Noto Sans', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            color: var(--color-text-on-dark);
+            min-height: max(884px, 100dvh);
         }
 
-        /* Tarjetas para cada versión del geovisualizador */
-        .version-card {
-            transition: all 0.3s ease;
-            /* Transición suave para efectos hover */
+        /* --- Styles for FAB Lateral Menu (Local Override) --- */
+        .fab-container {
+            position: fixed;
+            bottom: 2rem;
+            left: 1.5rem;
+            z-index: 2000;
+            display: flex;
+            flex-direction: column-reverse;
+            align-items: flex-start;
+            gap: 0.75rem;
+        }
+
+        .fab-main-btn {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            background-color: var(--primary) !important;
+            color: white !important;
+            padding: 0.75rem 1.5rem;
+            border-radius: 9999px;
+            box-shadow: 0 10px 25px rgba(100, 28, 52, 0.3);
             border: none;
-            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
-            height: 100%;
-            /* Altura completa para que sean iguales */
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 2001;
         }
 
-        .version-card:hover {
-            transform: translateY(-5px);
-            /* Efecto de elevación al pasar el mouse */
-            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2);
+        .fab-main-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 15px 30px rgba(100, 28, 52, 0.4);
         }
 
-        .version-badge {
-            position: absolute;
-            top: -10px;
-            right: -10px;
-            z-index: 10;
+        .fab-main-btn .material-icons-round {
+            font-size: 1.5rem;
+            transition: transform 0.4s ease;
         }
 
-        .feature-list {
-            list-style: none;
-            padding: 0;
+        .fab-container.active .fab-main-btn .material-icons-round {
+            transform: rotate(90deg);
         }
 
-        .feature-list li {
-            padding: 0.5rem 0;
-            border-bottom: 1px solid #f0f0f0;
+        .fab-menu-panel {
+            background: white;
+            border-radius: 1.5rem;
+            padding: 0.75rem;
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.15);
+            border: 1px solid rgba(0, 0, 0, 0.05);
+            display: flex;
+            flex-direction: column;
+            min-width: 220px;
+            opacity: 0;
+            pointer-events: none;
+            transform: translateY(20px) scale(0.95);
+            transform-origin: bottom left;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         }
 
-        .feature-list li:last-child {
-            border-bottom: none;
+        .fab-container.active .fab-menu-panel {
+            opacity: 1;
+            pointer-events: auto;
+            transform: translateY(0) scale(1);
         }
 
-        .feature-list i {
-            color: var(--color-secondary);
-            margin-right: 0.5rem;
-        }
-
-        .hero-section {
-            background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
-            backdrop-filter: blur(10px);
-            border-radius: 20px;
-            border: 1px solid rgba(255, 255, 255, 0.18);
-        }
-
-        .btn-version {
-            background: linear-gradient(45deg, var(--color-accent), var(--color-secondary));
+        .fab-item {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 0.75rem 1rem;
+            border-radius: 0.75rem;
+            color: #475569;
+            text-decoration: none !important;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: all 0.2s ease;
             border: none;
-            padding: 12px 30px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            transition: all 0.3s ease;
-            box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18);
+            background: transparent;
+            width: 100%;
+            text-align: left;
         }
 
-        .btn-version:hover {
-            background: linear-gradient(45deg, #8F6F23, #184D43);
-            /* tonos más oscuros del acento y secundario */
-            transform: translateY(-2px);
+        .fab-item:hover {
+            background-color: #f8fafc;
+            color: var(--primary);
         }
 
-        /* Utilidades de color institucional */
-        .bg-primario {
-            background-color: var(--color-primary) !important;
+        .fab-item .material-icons-round {
+            font-size: 1.25rem;
+            color: #94a3b8;
+            transition: color 0.2s ease;
         }
 
-        .bg-secundario {
-            background-color: var(--color-secondary) !important;
+        .fab-item:hover .material-icons-round {
+            color: var(--primary);
         }
 
-        .bg-acento {
-            background-color: var(--color-accent) !important;
-        }
-
-        .bg-beige {
-            background-color: var(--color-bg) !important;
-        }
-
-        .text-primario {
-            color: var(--color-primary) !important;
-        }
-
-        .text-secundario {
-            color: var(--color-secondary) !important;
-        }
-
-        .text-acento {
-            color: var(--color-accent) !important;
-        }
-
-        .text-oscuro {
-            color: var(--negro-neutral) !important;
-        }
-
-        /* Footer institucional (igual que index1/index2) */
-        .gov-footer {
-            background-color: #5c102e;
-            /* tono vino oscuro cercano al screenshot */
-            position: relative;
-        }
-
-        .gov-footer a.link-light {
-            text-decoration: none;
-        }
-
-        .gov-footer a.link-light:hover {
-            text-decoration: underline;
-        }
-
-        .gov-footer .footer-pattern {
-            height: 56px;
-            background-image: linear-gradient(90deg, rgba(0, 0, 0, 0) 0, rgba(0, 0, 0, 0) 40px),
-                repeating-linear-gradient(45deg, #7C1946 0, #7C1946 14px, #8c264f 14px, #8c264f 28px);
-            border-top: 6px solid #7C1946;
+        .fab-divider {
+            height: 1px;
+            background-color: #f1f5f9;
+            margin: 0.5rem 0.75rem;
         }
     </style>
 </head>
 
-<body>
-    <div class="container-fluid py-5">
-        <div class="row justify-content-center">
-            <div class="col-lg-10">
-
-                <!-- Sección principal con título y descripción -->
-                <div class="hero-section text-center text-white p-5 mb-5">
-                    <img src="img/mujer.png" alt="Logo" style="max-height: 120px; object-fit: contain;" class="mb-4">
-                    <h1 class="display-4 fw-bold mb-3">Geovisualizador de Áreas de Interés</h1>
-                    <p class="lead mb-4">Herramienta para análisis geoespacial que permite identificar qué elementos
-                        de diferentes capas se encuentran dentro de un área de interés definida por archivos KML.</p>
-                </div>
-
-                <!-- Selector de versiones del geovisualizador -->
-                <div class="row g-4">
-
-                    <!-- Versión 0: Capas indígenas, sin buffer, análisis automático -->
-                    <div class="col-lg-6">
-                        <div class="card version-card position-relative">
-                            <span class="badge bg-secondary version-badge">V0</span>
-                            <div class="card-header bg-secondary text-white text-center">
-                                <i class="bi bi-people-fill fs-1 mb-2"></i>
-                                <h3 class="card-title mb-0">Versión 0</h3>
-                                <small>Capas indígenas, sin buffer (análisis automático)</small>
-                            </div>
-                            <div class="card-body">
-                                <p class="card-text text-oscuro mb-4">
-                                    Variante enfocada en capas indígenas. Tras validar un KML, ejecuta el análisis de
-                                    forma automática
-                                    sin configuración de buffer ni pasos adicionales.
-                                </p>
-
-                                <h6 class="fw-bold mb-3">Funcionalidades:</h6>
-                                <ul class="feature-list">
-                                    <li><i class="bi bi-check-circle-fill"></i><strong>Capas incluidas:</strong> Atlas
-                                        de Pueblos Indígenas, Regiones, Lenguas, Localidades Indígenas (datos), Ruta
-                                        Wixárika</li>
-                                    <li><i class="bi bi-check-circle-fill"></i><strong>Sin buffer:</strong> El análisis
-                                        usa el polígono del KML tal cual</li>
-                                    <li><i class="bi bi-check-circle-fill"></i><strong>Automático:</strong> El análisis
-                                        inicia inmediatamente tras validar el KML</li>
-                                    <li><i class="bi bi-check-circle-fill"></i><strong>Reportes:</strong> Excel con
-                                        Resumen y Lenguas (conteo único)</li>
-                                </ul>
-
-                                <div class="mt-4 text-center">
-                                    <a href="index0.html" class="btn btn-version text-white"
-                                        style="background: linear-gradient(45deg, #6c757d, #495057);">
-                                        <i class="bi bi-arrow-right-circle me-2"></i>Usar Versión 0
-                                    </a>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Versión 1: Enfocada en localidades -->
-                    <div class="col-lg-6">
-                        <div class="card version-card position-relative">
-                            <span class="badge bg-primario version-badge">V1</span>
-                            <div class="card-header bg-primario text-white text-center">
-                                <i class="bi bi-geo-alt-fill fs-1 mb-2"></i>
-                                <h3 class="card-title mb-0">Versión 1</h3>
-                                <small>Análisis específico de localidades</small>
-                            </div>
-                            <div class="card-body">
-                                <p class="card-text text-oscuro mb-4">
-                                    Versión enfocada en el análisis específico de localidades dentro de áreas de
-                                    interés.
-                                </p>
-
-                                <h6 class="fw-bold mb-3">Funcionalidades:</h6>
-                                <ul class="feature-list">
-                                    <li><i class="bi bi-check-circle-fill"></i><strong>Análisis focalizado:</strong>
-                                        Especializada en análisis detallado de localidades mexicanas por clave
-                                        geoestadística (CVEGEO)</li>
-                                    <li><i class="bi bi-check-circle-fill"></i><strong>Carga simplificada:</strong>
-                                        Procesa un solo archivo KML con validación de superposiciones internas</li>
-                                    <li><i class="bi bi-check-circle-fill"></i><strong>Buffer configurable:</strong>
-                                        Zona de influencia parametrizable en metros para el área núcleo</li>
-                                    <li><i class="bi bi-check-circle-fill"></i><strong>Navegación inteligente:</strong>
-                                        Mapa interactivo con capas temáticas y función de foco en elementos específicos
-                                    </li>
-                                    <li><i class="bi bi-check-circle-fill"></i><strong>Reportes:</strong>
-                                        Exportación a Excel con métricas del área analizada</li>
-                                </ul>
-
-                                <h6 class="fw-bold mb-2 mt-3">¿Cuándo usar la Versión 1?</h6>
-                                <p class="small text-muted mb-0">Ideal para análisis específicos de una sola área de
-                                    interés con énfasis en localidades mexicanas y sus características demográficas.</p>
-
-                                <div class="mt-4 text-center">
-                                    <a href="index1.html" class="btn btn-version text-white">
-                                        <i class="bi bi-arrow-right-circle me-2"></i>Usar Versión 1
-                                    </a>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Versión 2: Análisis completo multicapa -->
-                    <div class="col-lg-6">
-                        <div class="card version-card position-relative">
-                            <span class="badge bg-secundario version-badge">V2</span>
-                            <div class="card-header bg-secundario text-white text-center">
-                                <i class="bi bi-layers-fill fs-1 mb-2"></i>
-                                <h3 class="card-title mb-0">Versión Multicapa</h3>
-                                <small>Análisis integral de múltiples capas</small>
-                            </div>
-                            <div class="card-body">
-                                <p class="card-text text-oscuro mb-4">
-                                    Versión con análisis multicapa completo, para el análisis integral de áreas
-                                    de interés con 12 capas geoespaciales especializadas.
-                                </p>
-
-                                <h6 class="fw-bold mb-3">Funcionalidades:</h6>
-                                <ul class="feature-list">
-                                    <li><i class="bi bi-check-circle-fill"></i><strong>14 capas especializadas:</strong>
-                                        Análisis integral con localidades, pueblos indígenas, municipios, RAN, zonas
-                                        arqueológicas, áreas protegidas, Ramsar, zonas históricas y más</li>
-                                    <li><i class="bi bi-check-circle-fill"></i><strong>Validación de
-                                            integridad:</strong> Detección automática de superposiciones y geometrías
-                                        inválidas en el KML cargado</li>
-                                    <li><i class="bi bi-check-circle-fill"></i><strong>Tipos de área flexibles:</strong>
-                                        Área exacta, núcleo con buffer configurable, e influencias directa/indirecta
-                                    </li>
-                                    <li><i class="bi bi-check-circle-fill"></i><strong>Navegación avanzada:</strong>
-                                        Sistema de foco inteligente, activación automática de capas relevantes y
-                                        navegación contextual</li>
-                                    <li><i class="bi bi-check-circle-fill"></i><strong>Reportes:</strong>
-                                        Excel detallado con todas las capas; PDF opcional</li>
-                                    <li><i class="bi bi-check-circle-fill"></i><strong>Métricas completas:</strong>
-                                        Área, perímetro, densidades poblacionales, intersecciones con áreas protegidas
-                                    </li>
-                                </ul>
-
-                                <h6 class="fw-bold mb-2 mt-3">¿Cuándo usar la Versión Multicapa?</h6>
-                                <p class="small text-muted mb-0">Perfecta para análisis detallados de una sola área con
-                                    múltiples capas temáticas, cuando necesitas información completa sobre todos los
-                                    elementos geoespaciales que intersectan con tu área de interés.</p>
-
-                                <div class="mt-4 text-center">
-                                    <a href="index2.html" class="btn btn-version text-white">
-                                        <i class="bi bi-arrow-right-circle me-2"></i>Usar Versión 2
-                                    </a>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                </div>
-
-                <!-- Versión 3: Multi-área avanzada -->
-                <div class="row g-4 mt-2">
-                    <div class="col-lg-12">
-                        <div class="card version-card position-relative">
-                            <span class="badge bg-warning text-dark version-badge">V3</span>
-                            <div class="card-header bg-warning text-dark text-center">
-                                <i class="bi bi-collection-fill fs-1 mb-2"></i>
-                                <h3 class="card-title mb-0">Versión Multi-Área</h3>
-                                <small>Análisis simultáneo de múltiples áreas de interés</small>
-                            </div>
-                            <div class="card-body">
-                                <p class="card-text text-oscuro mb-4">
-                                    Versión avanzada que permite cargar y analizar hasta 10 áreas de interés
-                                    simultáneamente,
-                                    con análisis comparativo y reportes globales integrados.
-                                </p>
-
-                                <div class="row">
-                                    <div class="col-md-6">
-                                        <h6 class="fw-bold mb-3">Sección 1: Carga de KMLs Múltiples</h6>
-                                        <p class="small text-muted mb-2">Sube hasta 10 archivos KML simultáneamente con
-                                            validación automática de formato y detección de superposiciones entre áreas.
-                                        </p>
-                                        <ul class="feature-list">
-                                            <li><i class="bi bi-check-circle-fill"></i><strong>Carga masiva:</strong>
-                                                Selección múltiple de archivos KML/KMZ</li>
-                                            <li><i class="bi bi-check-circle-fill"></i><strong>Validación
-                                                    automática:</strong> Verificación de integridad y formato de
-                                                archivos</li>
-                                            <li><i class="bi bi-check-circle-fill"></i><strong>Recarga de
-                                                    datos:</strong> Opción para actualizar capas geoespaciales desde
-                                                servidor</li>
-                                        </ul>
-
-                                        <h6 class="fw-bold mb-3 mt-4">Sección 2: Gestión de Áreas</h6>
-                                        <p class="small text-muted mb-2">Administra las áreas cargadas con control
-                                            visual de estado y operaciones masivas.</p>
-                                        <ul class="feature-list">
-                                            <li><i class="bi bi-check-circle-fill"></i><strong>Panel de áreas:</strong>
-                                                Lista visual con colores únicos por área</li>
-                                            <li><i class="bi bi-check-circle-fill"></i><strong>Análisis masivo:</strong>
-                                                Procesa todas las áreas no analizadas de una vez</li>
-                                            <li><i class="bi bi-check-circle-fill"></i><strong>Indicadores
-                                                    visuales:</strong> Estado de análisis y alertas de superposiciones
-                                            </li>
-                                            <li><i class="bi bi-check-circle-fill"></i><strong>Controles
-                                                    individuales:</strong> Centrar, analizar o eliminar áreas
-                                                específicas</li>
-                                        </ul>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <h6 class="fw-bold mb-3">Sección 3: Análisis Individual</h6>
-                                        <p class="small text-muted mb-2">Análisis detallado de áreas específicas con
-                                            resultados por capas y gráficos interactivos.</p>
-                                        <ul class="feature-list">
-                                            <li><i class="bi bi-check-circle-fill"></i><strong>Selección de
-                                                    área:</strong> Elige qué área analizar en detalle</li>
-                                            <li><i class="bi bi-check-circle-fill"></i><strong>Resultados por
-                                                    capas:</strong> Vista detallada de elementos encontrados por
-                                                temática</li>
-                                            <li><i class="bi bi-check-circle-fill"></i><strong>Gráficos
-                                                    interactivos:</strong> Barras clicables para navegación al mapa</li>
-                                            <li><i class="bi bi-check-circle-fill"></i><strong>Métricas
-                                                    resumidas:</strong> Área, población y elementos totales</li>
-                                        </ul>
-
-                                        <h6 class="fw-bold mb-3 mt-4">Sección 4: Reportes Globales</h6>
-                                        <p class="small text-muted mb-2">Visualización comparativa y exportación de
-                                            datos consolidados de todas las áreas.</p>
-                                        <ul class="feature-list">
-                                            <li><i class="bi bi-check-circle-fill"></i><strong>Gráficos
-                                                    globales:</strong> Distribución total y comparación entre áreas</li>
-                                            <li><i class="bi bi-check-circle-fill"></i><strong>Reporte Excel
-                                                    unificado:</strong> Todas las áreas en un solo archivo con hojas por
-                                                capa</li>
-                                            <li><i class="bi bi-check-circle-fill"></i><strong>Validación
-                                                    inter-áreas:</strong> Detección automática de superposiciones entre
-                                                KMLs diferentes</li>
-                                        </ul>
-                                    </div>
-                                </div>
-
-                                <h6 class="fw-bold mb-2 mt-3">¿Cuándo usar la Versión Multi-Área?</h6>
-                                <p class="small text-muted mb-0">Esencial para proyectos que requieren comparar
-                                    múltiples áreas de interés, análisis regionales o evaluaciones de impacto
-                                    territorial con reportes consolidados.</p>
-
-                                <div class="mt-4 text-center">
-                                    <a href="index3.html" class="btn btn-version text-white"
-                                        style="background: linear-gradient(45deg, #ffc107, #fd7e14);">
-                                        <i class="bi bi-arrow-right-circle me-2"></i>Usar Versión 3
-                                    </a>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
+<body class="bg-background-light text-slate-900 transition-colors duration-300">
+    <div class="h-12 w-full bg-primary"></div>
+    <header
+        class="bg-primary text-white pt-10 pb-20 px-6 text-center rounded-b-[40px] shadow-lg relative overflow-hidden md:rounded-b-[80px]">
+        <div class="absolute inset-0 opacity-10">
+            <svg class="w-full h-full" preserveAspectRatio="none" viewBox="0 0 100 100">
+                <path d="M0 100 C 20 0 50 0 100 100 Z" fill="white"></path>
+            </svg>
+        </div>
+        <div class="relative z-10 flex flex-col items-center max-w-4xl mx-auto">
+            <div
+                class="flex items-center gap-6 mb-8 bg-white/10 p-4 rounded-3xl backdrop-blur-md border border-white/20">
+                <img src="img/logo_gob.png" alt="Gobierno de México" class="h-10 md:h-12 brightness-0 invert">
+                <div class="w-px h-8 bg-white/30 hidden md:block"></div>
+                <img src="img/logo_sener.png" alt="SENER / CNE" class="h-10 md:h-12 brightness-0 invert">
             </div>
+            <h1 class="text-4xl md:text-5xl font-extrabold tracking-tight mb-4 text-balance">Geovisualizador de Áreas de
+                Interés</h1>
+            <p class="text-lg md:text-xl text-white/80 max-w-2xl mx-auto leading-relaxed text-balance font-light">
+                Plataforma avanzada para la gestión territorial, análisis de impacto social y visualización de capas
+                geoespaciales críticas.
+            </p>
+        </div>
+    </header>
+
+    <!-- FAB MENU (Global Navigation) -->
+    <div class="fab-container" id="fab-container">
+        <button id="fab-main-btn" class="fab-main-btn">
+            <span class="material-icons-round">menu</span>
+            <span class="font-bold uppercase tracking-wider text-xs">Menú</span>
+        </button>
+        <div class="fab-menu-panel card-shadow">
+            <a href="index0.html" class="fab-item">
+                <span class="material-icons-round">rocket_launch</span>
+                <span>Análisis V0 (Indígena)</span>
+            </a>
+            <a href="index1.html" class="fab-item">
+                <span class="material-icons-round">explore</span>
+                <span>Análisis V1 (INEGI)</span>
+            </a>
+            <a href="index2.html" class="fab-item">
+                <span class="material-icons-round">auto_awesome_motion</span>
+                <span>Análisis V2 (Multicapa)</span>
+            </a>
+            <a href="index3.html" class="fab-item">
+                <span class="material-icons-round">batch_prediction</span>
+                <span>Análisis V3 (Multi-Área)</span>
+            </a>
+            <div class="fab-divider"></div>
+            <button class="fab-item" onclick="location.reload()">
+                <span class="material-icons-round">refresh</span>
+                <span>Actualizar página</span>
+            </button>
         </div>
     </div>
 
-    <!-- Capas disponibles -->
-    <section class="container my-5">
-        <div class="row justify-content-center">
-            <div class="col-lg-10">
-                <div class="hero-section text-white p-4 mb-4">
-                    <h2 class="h4 mb-1">Capas disponibles</h2>
-                    <p class="mb-0 text-white-50">Resumen de las capas temáticas que se intersectan con tu área de
-                        interés. Indicamos en qué versiones están habilitadas.</p>
+    <main class="px-5 -mt-10 pb-24 relative z-20 max-w-6xl mx-auto">
+        <!-- Grid de Versiones -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-16">
+            <!-- Versión 0 -->
+            <section
+                class="bg-white dark:bg-slate-900 rounded-2xl overflow-hidden card-shadow border border-slate-100 dark:border-slate-800 flex flex-col transition-all hover:shadow-2xl">
+                <div class="bg-version-0 p-6 text-white flex items-center justify-between">
+                    <div class="flex items-center gap-4">
+                        <span class="material-icons-round text-3xl">psychology</span>
+                        <div>
+                            <h2 class="font-bold text-xl leading-tight">V0: Análisis Automático</h2>
+                            <p class="text-[10px] opacity-80 uppercase tracking-widest font-semibold">Enfoque Indígena
+                            </p>
+                        </div>
+                    </div>
+                    <span class="bg-white/20 text-[11px] px-2.5 py-1 rounded-full font-bold">ALPHA</span>
+                </div>
+                <div class="p-8 space-y-6 flex-1 flex flex-col">
+                    <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed italic">"Simplicidad absoluta:
+                        carga tu KML y obtén resultados al instante."</p>
+                    <p class="text-sm text-slate-700 dark:text-slate-300">Variante diseñada para análisis rápidos de
+                        **capas indígenas**. No requiere configuración de buffer; el sistema procesa el polígono exacto
+                        para identificar lenguas, pueblos y territorios ancestrales de forma inmediata.</p>
+                    <ul class="space-y-4 flex-1">
+                        <li class="flex items-start gap-3 text-sm">
+                            <span class="material-icons-round text-version-0">verified</span>
+                            <span>Validación automática de geometría KML.</span>
+                        </li>
+                        <li class="flex items-start gap-3 text-sm">
+                            <span class="material-icons-round text-version-0">auto_fix_high</span>
+                            <span>Reporte Excel inmediato de Pueblos y Lenguas.</span>
+                        </li>
+                    </ul>
+                    <a href="index0.html"
+                        class="w-full bg-version-0 hover:bg-slate-700 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg">
+                        <span class="material-icons-round">rocket_launch</span>
+                        INICIAR ANÁLISIS V0
+                    </a>
+                </div>
+            </section>
+
+            <!-- Versión 1 -->
+            <section
+                class="bg-white dark:bg-slate-900 rounded-2xl overflow-hidden card-shadow border border-slate-100 dark:border-slate-800 flex flex-col transition-all hover:shadow-2xl">
+                <div class="bg-version-1 p-6 text-white flex items-center justify-between">
+                    <div class="flex items-center gap-4">
+                        <span class="material-icons-round text-3xl">location_city</span>
+                        <div>
+                            <h2 class="font-bold text-xl leading-tight">V1: Localidades</h2>
+                            <p class="text-[10px] opacity-80 uppercase tracking-widest font-semibold">Precisión INEGI
+                            </p>
+                        </div>
+                    </div>
+                    <span class="bg-white/20 text-[11px] px-2.5 py-1 rounded-full font-bold">STABLE</span>
+                </div>
+                <div class="p-8 space-y-6 flex-1 flex flex-col">
+                    <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed italic">"Identifica quién vive
+                        en tu área de influencia con precisión atómica."</p>
+                    <p class="text-sm text-slate-700 dark:text-slate-300">Especializada en la intersección de
+                        **localidades mexicanas**. Permite configurar una zona de influencia (buffer) en metros para
+                        evaluar el impacto demográfico real en el entorno del proyecto.</p>
+                    <ul class="space-y-4 flex-1">
+                        <li class="flex items-start gap-3 text-sm">
+                            <span class="material-icons-round text-version-1">radar</span>
+                            <span>Buffer paramétrico ajustable por el usuario.</span>
+                        </li>
+                        <li class="flex items-start gap-3 text-sm">
+                            <span class="material-icons-round text-version-1">analytics</span>
+                            <span>Métricas demográficas basadas en CIVEGEO e INEGI.</span>
+                        </li>
+                    </ul>
+                    <a href="index1.html"
+                        class="w-full bg-version-1 hover:brightness-110 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg">
+                        <span class="material-icons-round">explore</span>
+                        INICIAR ANÁLISIS V1
+                    </a>
+                </div>
+            </section>
+
+            <!-- Versión 2 -->
+            <section
+                class="bg-white dark:bg-slate-900 rounded-2xl overflow-hidden card-shadow border border-slate-100 dark:border-slate-800 flex flex-col transition-all hover:shadow-2xl">
+                <div class="bg-version-2 p-6 text-white flex items-center justify-between">
+                    <div class="flex items-center gap-4">
+                        <span class="material-icons-round text-3xl">dynamic_feed</span>
+                        <div>
+                            <h2 class="font-bold text-xl leading-tight">V2: Multicapa Pro</h2>
+                            <p class="text-[10px] opacity-80 uppercase tracking-widest font-semibold">Visión Integral
+                            </p>
+                        </div>
+                    </div>
+                    <span class="bg-white/20 text-[11px] px-2.5 py-1 rounded-full font-bold">ADVANCED</span>
+                </div>
+                <div class="p-8 space-y-6 flex-1 flex flex-col">
+                    <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed italic">"El estándar de oro
+                        para análisis territoriales complejos."</p>
+                    <p class="text-sm text-slate-700 dark:text-slate-300">Integra **14 capas geoespaciales** en un solo
+                        visor. Desde tenencia de tierra (RAN) hasta restricciones ambientales (ANP) y patrimonio
+                        cultural (ZA), todo en un entorno interactivo y profesional.</p>
+                    <ul class="space-y-4 flex-1">
+                        <li class="flex items-start gap-3 text-sm">
+                            <span class="material-icons-round text-version-2">dashboard_customize</span>
+                            <span>14 capas seleccionables con filtros inteligentes.</span>
+                        </li>
+                        <li class="flex items-start gap-3 text-sm">
+                            <span class="material-icons-round text-version-2">map</span>
+                            <span>Navegación contextual con zoom automático al área.</span>
+                        </li>
+                    </ul>
+                    <a href="index2.html"
+                        class="w-full bg-version-2 hover:brightness-110 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg">
+                        <span class="material-icons-round">auto_awesome_motion</span>
+                        INICIAR ANÁLISIS V2
+                    </a>
+                </div>
+            </section>
+
+            <!-- Versión 3 -->
+            <section
+                class="bg-white dark:bg-slate-900 rounded-2xl overflow-hidden card-shadow border border-slate-100 dark:border-slate-800 flex flex-col transition-all hover:shadow-2xl">
+                <div class="bg-version-3 p-6 text-white flex items-center justify-between">
+                    <div class="flex items-center gap-4">
+                        <span class="material-icons-round text-3xl">hub</span>
+                        <div>
+                            <h2 class="font-bold text-xl leading-tight">V3: Multi-Área</h2>
+                            <p class="text-[10px] opacity-80 uppercase tracking-widest font-semibold">Gestión de
+                                Portafolio</p>
+                        </div>
+                    </div>
+                    <span class="bg-white/20 text-[11px] px-2.5 py-1 rounded-full font-bold">ENTERPRISE</span>
+                </div>
+                <div class="p-8 space-y-6 flex-1 flex flex-col">
+                    <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed italic">"Analiza múltiples
+                        proyectos simultáneamente sin perder el control."</p>
+                    <p class="text-sm text-slate-700 dark:text-slate-300">La versión más potente que permite procesar
+                        **hasta 10 KMLs al mismo tiempo**. Ideal para evaluaciones regionales o comparativas masivas con
+                        reportes globales unificados.</p>
+                    <ul class="space-y-4 flex-1">
+                        <li class="flex items-start gap-3 text-sm">
+                            <span class="material-icons-round text-version-3">playlist_add_check_circle</span>
+                            <span>Carga múltiple paralela y detección de traslapes.</span>
+                        </li>
+                        <li class="flex items-start gap-3 text-sm">
+                            <span class="material-icons-round text-version-3">summarize</span>
+                            <span>Reporte Excel consolidado multioja por área analizada.</span>
+                        </li>
+                    </ul>
+                    <a href="index3.html"
+                        class="w-full bg-version-3 hover:brightness-110 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg">
+                        <span class="material-icons-round">batch_prediction</span>
+                        INICIAR ANÁLISIS V3
+                    </a>
+                </div>
+            </section>
+        </div>
+
+        <!-- Sección de Capas -->
+        <section class="pt-12 border-t border-slate-100 dark:border-slate-800">
+            <div class="flex flex-col md:flex-row items-center justify-between mb-10 gap-4">
+                <div class="text-center md:text-left">
+                    <h3 class="text-3xl font-extrabold mb-1">Capas de Información</h3>
+                    <p class="text-sm text-slate-500 font-medium italic">Inventario geoespacial de alta resolución</p>
+                </div>
+                <div
+                    class="bg-slate-100 dark:bg-slate-800 text-slate-600 px-6 py-2.5 rounded-full text-xs font-black tracking-widest">
+                    14 CAPAS INTEGRADAS
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4" id="layers-grid">
+                <!-- Capa 1: Localidades -->
+                <div
+                    class="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 flex items-center gap-4 card-shadow hover:bg-slate-50 transition-all cursor-default group">
+                    <div
+                        class="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600 group-hover:scale-110 transition-transform">
+                        <span class="material-icons-round text-2xl">apartment</span>
+                    </div>
+                    <div>
+                        <p class="font-bold text-sm leading-tight">Localidades</p>
+                        <p class="text-[10px] text-slate-400">Puntos INEGI / CVEGEO</p>
+                    </div>
+                </div>
+                <!-- Capa 2: Atlas Pueblos Indígenas -->
+                <div
+                    class="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 flex items-center gap-4 card-shadow hover:bg-slate-50 transition-all cursor-default group">
+                    <div
+                        class="w-12 h-12 rounded-xl bg-amber-50 flex items-center justify-center text-amber-600 group-hover:scale-110 transition-transform">
+                        <span class="material-icons-round text-2xl">terrain</span>
+                    </div>
+                    <div>
+                        <p class="font-bold text-sm leading-tight">Atlas Indígena</p>
+                        <p class="text-[10px] text-slate-400">Territorio y Cultura</p>
+                    </div>
+                </div>
+                <!-- Capa 3: Municipios -->
+                <div
+                    class="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 flex items-center gap-4 card-shadow hover:bg-slate-50 transition-all cursor-default group">
+                    <div
+                        class="w-12 h-12 rounded-xl bg-slate-50 flex items-center justify-center text-slate-600 group-hover:scale-110 transition-transform">
+                        <span class="material-icons-round text-2xl">map</span>
+                    </div>
+                    <div>
+                        <p class="font-bold text-sm leading-tight">Municipios</p>
+                        <p class="text-[10px] text-slate-400">Límites Administrativos</p>
+                    </div>
+                </div>
+                <!-- Capa 4: Regiones Indígenas -->
+                <div
+                    class="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 flex items-center gap-4 card-shadow hover:bg-slate-50 transition-all cursor-default group">
+                    <div
+                        class="w-12 h-12 rounded-xl bg-orange-50 flex items-center justify-center text-orange-600 group-hover:scale-110 transition-transform">
+                        <span class="material-icons-round text-2xl">public</span>
+                    </div>
+                    <div>
+                        <p class="font-bold text-sm leading-tight">Regiones Indígenas</p>
+                        <p class="text-[10px] text-slate-400">Zonas Identitarias</p>
+                    </div>
+                </div>
+                <!-- Capa 5: RAN -->
+                <div
+                    class="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 flex items-center gap-4 card-shadow hover:bg-slate-50 transition-all cursor-default group">
+                    <div
+                        class="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600 group-hover:scale-110 transition-transform">
+                        <span class="material-icons-round text-2xl">agriculture</span>
+                    </div>
+                    <div>
+                        <p class="font-bold text-sm leading-tight">RAN</p>
+                        <p class="text-[10px] text-slate-400">Núcleos Agrarios</p>
+                    </div>
+                </div>
+                <!-- Capa 6: Lenguas Indígenas -->
+                <div
+                    class="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 flex items-center gap-4 card-shadow hover:bg-slate-50 transition-all cursor-default group">
+                    <div
+                        class="w-12 h-12 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600 group-hover:scale-110 transition-transform">
+                        <span class="material-icons-round text-2xl">translate</span>
+                    </div>
+                    <div>
+                        <p class="font-bold text-sm leading-tight">Lenguas</p>
+                        <p class="text-[10px] text-slate-400">Diversidad Lingüística</p>
+                    </div>
+                </div>
+                <!-- Capa 7: ZA Público Puntos -->
+                <div
+                    class="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 flex items-center gap-4 card-shadow hover:bg-slate-50 transition-all cursor-default group">
+                    <div
+                        class="w-12 h-12 rounded-xl bg-rose-50 flex items-center justify-center text-rose-600 group-hover:scale-110 transition-transform">
+                        <span class="material-icons-round text-2xl">account_balance</span>
+                    </div>
+                    <div>
+                        <p class="font-bold text-sm leading-tight">ZA Puntos</p>
+                        <p class="text-[10px] text-slate-400">Zonas Arqueológicas</p>
+                    </div>
+                </div>
+                <!-- Capa 8: ZA Público Áreas -->
+                <div
+                    class="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 flex items-center gap-4 card-shadow hover:bg-slate-50 transition-all cursor-default group">
+                    <div
+                        class="w-12 h-12 rounded-xl bg-rose-100 flex items-center justify-center text-rose-800 group-hover:scale-110 transition-transform">
+                        <span class="material-icons-round text-2xl">history_edu</span>
+                    </div>
+                    <div>
+                        <p class="font-bold text-sm leading-tight">ZA Áreas</p>
+                        <p class="text-[10px] text-slate-400">Perímetros Culturales</p>
+                    </div>
+                </div>
+                <!-- Capa 9: ANP Estatales -->
+                <div
+                    class="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 flex items-center gap-4 card-shadow hover:bg-slate-50 transition-all cursor-default group">
+                    <div
+                        class="w-12 h-12 rounded-xl bg-green-50 flex items-center justify-center text-green-600 group-hover:scale-110 transition-transform">
+                        <span class="material-icons-round text-2xl">park</span>
+                    </div>
+                    <div>
+                        <p class="font-bold text-sm leading-tight">ANP Estatales</p>
+                        <p class="text-[10px] text-slate-400">Reservas Ecológicas</p>
+                    </div>
+                </div>
+                <!-- Capa 10: Ramsar -->
+                <div
+                    class="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 flex items-center gap-4 card-shadow hover:bg-slate-50 transition-all cursor-default group">
+                    <div
+                        class="w-12 h-12 rounded-xl bg-cyan-50 flex items-center justify-center text-cyan-600 group-hover:scale-110 transition-transform">
+                        <span class="material-icons-round text-2xl">water</span>
+                    </div>
+                    <div>
+                        <p class="font-bold text-sm leading-tight">Ramsar</p>
+                        <p class="text-[10px] text-slate-400">Humedales Protegidos</p>
+                    </div>
+                </div>
+                <!-- Capa 11: Sitios Arqueológicos -->
+                <div
+                    class="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 flex items-center gap-4 card-shadow hover:bg-slate-50 transition-all cursor-default group">
+                    <div
+                        class="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center text-amber-800 group-hover:scale-110 transition-transform">
+                        <span class="material-icons-round text-2xl">temple_hindu</span>
+                    </div>
+                    <div>
+                        <p class="font-bold text-sm leading-tight">Otros Sitios ZA</p>
+                        <p class="text-[10px] text-slate-400">Vestigios Históricos</p>
+                    </div>
+                </div>
+                <!-- Capa 12: Zonas Históricas -->
+                <div
+                    class="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 flex items-center gap-4 card-shadow hover:bg-slate-50 transition-all cursor-default group">
+                    <div
+                        class="w-12 h-12 rounded-xl bg-stone-50 flex items-center justify-center text-stone-600 group-hover:scale-110 transition-transform">
+                        <span class="material-icons-round text-2xl">fort</span>
+                    </div>
+                    <div>
+                        <p class="font-bold text-sm leading-tight">Zonas Históricas</p>
+                        <p class="text-[10px] text-slate-400">Centros Patrimoniales</p>
+                    </div>
+                </div>
+                <!-- Capa 13: Loc Indígenas Datos -->
+                <div
+                    class="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 flex items-center gap-4 card-shadow hover:bg-slate-50 transition-all cursor-default group">
+                    <div
+                        class="w-12 h-12 rounded-xl bg-purple-50 flex items-center justify-center text-purple-600 group-hover:scale-110 transition-transform">
+                        <span class="material-icons-round text-2xl">data_exploration</span>
+                    </div>
+                    <div>
+                        <p class="font-bold text-sm leading-tight">Datos Indígenas</p>
+                        <p class="text-[10px] text-slate-400">Variables Sociales</p>
+                    </div>
+                </div>
+                <!-- Capa 14: Ruta Wixarika -->
+                <div
+                    class="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 flex items-center gap-4 card-shadow hover:bg-slate-50 transition-all cursor-default group">
+                    <div
+                        class="w-12 h-12 rounded-xl bg-red-50 flex items-center justify-center text-red-600 group-hover:scale-110 transition-transform">
+                        <span class="material-icons-round text-2xl">route</span>
+                    </div>
+                    <div>
+                        <p class="font-bold text-sm leading-tight">Ruta Wixárika</p>
+                        <p class="text-[10px] text-slate-400">Sitios Sagrados</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-8 p-6 bg-slate-50 rounded-2xl border border-slate-200 text-center text-sm text-slate-600">
+                <p>Todas las capas son actualizadas dinámicamente desde los servidores oficiales de **SENER** y **CNE**.
+                </p>
+            </div>
+        </section>
+    </main>
+
+    <footer class="bg-primary text-white py-12 px-6 mt-12 border-t border-white/10 relative overflow-hidden">
+        <div class="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-4 gap-12 relative z-10">
+            <!-- Columna 1: Logo -->
+            <div class="flex flex-col items-center md:items-start text-center md:text-left">
+                <img src="img/logo_gob.png" alt="Gobierno de México" class="h-16 mb-6 brightness-0 invert opacity-100">
+                <p class="text-[10px] opacity-40 leading-relaxed max-w-[200px]">
+                    Portal Único de Trámites, Información y Participación Ciudadana.
+                </p>
+            </div>
+
+            <!-- Columna 2: Enlaces -->
+            <div class="space-y-4 text-center md:text-left">
+                <h4 class="text-sm font-bold uppercase tracking-wider mb-6">Enlaces</h4>
+                <ul class="space-y-2 text-sm text-white/80 list-none p-0">
+                    <li><a href="#" class="text-white/80 hover:text-white transition-colors">Datos</a></li>
+                    <li><a href="#" class="text-white/80 hover:text-white transition-colors">Transparencia</a></li>
+                    <li><a href="https://www.plataformadetransparencia.org.mx/" target="_blank"
+                            class="text-white/80 hover:text-white transition-colors">PNT</a></li>
+                    <li><a href="https://home.inai.org.mx/" target="_blank"
+                            class="text-white/80 hover:text-white transition-colors">INAI</a></li>
+                    <li><a href="#" class="text-white/80 hover:text-white transition-colors">Alerta</a></li>
+                    <li><a href="#" class="text-white/80 hover:text-white transition-colors">Denuncia</a></li>
+                </ul>
+            </div>
+
+            <!-- Columna 3: Información -->
+            <div class="space-y-4 text-center md:text-left">
+                <h4 class="text-sm font-bold uppercase tracking-wider mb-6">¿Qué es gob.mx?</h4>
+                <p class="text-sm text-white/80 leading-relaxed max-w-xs mx-auto md:mx-0">
+                    Es el portal único de trámites, información y participación ciudadana. <a href="#"
+                        class="text-white underline font-bold">Leer más</a>
+                </p>
+                <ul class="pt-4 space-y-2 text-sm text-white/80 list-none p-0">
+                    <li><a href="#" class="text-white/80 hover:text-white transition-colors">English</a></li>
+                    <li><a href="#" class="text-white/80 hover:text-white transition-colors">Declaración de
+                            Accesibilidad</a></li>
+                    <li><a href="#" class="text-white/80 hover:text-white transition-colors">Términos y Condiciones</a>
+                    </li>
+                    <li><a href="#" class="text-white/80 hover:text-white transition-colors">Aviso de Privacidad</a>
+                    </li>
+                </ul>
+            </div>
+
+            <!-- Columna 4: Contacto y Redes -->
+            <div class="space-y-6 text-center md:text-left">
+                <h4 class="text-sm font-bold uppercase tracking-wider mb-6">Contacto</h4>
+                <div class="space-y-1">
+                    <p class="text-[11px] text-white/60">Dudas e información a</p>
+                    <a href="mailto:calidad@energia.gob.mx"
+                        class="text-white text-sm font-bold hover:underline">calidad@energia.gob.mx</a>
                 </div>
 
-                <div class="row g-3">
-                    <!-- Localidades -->
-                    <div class="col-12 col-md-6 col-lg-4">
-                        <div class="card h-100 version-card">
-                            <div class="card-body text-oscuro">
-                                <h6 class="mb-1">Localidades</h6>
-                                <p class="small text-muted mb-2">Puntos de localidades (INEGI) con CVEGEO y población.
-                                    Base de métricas (densidades).</p>
-                                <div class="d-flex gap-2 small"><span class="badge bg-secundario">V1</span><span
-                                        class="badge bg-secundario">V2</span><span class="badge bg-secundario">V3</span>
-                                </div>
-                            </div>
-                        </div>
+                <div class="flex flex-col items-center md:items-start gap-4">
+                    <p class="text-[11px] text-white/60 uppercase tracking-widest">Síguenos en</p>
+                    <div class="flex gap-3">
+                        <a href="#"
+                            class="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 transition-all">
+                            <i class="material-icons-round text-xl text-white">facebook</i>
+                        </a>
+                        <a href="#"
+                            class="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 transition-all">
+                            <span class="material-icons-round text-xl text-white">alternate_email</span>
+                        </a>
+                        <a href="#"
+                            class="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 transition-all">
+                            <i class="material-icons-round text-xl text-white">smart_display</i>
+                        </a>
+                        <a href="#"
+                            class="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 transition-all">
+                            <i class="material-icons-round text-xl text-white">photo_camera</i>
+                        </a>
                     </div>
-
-                    <!-- Atlas Pueblos Indígenas -->
-                    <div class="col-12 col-md-6 col-lg-4">
-                        <div class="card h-100 version-card">
-                            <div class="card-body text-oscuro">
-                                <h6 class="mb-1">Atlas Pueblos Indígenas</h6>
-                                <p class="small text-muted mb-2">Polígonos del Atlas de Pueblos Indígenas para contexto
-                                    cultural y territorial.</p>
-                                <div class="d-flex gap-2 small"><span class="badge bg-secundario">V2</span><span
-                                        class="badge bg-secundario">V3</span></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Municipios -->
-                    <div class="col-12 col-md-6 col-lg-4">
-                        <div class="card h-100 version-card">
-                            <div class="card-body text-oscuro">
-                                <h6 class="mb-1">Municipios</h6>
-                                <p class="small text-muted mb-2">Límites municipales para referencia administrativa y
-                                    conteos por jurisdicción.</p>
-                                <div class="d-flex gap-2 small"><span class="badge bg-secundario">V2</span><span
-                                        class="badge bg-secundario">V3</span></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Regiones Indígenas -->
-                    <div class="col-12 col-md-6 col-lg-4">
-                        <div class="card h-100 version-card">
-                            <div class="card-body text-oscuro">
-                                <h6 class="mb-1">Regiones Indígenas</h6>
-                                <p class="small text-muted mb-2">Polígonos de regiones indígenas reconocidas para
-                                    análisis temático.</p>
-                                <div class="d-flex gap-2 small"><span class="badge bg-secundario">V2</span><span
-                                        class="badge bg-secundario">V3</span></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- RAN -->
-                    <div class="col-12 col-md-6 col-lg-4">
-                        <div class="card h-100 version-card">
-                            <div class="card-body text-oscuro">
-                                <h6 class="mb-1">RAN</h6>
-                                <p class="small text-muted mb-2">Áreas del Registro Agrario Nacional (ejidos,
-                                    comunidades). Uso de suelo y tenencia.</p>
-                                <div class="d-flex gap-2 small"><span class="badge bg-secundario">V2</span><span
-                                        class="badge bg-secundario">V3</span></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Lenguas Indígenas -->
-                    <div class="col-12 col-md-6 col-lg-4">
-                        <div class="card h-100 version-card">
-                            <div class="card-body text-oscuro">
-                                <h6 class="mb-1">Lenguas Indígenas</h6>
-                                <p class="small text-muted mb-2">Distribución por lengua indígena (puntos/agrupaciones)
-                                    para contexto sociolingüístico.</p>
-                                <div class="d-flex gap-2 small"><span class="badge bg-secundario">V2</span><span
-                                        class="badge bg-secundario">V3</span></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Zonas Arqueológicas (Puntos) -->
-                    <div class="col-12 col-md-6 col-lg-4">
-                        <div class="card h-100 version-card">
-                            <div class="card-body text-oscuro">
-                                <h6 class="mb-1">ZA Público (Puntos)</h6>
-                                <p class="small text-muted mb-2">Zonas arqueológicas abiertas al público como puntos de
-                                    referencia.</p>
-                                <div class="d-flex gap-2 small"><span class="badge bg-secundario">V2</span><span
-                                        class="badge bg-secundario">V3</span></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Zonas Arqueológicas (Áreas) -->
-                    <div class="col-12 col-md-6 col-lg-4">
-                        <div class="card h-100 version-card">
-                            <div class="card-body text-oscuro">
-                                <h6 class="mb-1">ZA Público A (Áreas)</h6>
-                                <p class="small text-muted mb-2">Polígonos de zonas arqueológicas para evaluación
-                                    espacial precisa.</p>
-                                <div class="d-flex gap-2 small"><span class="badge bg-secundario">V2</span><span
-                                        class="badge bg-secundario">V3</span></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- ANP Estatales -->
-                    <div class="col-12 col-md-6 col-lg-4">
-                        <div class="card h-100 version-card">
-                            <div class="card-body text-oscuro">
-                                <h6 class="mb-1">ANP Estatales</h6>
-                                <p class="small text-muted mb-2">Áreas Naturales Protegidas Estatales (polígonos) para
-                                    restricciones ambientales.</p>
-                                <div class="d-flex gap-2 small"><span class="badge bg-secundario">V2</span><span
-                                        class="badge bg-secundario">V3</span></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Ramsar -->
-                    <div class="col-12 col-md-6 col-lg-4">
-                        <div class="card h-100 version-card">
-                            <div class="card-body text-oscuro">
-                                <h6 class="mb-1">Ramsar</h6>
-                                <p class="small text-muted mb-2">Sitios Ramsar (humedales de importancia internacional)
-                                    como polígonos.</p>
-                                <div class="d-flex gap-2 small"><span class="badge bg-secundario">V2</span><span
-                                        class="badge bg-secundario">V3</span></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Sitios Arqueológicos -->
-                    <div class="col-12 col-md-6 col-lg-4">
-                        <div class="card h-100 version-card">
-                            <div class="card-body text-oscuro">
-                                <h6 class="mb-1">Sitios Arqueológicos</h6>
-                                <p class="small text-muted mb-2">Inventario de otros sitios arqueológicos relevantes
-                                    para el contexto del área.</p>
-                                <div class="d-flex gap-2 small"><span class="badge bg-secundario">V2</span><span
-                                        class="badge bg-secundario">V3</span></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Zonas Históricas -->
-                    <div class="col-12 col-md-6 col-lg-4">
-                        <div class="card h-100 version-card">
-                            <div class="card-body text-oscuro">
-                                <h6 class="mb-1">Zonas Históricas</h6>
-                                <p class="small text-muted mb-2">Zonas de monumentos históricos (polígonos) con
-                                    restricciones patrimoniales.</p>
-                                <div class="d-flex gap-2 small"><span class="badge bg-secundario">V2</span><span
-                                        class="badge bg-secundario">V3</span></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Loc Indígenas Datos -->
-                    <div class="col-12 col-md-6 col-lg-4">
-                        <div class="card h-100 version-card">
-                            <div class="card-body text-oscuro">
-                                <h6 class="mb-1">Loc Indígenas Datos</h6>
-                                <p class="small text-muted mb-2">Enriquecimiento con variables sociodemográficas de
-                                    localidades indígenas.</p>
-                                <div class="d-flex gap-2 small"><span class="badge bg-secundario">V2</span><span
-                                        class="badge bg-secundario">V3</span></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Ruta Wixarika -->
-                    <div class="col-12 col-md-6 col-lg-4">
-                        <div class="card h-100 version-card">
-                            <div class="card-body text-oscuro">
-                                <h6 class="mb-1">Ruta Wixarika</h6>
-                                <p class="small text-muted mb-2">Multipolígonos de la ruta cultural Wixárika para
-                                    referencia territorial.</p>
-                                <div class="d-flex gap-2 small"><span class="badge bg-secundario">V2</span><span
-                                        class="badge bg-secundario">V3</span></div>
-                            </div>
-                        </div>
-                    </div>
-
                 </div>
             </div>
         </div>
-    </section>
 
-    <!-- Footer institucional -->
-    <footer class="gov-footer mt-5 pt-4 text-white">
-        <div class="container-fluid px-4">
-            <div class="row gy-4">
-                <div class="col-12 col-md-3 d-flex align-items-start">
-                    <img src="img/logo_gob.png" alt="Gobierno de México" style="height:54px" class="me-3 mt-1">
-                </div>
-                <div class="col-12 col-md-3">
-                    <h6 class="text-uppercase fw-semibold">Enlaces</h6>
-                    <ul class="list-unstyled mt-3 mb-0">
-                        <li><a href="#" class="link-light">Datos</a></li>
-                        <li><a href="#" class="link-light">Transparencia</a></li>
-                        <li><a href="#" class="link-light">PNT</a></li>
-                        <li><a href="#" class="link-light">INAI</a></li>
-                        <li><a href="#" class="link-light">Alerta</a></li>
-                        <li><a href="#" class="link-light">Denuncia</a></li>
-                    </ul>
-                </div>
-                <div class="col-12 col-md-3">
-                    <h6 class="text-uppercase fw-semibold">¿Qué es gob.mx?</h6>
-                    <p class="small mt-3 mb-2">Es el portal único de trámites, información y participación
-                        ciudadana. Leer más</p>
-                    <ul class="list-unstyled small mb-0">
-                        <li><a href="#" class="link-light">English</a></li>
-                        <li><a href="#" class="link-light">Declaración de Accesibilidad</a></li>
-                        <li><a href="#" class="link-light">Privacidad</a></li>
-                    </ul>
-                </div>
-                <div class="col-12 col-md-3">
-                    <h6 class="text-uppercase fw-semibold">Contacto</h6>
-                    <p class="small mt-3 mb-2">Dudas e información a<br>
-                        <a class="link-light" href="mailto:calidad@energia.gob.mx">calidad@energia.gob.mx</a>
-                    </p>
-                    <div class="mt-3">
-                        <span class="small d-block mb-2">Síguenos en</span>
-                        <div class="d-flex gap-3 fs-4">
-                            <a class="link-light" href="#" aria-label="Facebook"><i class="bi bi-facebook"></i></a>
-                            <a class="link-light" href="#" aria-label="X"><i class="bi bi-twitter-x"></i></a>
-                            <a class="link-light" href="#" aria-label="YouTube"><i class="bi bi-youtube"></i></a>
-                            <a class="link-light" href="#" aria-label="Instagram"><i class="bi bi-instagram"></i></a>
-                        </div>
-                    </div>
-                </div>
-            </div>
+        <div class="mt-16 pt-8 border-t border-white/5 text-center">
+            <p class="text-[10px] opacity-30 uppercase tracking-[0.2em]">
+                © 2024 Geovisualizador - Gobierno de México • Secretaría de Energía • CNE
+            </p>
         </div>
-        <div class="footer-pattern"></div>
     </footer>
 
-    <!-- Bootstrap JS -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Navegación Mobile-First (Oculta en Desktop) -->
+    <nav
+        class="md:hidden fixed bottom-0 left-0 right-0 bg-white/80 dark:bg-slate-900/80 ios-blur border-t border-slate-200 dark:border-slate-800 px-8 py-4 flex justify-between items-center z-50 rounded-t-3xl shadow-2xl">
+        <button class="flex flex-col items-center gap-1.5 text-primary">
+            <span class="material-icons-round text-2xl">home</span>
+            <span class="text-[9px] font-bold uppercase tracking-tighter">Inicio</span>
+        </button>
+        <button class="flex flex-col items-center gap-1.5 text-slate-400">
+            <span class="material-icons-round text-2xl">map</span>
+            <span class="text-[9px] font-bold uppercase tracking-tighter">Mapa</span>
+        </button>
+        <button class="flex flex-col items-center gap-1.5 text-slate-400">
+            <span class="material-icons-round text-2xl">history</span>
+            <span class="text-[9px] font-bold uppercase tracking-tighter">Historial</span>
+        </button>
+        <button class="flex flex-col items-center gap-1.5 text-slate-400">
+            <span class="material-icons-round text-2xl">settings</span>
+            <span class="text-[9px] font-bold uppercase tracking-tighter">Ajustes</span>
+        </button>
+    </nav>
+
+    <script>
+        const fabContainer = document.getElementById('fab-container');
+        const fabBtn = document.getElementById('fab-main-btn');
+
+        fabBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            fabContainer.classList.toggle('active');
+        });
+
+        document.addEventListener('click', () => {
+            fabContainer.classList.remove('active');
+        });
+    </script>
+
 </body>
 
 </html>

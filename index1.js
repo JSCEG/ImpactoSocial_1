@@ -1,12 +1,50 @@
 /**
- * GEOVISUALIZADOR DE ÁREAS DE INTERÉS - SENER
- * ==========================================
- * 
- * Sistema para la visualización y análisis geoespacial de localidades
- * en relación con áreas de interés definidas por archivos KML.
- * 
- * Desarrollado para la Secretaría de Energía (SENER) - Gobierno de México
+ * GEOVISUALIZADOR DE ÁREAS DE INTERÉS - VERSIÓN LOCALIDADES
+ * ========================================================
+ *
+ * Esta herramienta ayuda a las personas a ver en un mapa qué localidades
+ * (pueblos y ciudades) están dentro de una zona que eligen.
+ * Pueden subir un archivo de zona y ver qué localidades se cruzan con esa zona.
  */
+
+// ============================================================================
+// CONFIGURACIÓN DE LA VERSIÓN
+// ============================================================================
+
+window.VERSION_CONFIG = {
+    version: "V1",
+    title: "Localidades + Indígenas",
+    description: "Análisis Manual por Capas",
+    autoAnalysis: false, // Modo manual (requiere click en botón)
+    layers: 3
+};
+
+// Configuración de capas específica de V1
+window.LAYER_CONFIG = {
+    localidades: {
+        name: 'Polígonos',
+        color: '#3b82f6',
+        icon: 'location_city',
+        desc: 'Límites administrativos'
+    },
+    localities_points: {
+        name: 'Puntos',
+        color: '#10b981',
+        icon: 'place',
+        desc: 'Coordenadas geográficas'
+    },
+    loc_indigenas_datos: {
+        name: 'Población',
+        color: '#8b5cf6',
+        icon: 'groups',
+        desc: 'Datos demográficos'
+    }
+};
+
+// Adaptador: convierte estructura V1 al formato estándar del modal
+window.getAnalysisResults = function () {
+    return layersData; // V1 usa layersData
+};
 
 // ============================================================================
 // VARIABLES DE ESTADO GLOBAL
@@ -27,14 +65,50 @@ let labelLayer = null; // Capa de etiquetas CVEGEO sobre el mapa
 let lastAreaBounds = null; // Bounds del área para restaurar la vista del área
 let highlightedLayer = null; // Para el efecto de resaltado
 
+// ============================================================================
+// CONFIGURACIÓN GLOBAL DE DATOS (Phase 2: Lazy Loading)
+// ============================================================================
+
+const urls = {
+    localidades: 'https://cdn.sassoapps.com/Gabvy/Gabvy_localidades_4326.geojson',
+    localities_points: 'https://cdn.sassoapps.com/Gabvy/Gabvy_localidades_puntos.geojson',
+    loc_indigenas_datos: 'https://cdn.sassoapps.com/Gabvy/Gabvy_loc_indigenas_datos.geojson'
+};
+
+const dataCache = new Map();
+
+/**
+ * Obtiene los datos de una capa de forma perezosa
+ */
+async function getLayerData(layerKey) {
+    if (dataCache.has(layerKey)) return dataCache.get(layerKey);
+    if (!urls[layerKey]) return null;
+    try {
+        console.log(`[LazyLoad] Solicitando ${layerKey}...`);
+        const response = await fetch(urls[layerKey]);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        dataCache.set(layerKey, data);
+        return data;
+    } catch (e) {
+        console.error(`Error cargando capa ${layerKey}:`, e);
+        return { type: 'FeatureCollection', features: [] };
+    }
+}
+
 // Variables para el reporte Excel
 let totalElements = 0;              // Total de elementos encontrados
 let layersData = {};                // Datos de todas las capas para el reporte
 
 // Métricas del KML para reportes
 let kmlMetrics = {
+    fileName: '',
+    uploadDate: '',
     area: 0, // en km²
     perimeter: 0, // en km
+    centroid: null, // { lat, lng }
+    bounds: null, // { north, south, east, west }
+    vertexCount: 0,
     hasOverlaps: false, // si tiene superposiciones
     overlapCount: 0, // número de superposiciones detectadas
     polygonCount: 0, // número de polígonos en el KML
@@ -45,6 +119,14 @@ let kmlMetrics = {
     populationDensity: 0, // población por km²
     totalPopulation: 0, // población total intersectada
 };
+
+// Variables para el modal de resultados
+let currentModalData = null;         // Datos procesados para el modal
+let currentActiveFilter = null;      // Capa actualmente seleccionada
+let currentPage = 1;                 // Página actual de paginación
+const ITEMS_PER_PAGE = 50;          // Items por página
+
+// NOTA: LAYER_CONFIG se define al inicio del archivo en VERSION_CONFIG
 
 // ============================================================================
 // UTILIDAD DE FORMATEO NUMÉRICO
@@ -211,21 +293,14 @@ function showConfirm({ title = 'Confirmar', message = '', okText = 'Aceptar', ca
 function hidePreloader() {
     const pre = document.getElementById('preloader');
     if (!pre) return;
-
-    // Marcar como hidden y ocultar visualmente
-    pre.setAttribute('hidden', '');
-    if (pre.style.display === 'none') return;
-
     pre.classList.add('preloader-hide');
-
-    // Tras la transición CSS, eliminarlo del flujo de documentos
     setTimeout(() => {
         pre.style.display = 'none';
-        // Recalcular tamaño del mapa después de cambios de layout
+        pre.setAttribute('hidden', '');
         if (typeof map !== 'undefined' && map) {
-            setTimeout(() => map.invalidateSize(), 100);
+            setTimeout(() => map.invalidateSize(), 150);
         }
-    }, 350);
+    }, 400);
 }
 
 /**
@@ -254,8 +329,7 @@ function showPreloader() {
             </div>`;
         document.body.appendChild(pre);
     }
-
-    // Mostrar preloader
+    updateProgress(0, 'Iniciando...');
     pre.classList.remove('preloader-hide');
     pre.removeAttribute('hidden');
     pre.style.display = 'flex';
@@ -405,7 +479,8 @@ function initApp() {
             maxZoom: 18,
             maxBounds: mexicoBounds,
             maxBoundsViscosity: 0.9,
-            layers: [baseMaps['SENER Oscuro']]
+            layers: [baseMaps['SENER Light']],
+            zoomControl: false // Desactivar control de zoom por defecto
         });
 
         map.on('click', function (e) {
@@ -447,7 +522,7 @@ function initApp() {
             setTimeout(() => map && map.invalidateSize(), 100);
         });
 
-        layersControl = L.control.layers(baseMaps, {}, { collapsed: false }).addTo(map);
+        // layersControl = L.control.layers(baseMaps, {}, { collapsed: false }).addTo(map); // Eliminado a petición del usuario
 
         // ====================================================================
         // CONFIGURACIÓN DE DATOS Y ELEMENTOS DEL DOM
@@ -459,30 +534,109 @@ function initApp() {
 
         // Referencias a elementos del DOM para controles
         const kmlFileInput = document.getElementById('kmlFile');
-        const uploadKmlBtn = document.getElementById('uploadKmlBtn');
-        const areaTypeSelect = document.getElementById('areaType');
-        const bufferMetersGroup = document.getElementById('bufferMetersGroup');
-        const bufferMetersInput = document.getElementById('bufferMetersInput');
+        // const uploadKmlBtn = document.getElementById('uploadKmlBtn'); // Eliminado
+        const areaTypeSelect = document.getElementById('clipTypeSelect');
+        const bufferMetersGroup = document.getElementById('customBufferContainer');
+        const bufferMetersInput = document.getElementById('customBufferInput');
         const performClipBtn = document.getElementById('performClipBtn');
         const resetViewBtn = document.getElementById('resetViewBtn');
         const clearMapBtn = document.getElementById('clearMap');
         const centerKmlBtn = document.getElementById('centerKmlBtn');
         const cvegeoListDiv = document.getElementById('cvegeoList');
 
+        // Validar elementos críticos
+        if (!performClipBtn) {
+            console.error('ERROR: No se encontró el elemento performClipBtn');
+            showAlert('Error de inicialización: falta elemento performClipBtn', 'danger');
+        }
+        if (!areaTypeSelect) {
+            console.error('ERROR: No se encontró el elemento clipTypeSelect');
+            showAlert('Error de inicialización: falta elemento clipTypeSelect', 'danger');
+        }
+
         // Mapa para mantener referencias de features por CVEGEO (para navegación)
         let featureLayersById = new Map(); // CVEGEO -> {bounds|latlng, layer}
 
         // Estado inicial: deshabilitar botones hasta que se carguen datos
-        if (uploadKmlBtn) uploadKmlBtn.disabled = true;
+        // if (uploadKmlBtn) uploadKmlBtn.disabled = true;
         if (performClipBtn) performClipBtn.disabled = true;
+
+        /**
+         * Actualiza la visualización del buffer en el mapa sin realizar el recorte
+         * Permite al usuario previsualizar el área de influencia
+         */
+        async function updateBufferPreview() {
+            if (!kmlGeoJson) return;
+
+            const kmlPolygon = kmlGeoJson.features.find(f =>
+                f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon'
+            );
+
+            if (!kmlPolygon) return;
+
+            // Asegurar disponibilidad de Turf
+            const T = await ensureTurf();
+
+            // Limpiar buffer previo
+            if (bufferLayer) {
+                map.removeLayer(bufferLayer);
+                bufferLayer = null;
+            }
+
+            const areaType = areaTypeSelect.value;
+            let bufferDistance = 0;
+
+            if (areaType === 'custom') {
+                const kmValue = parseFloat(bufferMetersInput?.value || '0.5');
+                bufferDistance = Math.max(0, kmValue * 1000);
+            } else if (areaType === 'direct') {
+                bufferDistance = 2000; // 2km
+            } else if (areaType === 'indirect') {
+                bufferDistance = 5000; // 5km
+            }
+
+            if (bufferDistance > 0) {
+                try {
+                    const buffer = T.buffer(kmlPolygon, bufferDistance, { units: 'meters' });
+
+                    bufferLayer = L.geoJSON(buffer, {
+                        style: {
+                            color: areaType === 'custom' ? '#0078ff' : '#B8860B',
+                            weight: 2,
+                            fillOpacity: 0.1,
+                            dashArray: '5, 5' // Línea punteada para preview
+                        },
+                        interactive: false // No bloquear clicks
+                    }).addTo(map);
+
+                } catch (e) {
+                    console.warn('Error generando preview del buffer:', e);
+                }
+            }
+        }
 
         // Mostrar/ocultar input de buffer según el tipo
         if (areaTypeSelect && bufferMetersGroup) {
             const syncBufferVisibility = () => {
-                bufferMetersGroup.style.display = areaTypeSelect.value === 'nucleo' ? '' : 'none';
+                if (areaTypeSelect.value === 'custom') {
+                    bufferMetersGroup.classList.remove('tw-hidden');
+                } else {
+                    bufferMetersGroup.classList.add('tw-hidden');
+                }
+                // Actualizar preview al cambiar tipo
+                updateBufferPreview();
             };
             syncBufferVisibility();
             areaTypeSelect.addEventListener('change', syncBufferVisibility);
+
+            // Actualizar preview al cambiar valor custom
+            if (bufferMetersInput) {
+                bufferMetersInput.addEventListener('input', () => {
+                    if (areaTypeSelect.value === 'custom') {
+                        updateBufferPreview();
+                    }
+                });
+            }
         }
 
         // ====================================================================
@@ -495,30 +649,17 @@ function initApp() {
          * las localidades de México con sus respectivos CVEGEO
          */
         async function loadLocalitiesData() {
-            try {
-                // Cargar polígonos de localidades
-                const response = await fetch(localitiesUrl);
-                if (!response.ok) {
-                    throw new Error(`Error HTTP! status: ${response.status}`);
-                }
-                localitiesData = await response.json();
-                console.log(`Localidades polígonos cargadas: ${localitiesData.features.length}`);
+            showPreloader();
+            updateProgress(100, 'Sistema de localidades listo (Carga perezosa)');
 
-                // Cargar puntos de localidades
-                const pointsResponse = await fetch(localitiesPointsUrl);
-                if (!pointsResponse.ok) {
-                    throw new Error(`Error HTTP puntos! status: ${pointsResponse.status}`);
-                }
-                localitiesPointsData = await pointsResponse.json();
-                console.log(`Localidades puntos cargadas: ${localitiesPointsData.features.length}`);
+            // Habilitar controles inmediatamente en modo lazy
+            // if (uploadKmlBtn) uploadKmlBtn.disabled = false;
+            // if (performClipBtn) performClipBtn.disabled = false; // Mantener deshabilitado hasta cargar KML
 
-                showAlert(`Localidades cargadas: ${localitiesData.features.length} polígonos + ${localitiesPointsData.features.length} puntos`, 'success');
-
-            } catch (error) {
-                console.error('Error al cargar localidades:', error);
-                showAlert('Error al cargar localidades desde el servidor. Verifica tu conexión.', 'danger', 6000);
-                throw error; // Re-lanzar para manejo en funciones que llaman
-            }
+            setTimeout(() => {
+                hidePreloader();
+                // showAlert('Visualizador V1 listo. Las localidades se cargarán al analizar el KML.', 'success', 3000);
+            }, 500);
         }
 
         /**
@@ -547,7 +688,7 @@ function initApp() {
 
             // Resetear UI a estado inicial
             cvegeoListDiv.innerHTML = '<p class="mb-0 text-muted">Sube un KML y realiza el recorte para ver la lista.</p>';
-            uploadKmlBtn.disabled = true;
+            // uploadKmlBtn.disabled = true;
             performClipBtn.disabled = true;
             if (centerKmlBtn) centerKmlBtn.disabled = true;
             if (resetViewBtn) resetViewBtn.disabled = true;
@@ -905,6 +1046,55 @@ function initApp() {
                     kmlMetrics.overlapCount = overlapDetails.length;
                     kmlMetrics.polygonCount = validPolygons.length;
 
+                    // Calcular métricas adicionales del KML
+                    try {
+                        kmlMetrics.fileName = file.name;
+                        kmlMetrics.uploadDate = new Date().toLocaleDateString('es-MX');
+                        kmlMetrics.geometryType = kmlPolygonFeature.geometry.type;
+
+                        // Calcular área en km²
+                        const areaM2 = T.area(kmlPolygonFeature);
+                        kmlMetrics.area = (areaM2 / 1000000).toFixed(2);
+
+                        // Calcular perímetro en km
+                        const perimeterM = T.length(T.polygonToLine(kmlPolygonFeature), { units: 'meters' });
+                        kmlMetrics.perimeter = (perimeterM / 1000).toFixed(2);
+
+                        // Calcular centroide
+                        const centroid = T.centroid(kmlPolygonFeature);
+                        kmlMetrics.centroid = {
+                            lat: centroid.geometry.coordinates[1],
+                            lng: centroid.geometry.coordinates[0]
+                        };
+
+                        // Calcular bounds
+                        const bbox = T.bbox(kmlPolygonFeature);
+                        kmlMetrics.bounds = {
+                            west: bbox[0],
+                            south: bbox[1],
+                            east: bbox[2],
+                            north: bbox[3]
+                        };
+
+                        // Contar vértices
+                        let vertexCount = 0;
+                        if (kmlPolygonFeature.geometry.type === 'Polygon') {
+                            kmlPolygonFeature.geometry.coordinates.forEach(ring => {
+                                vertexCount += ring.length;
+                            });
+                        } else if (kmlPolygonFeature.geometry.type === 'MultiPolygon') {
+                            kmlPolygonFeature.geometry.coordinates.forEach(polygon => {
+                                polygon.forEach(ring => {
+                                    vertexCount += ring.length;
+                                });
+                            });
+                        }
+                        kmlMetrics.vertexCount = vertexCount;
+
+                    } catch (metricsError) {
+                        console.warn('Error calculando métricas del KML:', metricsError);
+                    }
+
                     if (kmlLayer) map.removeLayer(kmlLayer);
 
                     kmlLayer = L.geoJSON(kmlPolygonFeature, {
@@ -958,6 +1148,9 @@ function initApp() {
                     performClipBtn.disabled = false;
                     if (centerKmlBtn) centerKmlBtn.disabled = false;
                     showAlert(`KML cargado. Se encontraron ${validPolygons.length} polígonos.`, 'success');
+
+                    // Generar previsualización del buffer inicial
+                    updateBufferPreview();
 
                 } catch (error) {
                     console.error('Error procesando KML:', error);
@@ -1034,7 +1227,7 @@ function initApp() {
                 }
 
                 // Limpiar capas previas para nueva operación
-                if (bufferLayer) map.removeLayer(bufferLayer);
+                // if (bufferLayer) map.removeLayer(bufferLayer); // No borrar buffer si ya es preview
                 if (clippedLocalitiesLayer) map.removeLayer(clippedLocalitiesLayer);
                 if (labelLayer) map.removeLayer(labelLayer);
 
@@ -1048,29 +1241,49 @@ function initApp() {
                 );
                 let clipArea = kmlPolygon;
 
-                // Para área núcleo: generar buffer dinámico en metros
-                if (areaType === 'nucleo') {
+                // Definir distancias automáticas
+                let bufferDistance = 0;
+
+                // Mapear valores de HTML (exact, direct, indirect, custom) a lógica interna
+                if (areaType === 'custom') {
+                    // El input en HTML está en KM (placeholder="Kms"), convertir a metros
+                    const kmValue = parseFloat(bufferMetersInput?.value || '0.5');
+                    bufferDistance = Math.max(0, kmValue * 1000);
+                } else if (areaType === 'direct') {
+                    bufferDistance = 2000; // 2km automático
+                } else if (areaType === 'indirect') {
+                    bufferDistance = 5000; // 5km automático
+                }
+                // 'exact' resulta en bufferDistance = 0
+
+                if (bufferDistance > 0) {
                     try {
-                        const meters = Math.max(0, parseFloat(bufferMetersInput?.value || '500') || 500);
-                        const buffer = T.buffer(kmlPolygon, meters, { units: 'meters' });
+                        const buffer = T.buffer(kmlPolygon, bufferDistance, { units: 'meters' });
                         clipArea = buffer;
 
-                        // Visualizar buffer con estilo diferente
-                        bufferLayer = L.geoJSON(buffer, {
-                            style: {
-                                color: '#0078ff',
-                                weight: 2,
-                                fillColor: '#0078ff',
-                                fillOpacity: 0.1
-                            }
-                        }).addTo(map);
+                        // Asegurar que el buffer esté visualizado (usando el existente o creando uno nuevo)
+                        if (!bufferLayer) {
+                            bufferLayer = L.geoJSON(buffer, {
+                                style: {
+                                    color: areaType === 'custom' ? '#0078ff' : '#B8860B',
+                                    weight: 2,
+                                    fillOpacity: 0.1
+                                }
+                            }).addTo(map);
+                        } else {
+                            // Actualizar estilo a línea sólida (no punteada) para análisis confirmado
+                            bufferLayer.setStyle({
+                                dashArray: null,
+                                fillOpacity: 0.15
+                            });
+                        }
 
-                        updateProgress(15, `Buffer de ${meters.toLocaleString('es-MX')} m generado. Intersectando con localidades…`);
+                        updateProgress(15, `Zona de influencia (${bufferDistance.toLocaleString('es-MX')} m) generada.`);
 
                     } catch (e) {
                         console.error('Error creando buffer:', e);
                         showModal({
-                            title: 'Error al generar buffer',
+                            title: 'Error al generar zona de influencia',
                             message: 'No se pudo crear el buffer solicitado. Verifica la geometría del KML.',
                             okText: 'Cerrar'
                         });
@@ -1103,14 +1316,15 @@ function initApp() {
                  */
 
                 const clipped = [];  // Arreglo resultado que almacenará localidades intersectantes
-                const total = localitiesData.features.length;  // Total de localidades a procesar (~30,000)
+                const locData = await getLayerData('localidades');
+                const features = Array.isArray(locData?.features) ? locData.features : [];
+                const total = features.length;
                 let processed = 0;  // Contador de progreso
 
                 // Configurar procesamiento en lotes para permitir repintado de UI
                 const base = 20; // % reservado para setup inicial  
-                const loopSpan = 75; // % dedicado al bucle de intersección (20% → 95%)
-                const batchSize = Math.max(500, Math.floor(total / 200)); // ~200 lotes óptimos
-                const features = localitiesData.features;  // Referencia al array de localidades
+                const loopSpan = 70; // % dedicado al bucle de intersección
+                const batchSize = 500;
 
                 // Función para ceder control al navegador y permitir repintado de UI
                 const yieldUI = () => new Promise(res => (window.requestAnimationFrame ? requestAnimationFrame(() => res()) : setTimeout(res, 0)));
@@ -1155,33 +1369,84 @@ function initApp() {
                 const clippedPoints = [];
                 const existingCvegeo = new Set(clipped.map(f => f.properties?.CVEGEO).filter(Boolean));
 
-                if (localitiesPointsData && localitiesPointsData.features) {
-                    updateProgress(96, `Procesando puntos adicionales…`);
+                const lpData = await getLayerData('localities_points');
+                if (lpData && lpData.features) {
+                    updateProgress(92, `Procesando puntos adicionales…`);
+                    const pointFeatures = lpData.features;
+                    const totalPoints = pointFeatures.length;
 
-                    const pointsFeatures = localitiesPointsData.features;
-                    for (const point of pointsFeatures) {
-                        const cvegeo = point.properties?.CVEGEO;
-                        // Solo incluir si intersecta y no está ya en los polígonos
-                        if (cvegeo && !existingCvegeo.has(cvegeo) && T.booleanIntersects(point.geometry, clipArea.geometry)) {
-                            point.properties.origen = 'Capa de Coordenadas';
-                            clippedPoints.push(point);
-                        }
+                    for (let i = 0; i < totalPoints; i += 500) {
+                        const batch = pointFeatures.slice(i, i + 500);
+                        batch.forEach(pt => {
+                            const id = pt.properties?.CVEGEO;
+                            if (id && !existingCvegeo.has(id)) {
+                                try {
+                                    if (T.booleanIntersects(pt.geometry, clipArea.geometry)) {
+                                        pt.properties.origen = 'Capa de Coordenadas';
+                                        clippedPoints.push(pt);
+                                    }
+                                } catch (_) { }
+                            }
+                        });
+                        updateProgress(92 + (i / totalPoints) * 5, `Filtrando puntos…`);
+                        await yieldUI();
                     }
                 }
 
-                updateProgress(97, `Encontradas ${clipped.length} localidades + ${clippedPoints.length} puntos adicionales. Preparando visualización…`);
+                updateProgress(94, `Integrando datos demográficos (Indígenas/Afro)…`);
+                const indData = await getLayerData('loc_indigenas_datos');
+                const indMap = new Map();
+                if (indData && indData.features) {
+                    indData.features.forEach(f => {
+                        const id = f.properties?.cvegeo || f.properties?.CVEGEO;
+                        if (id) indMap.set(id, f.properties);
+                    });
+                }
+
+                // Fusionar datos demográficos
+                const finalFeatures = [...clipped, ...clippedPoints].map(f => {
+                    const id = f.properties?.CVEGEO;
+                    if (id && indMap.has(id)) {
+                        f.properties = { ...f.properties, ...indMap.get(id), dataDemografica: true };
+                    }
+                    return f;
+                });
+
+                const totalIndigena = finalFeatures.reduce((acc, f) => acc + (parseFloat(f.properties?.PIHOGARES || 0)), 0);
+                const totalAfro = finalFeatures.reduce((acc, f) => acc + (parseFloat(f.properties?.POB_AFRO || 0)), 0);
+
+                updateProgress(97, `Encontradas ${finalFeatures.length} localidades. Preparando visualización…`);
 
                 // ============================================================
                 // VISUALIZACIÓN DE RESULTADOS Y GENERACIÓN DE CAPAS
                 // ============================================================
 
-                // Poblar layersData para reportes
-                layersData = {
-                    localidades: { features: [...clipped, ...clippedPoints] }
-                };
-                totalElements = clipped.length + clippedPoints.length;
+                // Poblar layersData para reportes y modal
+                layersData = {};
 
-                if (clipped.length > 0 || clippedPoints.length > 0) {
+                // Capa principal: localidades (polígonos + puntos combinados)
+                if (finalFeatures.length > 0) {
+                    layersData.localidades = {
+                        features: finalFeatures,
+                        totalIndigena,
+                        totalAfro
+                    };
+                }
+
+                totalElements = finalFeatures.length;
+
+                if (finalFeatures.length > 0) {
+                    // Actualizar badges demográficos
+                    const indBadge = document.getElementById('indigenasCountBadge');
+                    const afroBadge = document.getElementById('afroCountBadge');
+                    if (indBadge) {
+                        indBadge.innerHTML = `<strong>${formatNumber(totalIndigena)}</strong> Pueblos Indígenas`;
+                        indBadge.classList.toggle('tw-hidden', totalIndigena === 0);
+                    }
+                    if (afroBadge) {
+                        afroBadge.innerHTML = `<strong>${formatNumber(totalAfro)}</strong> Afromexicanos`;
+                        afroBadge.classList.toggle('tw-hidden', totalAfro === 0);
+                    }
                     // Generar paleta de colores distinta por CVEGEO
                     const colorsById = new Map();
                     const palette = [
@@ -1192,7 +1457,7 @@ function initApp() {
                     ];
 
                     let colorIndex = 0;
-                    const allFeatures = [...clipped, ...clippedPoints];
+                    const allFeatures = finalFeatures;
                     for (const f of allFeatures) {
                         const id = f.properties?.CVEGEO || String(colorIndex);
                         if (!colorsById.has(id)) {
@@ -1219,7 +1484,13 @@ function initApp() {
                                 if (feature.properties) {
                                     const props = feature.properties;
                                     const nombre = props.NOM_LOC || props.NOMGEO || '—';
-                                    layer.bindPopup(`<strong>Localidad (Polígono)</strong><br><strong>Nombre:</strong> ${nombre}<br><strong>CVEGEO:</strong> ${props.CVEGEO || '—'}`);
+                                    let popupContent = `<strong>Localidad:</strong> ${nombre}<br>`;
+                                    popupContent += `<strong>CVEGEO:</strong> ${props.CVEGEO || '—'}<br>`;
+                                    if (props.POBTOTAL !== undefined) popupContent += `<strong>Pob. Total:</strong> ${formatNumber(props.POBTOTAL)}<br>`;
+                                    if (props.PIHOGARES !== undefined) popupContent += `<strong>Pob. Indígena:</strong> ${formatNumber(props.PIHOGARES)} (${props.pPIHOGARES || 0}%)<br>`;
+                                    if (props.POB_AFRO !== undefined) popupContent += `<strong>Pob. Afro:</strong> ${formatNumber(props.POB_AFRO)}<br>`;
+
+                                    layer.bindPopup(popupContent);
                                     const id = props.CVEGEO;
 
                                     // Guardar el estilo original para el resaltado
@@ -1260,7 +1531,13 @@ function initApp() {
                                 if (feature.properties) {
                                     const props = feature.properties;
                                     const nombre = props.NOM_LOC || props.NOMGEO || '—';
-                                    layer.bindPopup(`<strong>Localidad (Coordenadas)</strong><br><strong>Nombre:</strong> ${nombre}<br><strong>CVEGEO:</strong> ${props.CVEGEO || '—'}<br><small><em>Identificada por coordenadas geográficas.</em></small>`);
+                                    let popupContent = `<strong>Localidad (Punto):</strong> ${nombre}<br>`;
+                                    popupContent += `<strong>CVEGEO:</strong> ${props.CVEGEO || '—'}<br>`;
+                                    if (props.POBTOTAL !== undefined) popupContent += `<strong>Pob. Total:</strong> ${formatNumber(props.POBTOTAL)}<br>`;
+                                    if (props.PIHOGARES !== undefined) popupContent += `<strong>Pob. Indígena:</strong> ${formatNumber(props.PIHOGARES)}<br>`;
+                                    if (props.POB_AFRO !== undefined) popupContent += `<strong>Pob. Afro:</strong> ${formatNumber(props.POB_AFRO)}<br>`;
+
+                                    layer.bindPopup(popupContent);
                                     const id = props.CVEGEO;
 
                                     // Guardar el estilo original para el resaltado
@@ -1341,6 +1618,20 @@ function initApp() {
                     showModal({ title: 'Recorte completado', message, okText: 'Aceptar' });
                     updateProgress(100, 'Proceso completado.');
 
+                    // Abrir modal de resultados
+                    setTimeout(() => {
+                        console.log('🔍 Intentando abrir modal...');
+                        console.log('layersData:', layersData);
+                        currentModalData = processDataForModal(layersData);
+                        console.log('currentModalData procesado:', currentModalData);
+                        if (currentModalData && Object.keys(currentModalData).length > 0) {
+                            console.log('✅ Abriendo modal con', Object.keys(currentModalData).length, 'capas');
+                            openResultsModal();
+                        } else {
+                            console.warn('❌ No hay datos para el modal');
+                        }
+                    }, 500);
+
                 } else {
                     // Caso sin resultados
                     showModal({
@@ -1353,6 +1644,10 @@ function initApp() {
                     // Actualizar contadores
                     const badge = document.getElementById('foundCountBadge');
                     if (badge) badge.textContent = formatNumber(0);
+                    const indBadge = document.getElementById('indigenasCountBadge');
+                    const afroBadge = document.getElementById('afroCountBadge');
+                    if (indBadge) indBadge.classList.add('tw-hidden');
+                    if (afroBadge) afroBadge.classList.add('tw-hidden');
                     const totalFound = document.getElementById('totalFound');
                     if (totalFound) totalFound.textContent = formatNumber(0);
                     const currentCriteria = document.getElementById('currentCriteria');
@@ -1634,24 +1929,26 @@ function initApp() {
             // Hoja de Localidades
             if (layersData.localidades && layersData.localidades.features.length > 0) {
                 const localidadesData = layersData.localidades.features.map(f => {
-                    const properties = f.properties;
-                    // Rellenar valores nulos o indefinidos
-                    const new_properties = {};
-                    Object.keys(properties).forEach(key => {
-                        if (properties[key] === null || properties[key] === undefined) {
-                            if (['POBTOT', 'POBFEM', 'POBMAS'].includes(key)) {
-                                new_properties[key] = 0;
-                            } else {
-                                new_properties[key] = 'sin dato';
-                            }
-                        } else {
-                            new_properties[key] = properties[key];
-                        }
-                    });
-                    return new_properties;
+                    const p = f.properties;
+                    return {
+                        'CVE_ENT': p.CVE_ENT || p.cve_ent,
+                        'CVE_MUN': p.CVE_MUN || p.cve_mun,
+                        'CVE_LOC': p.CVE_LOC || p.cve_loc,
+                        'CVEGEO': p.CVEGEO || p.cvegeo,
+                        'NOMBRE': p.NOMGEO || p.NOM_LOC || p.LOCALIDAD,
+                        'AMBITO': p.AMBITO || '-',
+                        'POB_TOTAL': p.POBTOTAL || p.POBTOT || 0,
+                        'POB_INDIGENA': p.PIHOGARES || 0,
+                        '%_POB_INDIGENA': p.pPIHOGARES || 0,
+                        'TIPO_LOC_PI': p.TIPOLOC_PI || '-',
+                        'POB_AFRO': p.POB_AFRO || 0,
+                        '%_POB_AFRO': p.pPOB_AFRO || 0,
+                        'TIPO_LOC_AFRO': p.TIPOLOC_AF || '-',
+                        'ORIGEN': p.origen || '-'
+                    };
                 });
                 const ws = XLSX.utils.json_to_sheet(localidadesData);
-                XLSX.utils.book_append_sheet(wb, ws, "Localidades");
+                XLSX.utils.book_append_sheet(wb, ws, "Análisis Localidades");
             }
 
             const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'binary' });
@@ -1686,78 +1983,89 @@ function initApp() {
          */
 
         // Validación en tiempo real del archivo seleccionado
-        kmlFileInput.addEventListener('change', (e) => {
-            const hasFiles = e.target.files.length > 0;
-            uploadKmlBtn.disabled = !hasFiles;
+        if (kmlFileInput) {
+            kmlFileInput.addEventListener('change', (e) => {
+                const hasFiles = e.target.files.length > 0;
+                // uploadKmlBtn.disabled = !hasFiles;
 
-            if (hasFiles) {
-                const file = e.target.files[0];
-                // Mostrar información del archivo seleccionado
-                const fileInfo = `${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
-                uploadKmlBtn.innerHTML = `<i class="bi bi-upload me-1"></i>Subir: ${fileInfo}`;
-            } else {
-                uploadKmlBtn.innerHTML = `<i class="bi bi-upload me-1"></i>Subir KML`;
-            }
-        });
+                if (hasFiles) {
+                    const file = e.target.files[0];
+                    // Procesar automáticamente al seleccionar
+                    processKmlFile(file);
+
+                    // Mostrar información del archivo seleccionado
+                    const fileInfo = `${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+                    // uploadKmlBtn.innerHTML = `<span class="material-symbols-outlined tw-text-lg">visibility</span>Visualizar: ${fileInfo}`;
+                } else {
+                    // uploadKmlBtn.innerHTML = `<span class="material-symbols-outlined tw-text-lg">visibility</span>Visualizar KML`;
+                }
+            });
+        }
 
         // Procesar archivo KML seleccionado con validaciones mejoradas
-        uploadKmlBtn.addEventListener('click', () => {
-            const file = kmlFileInput.files[0];
-            if (file) {
-                // Deshabilitar temporalmente para evitar clicks múltiples
-                uploadKmlBtn.disabled = true;
-                uploadKmlBtn.innerHTML = `<i class="bi bi-hourglass-split me-1"></i>Procesando...`;
+        /*
+        if (uploadKmlBtn) {
+            uploadKmlBtn.addEventListener('click', () => {
+                const file = kmlFileInput.files[0];
+                if (file) {
+                    // Deshabilitar temporalmente para evitar clicks múltiples
+                    uploadKmlBtn.disabled = true;
+                    uploadKmlBtn.innerHTML = `<span class="material-symbols-outlined tw-text-lg tw-animate-spin">hourglass_empty</span>Procesando...`;
 
-                // Procesar con delay para mostrar feedback visual
-                setTimeout(() => {
-                    processKmlFile(file);
-                    // Restaurar estado original
-                    uploadKmlBtn.disabled = false;
-                    uploadKmlBtn.innerHTML = `<i class="bi bi-upload me-1"></i>Subir KML`;
-                    // Limpiar selección para permitir re-cargar el mismo archivo
-                    kmlFileInput.value = '';
-                }, 100);
-            } else {
-                showAlert('Por favor, selecciona un archivo KML válido antes de continuar.', 'info');
-            }
-        });
+                    // Procesar con delay para mostrar feedback visual
+                    setTimeout(() => {
+                        processKmlFile(file);
+                        // Restaurar estado original
+                        uploadKmlBtn.disabled = false;
+                        uploadKmlBtn.innerHTML = `<span class="material-symbols-outlined tw-text-lg">visibility</span>Visualizar KML`;
+                        // Limpiar selección para permitir re-cargar el mismo archivo
+                        kmlFileInput.value = '';
+                    }, 100);
+                } else {
+                    showAlert('Por favor, selecciona un archivo KML válido antes de continuar.', 'info');
+                }
+            });
+        }
+        */
 
         // Ejecutar recorte de localidades con protección contra clicks múltiples y validaciones
-        performClipBtn.addEventListener('click', async () => {
-            // Validaciones previas
-            if (!kmlGeoJson) {
-                showModal({ title: 'Recorte de Localidades', message: 'Debes cargar un archivo KML válido antes de realizar el recorte.', okText: 'Entendido' });
-                return;
-            }
+        if (performClipBtn) {
+            performClipBtn.addEventListener('click', async () => {
+                // Validaciones previas
+                if (!kmlGeoJson) {
+                    showModal({ title: 'Recorte de Localidades', message: 'Debes cargar un archivo KML válido antes de realizar el recorte.', okText: 'Entendido' });
+                    return;
+                }
 
-            // Confirmación para procesos largos con modal
-            const selectedAreaType = areaTypeSelect.options[areaTypeSelect.selectedIndex].text;
-            const proceed = await showConfirm({
-                title: window.location.host || 'Confirmación',
-                message: `¿Deseas proceder con el análisis del tipo "${selectedAreaType}"?<br><br>` +
-                    'Este proceso puede tomar varios segundos dependiendo del tamaño del área.',
-                okText: 'Aceptar',
-                cancelText: 'Cancelar'
-            });
-
-            if (!proceed) return;
-
-            // Prevenir ejecuciones simultáneas del proceso intensivo
-            performClipBtn.disabled = true;
-            performClipBtn.innerHTML = `<i class="bi bi-hourglass-split me-1"></i>Procesando...`;
-
-            Promise.resolve()
-                .then(() => performClipping())
-                .catch(error => {
-                    console.error('Error en performClipping:', error);
-                    showModal({ title: 'Error', message: 'Ocurrió un error inesperado durante el procesamiento.', okText: 'Cerrar' });
-                })
-                .finally(() => {
-                    // Re-habilitar solo si hay KML cargado
-                    performClipBtn.disabled = !kmlGeoJson;
-                    performClipBtn.innerHTML = `<i class="bi bi-scissors me-1"></i>Realizar Recorte`;
+                // Confirmación para procesos largos con modal
+                const selectedAreaType = areaTypeSelect.options[areaTypeSelect.selectedIndex].text;
+                const proceed = await showConfirm({
+                    title: window.location.host || 'Confirmación',
+                    message: `¿Deseas proceder con el análisis del tipo "${selectedAreaType}"?<br><br>` +
+                        'Este proceso puede tomar varios segundos dependiendo del tamaño del área.',
+                    okText: 'Aceptar',
+                    cancelText: 'Cancelar'
                 });
-        });
+
+                if (!proceed) return;
+
+                // Prevenir ejecuciones simultáneas del proceso intensivo
+                performClipBtn.disabled = true;
+                performClipBtn.innerHTML = `<span class="material-symbols-outlined tw-text-lg tw-animate-spin">hourglass_empty</span>Procesando...`;
+
+                Promise.resolve()
+                    .then(() => performClipping())
+                    .catch(error => {
+                        console.error('Error en performClipping:', error);
+                        showModal({ title: 'Error', message: 'Ocurrió un error inesperado durante el procesamiento.', okText: 'Cerrar' });
+                    })
+                    .finally(() => {
+                        // Re-habilitar solo si hay KML cargado
+                        performClipBtn.disabled = !kmlGeoJson;
+                        performClipBtn.innerHTML = `<span class="material-symbols-outlined tw-text-lg">play_arrow</span>Ejecutar Análisis`;
+                    });
+            });
+        }
 
         // Restaurar vista del área de resultados con validaciones
         if (resetViewBtn) {
@@ -1787,31 +2095,36 @@ function initApp() {
         }
 
         // Limpiar todas las capas y resetear aplicación con confirmación modal
-        clearMapBtn.addEventListener('click', async () => {
-            const hasData = kmlLayer || clippedLocalitiesLayer || bufferLayer;
+        if (clearMapBtn) {
+            clearMapBtn.addEventListener('click', async () => {
+                const hasData = kmlLayer || clippedLocalitiesLayer || bufferLayer;
 
-            if (hasData) {
-                const proceed = await showConfirm({
-                    title: window.location.host || 'Confirmación',
-                    message: '¿Estás seguro de que deseas limpiar todo el mapa?<br><br>' +
-                        'Esta acción eliminará todas las capas y datos cargados.',
-                    okText: 'Aceptar',
-                    cancelText: 'Cancelar'
+                if (hasData) {
+                    const proceed = await showConfirm({
+                        title: window.location.host || 'Confirmación',
+                        message: '¿Estás seguro de que deseas limpiar todo el mapa?<br><br>' +
+                            'Esta acción eliminará todas las capas y datos cargados.',
+                        okText: 'Aceptar',
+                        cancelText: 'Cancelar'
+                    });
+                    if (!proceed) return;
+                }
+
+                clearAllLayers();
+                showModal({
+                    title: 'Mapa limpio',
+                    message: 'Se han eliminado todas las capas. Puedes cargar un nuevo archivo KML.',
+                    okText: 'Entendido'
                 });
-                if (!proceed) return;
-            }
 
-            clearAllLayers();
-            showModal({
-                title: 'Mapa limpio',
-                message: 'Se han eliminado todas las capas. Puedes cargar un nuevo archivo KML.',
-                okText: 'Entendido'
+                // Resetear formulario
+                kmlFileInput.value = '';
+                // uploadKmlBtn.innerHTML = `<span class="material-symbols-outlined tw-text-lg">visibility</span>Visualizar KML`;
             });
+        }
 
-            // Resetear formulario
-            kmlFileInput.value = '';
-            uploadKmlBtn.innerHTML = `<i class="bi bi-upload me-1"></i>Subir KML`;
-        });
+        // Inicializar carga de localidades (lazy loading)
+        loadLocalitiesData();
 
     } catch (err) {
         console.error('Error crítico inicializando la aplicación:', err);
@@ -1821,6 +2134,676 @@ function initApp() {
             10000
         );
         hidePreloader();
+    }
+}
+
+// ============================================================================
+// FUNCIONES DEL MODAL DE RESULTADOS
+// ============================================================================
+
+/**
+ * Abre el modal de resultados con los datos del análisis
+ */
+function openResultsModal() {
+    console.log('🔍 openResultsModal() llamado');
+    console.log('layersData:', layersData);
+
+    // Procesar datos para el panel flotante
+    currentModalData = processDataForModal(layersData);
+    console.log('currentModalData procesado:', currentModalData);
+
+    // Actualizar y mostrar panel flotante
+    updateFloatingPanel(currentModalData);
+
+    // Mostrar el panel flotante
+    const panel = document.getElementById('floatingResultsPanel');
+    const btn = document.getElementById('floatingResultsBtn');
+    console.log('Panel encontrado:', !!panel, 'Botón encontrado:', !!btn);
+
+    if (panel && btn) {
+        panel.classList.add('active');
+        btn.classList.remove('tw-hidden');
+        console.log('✅ Panel y botón mostrados');
+    } else {
+        console.error('❌ No se encontró el panel o botón flotante');
+    }
+
+    // Resetear paginación
+    currentPage = 1;
+}
+
+/**
+ * Cierra el modal/panel de resultados
+ */
+function closeResultsModal() {
+    const panel = document.getElementById('floatingResultsPanel');
+    if (panel) {
+        panel.classList.remove('active');
+    }
+    currentActiveFilter = null;
+    currentPage = 1;
+}
+
+/**
+ * Procesa los datos de layersData para el formato del modal
+ */
+function processDataForModal(layersDataObj) {
+    console.log('📊 processDataForModal recibió:', layersDataObj);
+    if (!layersDataObj) {
+        console.warn('⚠️ layersDataObj es null/undefined');
+        return {};
+    }
+
+    const processed = {};
+
+    Object.entries(layersDataObj).forEach(([key, data]) => {
+        console.log(`Procesando capa "${key}":`, data);
+        if (data.features && data.features.length > 0) {
+            const config = LAYER_CONFIG[key];
+            console.log(`Config para "${key}":`, config);
+            if (config) {
+                processed[key] = {
+                    title: config.name,
+                    icon: config.icon,
+                    color: config.color,
+                    features: data.features
+                };
+                console.log(`✅ Capa "${key}" procesada:`, processed[key].features.length, 'features');
+            } else {
+                console.warn(`❌ No se encontró config para capa "${key}"`);
+            }
+        } else {
+            console.warn(`⚠️ Capa "${key}" sin features o vacía`);
+        }
+    });
+
+    console.log('📦 Resultado final de processDataForModal:', processed);
+    return processed;
+}
+
+/**
+ * Renderiza el contenido completo del modal
+ */
+function renderModalContent() {
+    if (!currentModalData) return;
+
+    // Contar total de elementos
+    const totalElements = Object.values(currentModalData).reduce((sum, layer) => sum + layer.features.length, 0);
+    const countEl = document.getElementById('totalElementsCount');
+    if (countEl) {
+        countEl.textContent = `${totalElements.toLocaleString('es-MX')} elementos`;
+    }
+
+    // Renderizar filtros
+    renderLayerFilters();
+
+    // Mostrar la primera capa por defecto
+    const firstLayerKey = Object.keys(currentModalData)[0];
+    if (firstLayerKey) {
+        currentActiveFilter = firstLayerKey;
+        showLayerResults(firstLayerKey);
+    }
+}
+
+/**
+ * Renderiza los botones de filtro por capa
+ */
+function renderLayerFilters() {
+    const container = document.getElementById('layerFilters');
+    if (!container) return;
+
+    container.innerHTML = '';
+
+    Object.entries(currentModalData).forEach(([layerKey, layerData]) => {
+        const button = document.createElement('button');
+
+        const isActive = currentActiveFilter === layerKey;
+
+        button.style.cssText = `
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.625rem 1rem;
+            border-radius: 9999px;
+            font-weight: 700;
+            font-size: 0.875rem;
+            transition: all 0.2s;
+            cursor: pointer;
+            border: 2px solid ${isActive ? 'rgba(128, 0, 32, 0.2)' : 'transparent'};
+            background: ${isActive ? 'rgba(128, 0, 32, 0.1)' : '#f1f5f9'};
+            color: ${isActive ? '#800020' : '#64748b'};
+        `;
+
+        button.innerHTML = `
+            <span class="material-symbols-outlined" style="font-size: 1.125rem;">${layerData.icon}</span>
+            <span>${layerData.title}</span>
+            <span style="background: #e2e8f0; padding: 0.125rem 0.5rem; border-radius: 0.5rem; font-size: 0.75rem;">${layerData.features.length}</span>
+        `;
+
+        button.addEventListener('click', () => {
+            currentActiveFilter = layerKey;
+            currentPage = 1; // Reset pagination
+            renderLayerFilters();
+            showLayerResults(layerKey);
+        });
+
+        container.appendChild(button);
+    });
+}
+
+/**
+ * Muestra los resultados de una capa específica
+ */
+function showLayerResults(layerKey) {
+    const container = document.getElementById('layerResultsContainer');
+    if (!container || !currentModalData[layerKey]) return;
+
+    const layerData = currentModalData[layerKey];
+
+    // Header de la sección
+    let html = `
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h2 style="color: #1e293b; font-weight: 800; font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.05em; margin: 0;">
+                ${layerData.title} (${layerData.features.length.toLocaleString('es-MX')})
+            </h2>
+        </div>
+    `;
+
+    // Generar tabla
+    html += renderTableForLayer(layerKey, layerData);
+
+    container.innerHTML = html;
+}
+
+/**
+ * Renderiza una tabla paginada para una capa
+ */
+function renderTableForLayer(layerKey, layerData) {
+    const features = layerData.features;
+    if (features.length === 0) {
+        return '<p style="color: #94a3b8; font-size: 0.875rem;">No hay datos disponibles.</p>';
+    }
+
+    // Calcular paginación
+    const totalItems = features.length;
+    const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    const endIndex = Math.min(startIndex + ITEMS_PER_PAGE, totalItems);
+    const paginatedFeatures = features.slice(startIndex, endIndex);
+
+    // Obtener columnas del primer feature
+    const firstProps = features[0].properties;
+    const columns = Object.keys(firstProps).slice(0, 10); // Máximo 10 columnas
+
+    let html = `
+        <div style="overflow-x: auto; border-radius: 0.75rem; border: 1px solid #f1f5f9; margin-bottom: 1rem;">
+            <table style="width: 100%; text-align: left; font-size: 0.75rem; border-collapse: collapse;">
+                <thead>
+                    <tr style="background: #f8fafc; color: #94a3b8; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">
+    `;
+
+    // Headers
+    columns.forEach(col => {
+        html += `<th style="padding: 0.75rem 1rem; white-space: nowrap;">${col}</th>`;
+    });
+
+    html += `
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+
+    // Rows
+    paginatedFeatures.forEach((feature, index) => {
+        const globalIndex = startIndex + index;
+        const props = feature.properties;
+        const rowBg = index % 2 === 0 ? '#ffffff' : '#f8fafc';
+
+        html += `
+            <tr onclick="zoomToFeatureFromModal(currentModalData['${layerKey}'].features[${globalIndex}], '${layerKey}')" 
+                style="background: ${rowBg}; color: #475569; cursor: pointer; transition: all 0.2s;"
+                onmouseover="this.style.background='#fdf2f4'; this.style.borderLeft='4px solid #800020'; this.style.paddingLeft='12px';"
+                onmouseout="this.style.background='${rowBg}'; this.style.borderLeft='none'; this.style.paddingLeft='16px';">
+        `;
+
+        columns.forEach(col => {
+            let value = props[col];
+
+            // Formatear números
+            if (typeof value === 'number') {
+                value = value.toLocaleString('es-MX');
+            } else if (value === null || value === undefined) {
+                value = '-';
+            }
+
+            html += `<td style="padding: 1rem; white-space: nowrap;">${value}</td>`;
+        });
+
+        html += `</tr>`;
+    });
+
+    html += `
+                </tbody>
+            </table>
+        </div>
+    `;
+
+    // Controles de paginación
+    if (totalPages > 1) {
+        html += `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1rem; padding: 0.5rem 0;">
+                <button onclick="changePage(-1)" 
+                    ${currentPage === 1 ? 'disabled' : ''}
+                    style="padding: 0.5rem 1rem; background: ${currentPage === 1 ? '#f1f5f9' : '#800020'}; color: ${currentPage === 1 ? '#94a3b8' : 'white'}; border: none; border-radius: 0.5rem; font-weight: 600; font-size: 0.75rem; cursor: ${currentPage === 1 ? 'not-allowed' : 'pointer'};">
+                    ← Anterior
+                </button>
+                
+                <span style="color: #64748b; font-size: 0.875rem; font-weight: 600;">
+                    Mostrando ${(startIndex + 1).toLocaleString('es-MX')}-${endIndex.toLocaleString('es-MX')} de ${totalItems.toLocaleString('es-MX')} resultados (Página ${currentPage} de ${totalPages})
+                </span>
+                
+                <button onclick="changePage(1)" 
+                    ${currentPage === totalPages ? 'disabled' : ''}
+                    style="padding: 0.5rem 1rem; background: ${currentPage === totalPages ? '#f1f5f9' : '#800020'}; color: ${currentPage === totalPages ? '#94a3b8' : 'white'}; border: none; border-radius: 0.5rem; font-weight: 600; font-size: 0.75rem; cursor: ${currentPage === totalPages ? 'not-allowed' : 'pointer'};">
+                    Siguiente →
+                </button>
+            </div>
+        `;
+    }
+
+    return html;
+}
+
+/**
+ * Cambia la página actual de la tabla
+ */
+function changePage(direction) {
+    if (!currentActiveFilter || !currentModalData[currentActiveFilter]) return;
+
+    const layerData = currentModalData[currentActiveFilter];
+    const totalPages = Math.ceil(layerData.features.length / ITEMS_PER_PAGE);
+
+    currentPage += direction;
+
+    // Limitar entre 1 y totalPages
+    if (currentPage < 1) currentPage = 1;
+    if (currentPage > totalPages) currentPage = totalPages;
+
+    // Re-renderizar tabla
+    showLayerResults(currentActiveFilter);
+}
+
+/**
+ * Hace zoom y centra el mapa en un feature clickeado
+ */
+function zoomToFeatureFromModal(feature, layerKey) {
+    if (!feature || !feature.geometry) {
+        showAlert('No se puede centrar en este elemento', 'warning');
+        return;
+    }
+
+    // Cerrar el modal
+    closeResultsModal();
+
+    // Obtener el centro del feature
+    let center;
+    if (feature.geometry.type === 'Point') {
+        center = L.latLng(feature.geometry.coordinates[1], feature.geometry.coordinates[0]);
+    } else if (feature.geometry.type === 'Polygon' || feature.geometry.type === 'MultiPolygon') {
+        const geoJsonLayer = L.geoJSON(feature);
+        center = geoJsonLayer.getBounds().getCenter();
+    } else {
+        showAlert('Tipo de geometría no soportado', 'warning');
+        return;
+    }
+
+    // Centrar el mapa
+    map.setView(center, 14, {
+        animate: true,
+        duration: 1
+    });
+
+    // Crear marker temporal animado
+    const marker = L.circleMarker(center, {
+        radius: 12,
+        fillColor: '#800020',
+        color: '#fff',
+        weight: 3,
+        fillOpacity: 0.8
+    }).addTo(map);
+
+    // Animación pulse
+    let pulseCount = 0;
+    const pulseInterval = setInterval(() => {
+        const radius = 12 + (pulseCount % 2) * 6;
+        marker.setRadius(radius);
+        pulseCount++;
+
+        if (pulseCount > 6) {
+            clearInterval(pulseInterval);
+            map.removeLayer(marker);
+        }
+    }, 250);
+}
+
+/**
+ * Descarga los resultados del análisis como archivo Excel
+ */
+function downloadModalExcel() {
+    if (!currentModalData || Object.keys(currentModalData).length === 0) {
+        showAlert('No hay datos para exportar', 'warning');
+        return;
+    }
+
+    try {
+        const wb = XLSX.utils.book_new();
+
+        // ===== HOJA 1: Info General del KML =====
+        const infoData = [
+            ['INFORMACIÓN GENERAL DEL ANÁLISIS'],
+            [],
+            ['Tipo de Análisis', 'Análisis de Localidades'],
+            ['Versión', 'V1 - Análisis Manual por Capas'],
+            ['Nombre del Archivo', kmlMetrics.fileName || 'N/A'],
+            ['Fecha de Carga', kmlMetrics.uploadDate || new Date().toLocaleDateString('es-MX')],
+            ['Fecha de Exportación', new Date().toLocaleString('es-MX')],
+            [],
+            ['GEOMETRÍA DEL POLÍGONO'],
+            [],
+            ['Tipo de Geometría', kmlMetrics.geometryType || 'N/A'],
+            ['Área Total (km²)', kmlMetrics.area || 'N/A'],
+            ['Perímetro (km)', kmlMetrics.perimeter || 'N/A'],
+            ['Número de Vértices', kmlMetrics.vertexCount || 'N/A'],
+            ['Centroide (Lat, Lng)', kmlMetrics.centroid ? `${kmlMetrics.centroid.lat.toFixed(6)}, ${kmlMetrics.centroid.lng.toFixed(6)}` : 'N/A'],
+            ['Límites Norte', kmlMetrics.bounds?.north?.toFixed(6) || 'N/A'],
+            ['Límites Sur', kmlMetrics.bounds?.south?.toFixed(6) || 'N/A'],
+            ['Límites Este', kmlMetrics.bounds?.east?.toFixed(6) || 'N/A'],
+            ['Límites Oeste', kmlMetrics.bounds?.west?.toFixed(6) || 'N/A'],
+            [],
+            ['RESUMEN DE CAPAS ANALIZADAS'],
+            [],
+            ['Total de Capas', Object.keys(currentModalData).length],
+            ['Total de Elementos', Object.values(currentModalData).reduce((sum, layer) => sum + layer.features.length, 0)]
+        ];
+
+        const ws1 = XLSX.utils.aoa_to_sheet(infoData);
+
+        // Estilo para el header
+        if (ws1['A1']) {
+            ws1['A1'].s = {
+                font: { bold: true, sz: 14, color: { rgb: "800020" } },
+                alignment: { horizontal: "center" }
+            };
+        }
+
+        XLSX.utils.book_append_sheet(wb, ws1, '00_Info_General');
+
+        // ===== HOJAS 2+: Una hoja por cada capa =====
+        Object.entries(currentModalData).forEach(([layerKey, layerData]) => {
+            const features = layerData.features;
+            if (features.length === 0) return;
+
+            // Obtener todas las propiedades únicas
+            const allProps = new Set();
+            features.forEach(f => {
+                Object.keys(f.properties).forEach(prop => allProps.add(prop));
+            });
+            const columns = Array.from(allProps);
+
+            // Crear array de datos
+            const sheetData = [columns]; // Headers
+
+            features.forEach(feature => {
+                const row = columns.map(col => {
+                    const value = feature.properties[col];
+                    return value !== null && value !== undefined ? value : '';
+                });
+                sheetData.push(row);
+            });
+
+            const ws = XLSX.utils.aoa_to_sheet(sheetData);
+
+            // Estilo para headers
+            columns.forEach((col, index) => {
+                const cellAddress = XLSX.utils.encode_cell({ r: 0, c: index });
+                if (!ws[cellAddress]) return;
+                ws[cellAddress].s = {
+                    font: { bold: true, color: { rgb: "FFFFFF" } },
+                    fill: { fgColor: { rgb: "800020" } },
+                    alignment: { horizontal: "center" }
+                };
+            });
+
+            // Nombre de la hoja (máximo 31 caracteres)
+            let sheetName = layerData.title.substring(0, 30);
+            XLSX.utils.book_append_sheet(wb, ws, sheetName);
+        });
+
+        // Descargar archivo
+        const now = new Date();
+        const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        const timeStr = `${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}`;
+        const fileName = `Analisis_Resultados_V1_${dateStr}_${timeStr}.xlsx`;
+
+        XLSX.writeFile(wb, fileName);
+        showAlert('Archivo Excel descargado exitosamente', 'success');
+
+    } catch (error) {
+        console.error('Error al generar Excel:', error);
+        showAlert('Error al generar el archivo Excel', 'danger');
+    }
+}
+
+/**
+ * Exporta el mapa actual como imagen PNG de alta resolución con leyenda
+ */
+function exportMapToPNG() {
+    showPreloader('Generando imagen del mapa con leyenda...');
+
+    try {
+        const mapContainer = document.getElementById('map');
+        const legend = document.getElementById('map-legend');
+
+        if (!mapContainer) {
+            showAlert('No se pudo encontrar el contenedor del mapa', 'danger');
+            hidePreloader();
+            return;
+        }
+
+        // Guardar vista actual del usuario
+        const originalCenter = map.getCenter();
+        const originalZoom = map.getZoom();
+
+        // Forzar leyenda visible si hay capas
+        const legendWasHidden = legend && legend.classList.contains('hidden');
+        if (legend && legendWasHidden && currentModalData && Object.keys(currentModalData).length > 0) {
+            legend.classList.remove('hidden');
+        }
+
+        // Función para capturar el mapa
+        const captureMap = () => {
+            html2canvas(mapContainer, {
+                useCORS: true,
+                allowTaint: true,
+                backgroundColor: '#ffffff',
+                scale: 2,
+                logging: false,
+                imageTimeout: 0,
+                onclone: function (clonedDoc) {
+                    const clonedMap = clonedDoc.getElementById('map');
+                    if (clonedMap) {
+                        clonedMap.style.width = mapContainer.offsetWidth + 'px';
+                        clonedMap.style.height = mapContainer.offsetHeight + 'px';
+                    }
+                }
+            }).then(function (canvas) {
+                // Crear canvas compuesto
+                const finalCanvas = document.createElement('canvas');
+                finalCanvas.width = canvas.width;
+                finalCanvas.height = canvas.height;
+                const ctx = finalCanvas.getContext('2d');
+
+                // Dibujar mapa base
+                ctx.drawImage(canvas, 0, 0);
+
+                // Dibujar leyenda (si está visible)
+                if (legend && !legend.classList.contains('hidden')) {
+                    const legendItems = legend.querySelectorAll('.legend-item');
+                    if (legendItems.length > 0) {
+                        const scale = 2;
+                        const legendPadding = 15 * scale;
+                        const legendItemHeight = 28 * scale;
+                        const legendWidth = 250 * scale;
+                        const legendHeight = (legendItems.length * legendItemHeight) + (legendPadding * 2) + (30 * scale);
+
+                        const legendX = canvas.width - legendWidth - (20 * scale);
+                        const legendY = 20 * scale;
+
+                        // Fondo de leyenda
+                        ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+                        ctx.shadowColor = 'rgba(0, 0, 0, 0.2)';
+                        ctx.shadowBlur = 10 * scale;
+                        ctx.shadowOffsetY = 2 * scale;
+                        ctx.beginPath();
+                        ctx.roundRect(legendX, legendY, legendWidth, legendHeight, 12 * scale);
+                        ctx.fill();
+                        ctx.shadowColor = 'transparent';
+                        ctx.shadowBlur = 0;
+
+                        // Título "CAPAS"
+                        ctx.fillStyle = '#1e293b';
+                        ctx.font = `bold ${14 * scale}px Inter, sans-serif`;
+                        ctx.fillText('CAPAS', legendX + legendPadding, legendY + legendPadding + (14 * scale));
+
+                        // Items de leyenda
+                        let yOffset = legendY + legendPadding + (35 * scale);
+                        legendItems.forEach((item) => {
+                            const colorEl = item.querySelector('.legend-color');
+                            const labelEl = item.querySelector('.legend-label');
+                            const countEl = item.querySelector('.legend-count');
+
+                            if (colorEl && labelEl) {
+                                const color = colorEl.style.background || colorEl.style.backgroundColor;
+                                const label = labelEl.textContent;
+                                const count = countEl ? countEl.textContent : '';
+
+                                // Círculo de color
+                                ctx.fillStyle = color;
+                                ctx.beginPath();
+                                ctx.arc(legendX + legendPadding + (8 * scale), yOffset, 6 * scale, 0, Math.PI * 2);
+                                ctx.fill();
+
+                                // Etiqueta
+                                ctx.fillStyle = '#475569';
+                                ctx.font = `${12 * scale}px Inter, sans-serif`;
+                                ctx.fillText(label, legendX + legendPadding + (24 * scale), yOffset + (4 * scale));
+
+                                // Contador
+                                if (count) {
+                                    ctx.fillStyle = '#94a3b8';
+                                    ctx.font = `${11 * scale}px Inter, sans-serif`;
+                                    const labelWidth = ctx.measureText(label).width;
+                                    ctx.fillText(`(${count})`, legendX + legendPadding + (28 * scale) + labelWidth, yOffset + (4 * scale));
+                                }
+
+                                yOffset += legendItemHeight;
+                            }
+                        });
+                    }
+                }
+
+                // Dibujar cuadro de metadatos
+                const scale = 2;
+                const metaWidth = 400 * scale;
+                const metaHeight = 90 * scale;
+                const metaX = 20 * scale;
+                const metaY = canvas.height - metaHeight - (20 * scale);
+                const metaPadding = 16 * scale;
+
+                // Fondo
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.2)';
+                ctx.shadowBlur = 10 * scale;
+                ctx.shadowOffsetY = 2 * scale;
+                ctx.beginPath();
+                ctx.roundRect(metaX, metaY, metaWidth, metaHeight, 12 * scale);
+                ctx.fill();
+                ctx.shadowColor = 'transparent';
+                ctx.shadowBlur = 0;
+
+                // Título
+                ctx.fillStyle = '#800020';
+                ctx.font = `bold ${16 * scale}px Inter, sans-serif`;
+                ctx.fillText('ANÁLISIS DE IMPACTO - V1', metaX + metaPadding, metaY + metaPadding + (14 * scale));
+
+                // Info del archivo
+                const now = new Date();
+                const dateStr = now.toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' });
+                ctx.fillStyle = '#64748b';
+                ctx.font = `600 ${12 * scale}px Inter, sans-serif`;
+                ctx.fillText(`${kmlMetrics.fileName || 'Polígono de Análisis'} | ${dateStr}`, metaX + metaPadding, metaY + metaPadding + (38 * scale));
+
+                // Área y capas
+                ctx.fillStyle = '#94a3b8';
+                ctx.font = `${11 * scale}px Inter, sans-serif`;
+                ctx.fillText(
+                    `Área: ${kmlMetrics.area || 'N/A'} km² | ${Object.keys(currentModalData || {}).length} capas analizadas`,
+                    metaX + metaPadding,
+                    metaY + metaPadding + (62 * scale)
+                );
+
+                // Descargar
+                finalCanvas.toBlob(function (blob) {
+                    const now = new Date();
+                    const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+                    const timeStr = `${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}`;
+                    const fileName = `Mapa_Analisis_V1_${dateStr}_${timeStr}.png`;
+
+                    const link = document.createElement('a');
+                    link.download = fileName;
+                    link.href = URL.createObjectURL(blob);
+                    link.click();
+                    URL.revokeObjectURL(link.href);
+
+                    // Restaurar vista
+                    map.setView(originalCenter, originalZoom, { animate: false });
+                    if (legendWasHidden && legend) legend.classList.add('hidden');
+
+                    hidePreloader();
+                    showAlert('Mapa exportado con leyenda en alta resolución', 'success');
+                }, 'image/png', 1.0);
+
+            }).catch(function (error) {
+                console.error('Error:', error);
+                map.setView(originalCenter, originalZoom, { animate: false });
+                if (legendWasHidden && legend) legend.classList.add('hidden');
+                hidePreloader();
+                showAlert('Error al exportar el mapa', 'danger');
+            });
+        };
+
+        // Centrar KML antes de capturar
+        if (kmlLayer && kmlLayer.getBounds) {
+            const bounds = kmlLayer.getBounds();
+            if (bounds && bounds.isValid()) {
+                const onMoveEnd = () => {
+                    map.off('moveend', onMoveEnd);
+                    setTimeout(captureMap, 800);
+                };
+                map.once('moveend', onMoveEnd);
+                map.fitBounds(bounds, { padding: [50, 50], animate: false });
+            } else {
+                setTimeout(captureMap, 800);
+            }
+        } else {
+            setTimeout(captureMap, 800);
+        }
+
+    } catch (error) {
+        console.error('Error:', error);
+        hidePreloader();
+        showAlert('Error al exportar el mapa', 'danger');
     }
 }
 
@@ -1838,6 +2821,66 @@ if (document.readyState === 'loading') {
 } else {
     // DOM ya está listo, inicializar inmediatamente
     initApp();
+}
+
+// ============================================================================
+// FUNCIONES DEL PANEL FLOTANTE
+// ============================================================================
+
+/**
+ * Toggle del panel flotante de resultados
+ */
+function toggleFloatingResults() {
+    const panel = document.getElementById('floatingResultsPanel');
+    const btn = document.getElementById('floatingResultsBtn');
+
+    if (panel.classList.contains('active')) {
+        panel.classList.remove('active');
+        if (btn) btn.style.display = 'flex';
+    } else {
+        panel.classList.add('active');
+        if (btn) btn.style.display = 'none';
+    }
+}
+
+/**
+ * Actualiza el resumen del panel flotante
+ */
+function updateFloatingPanel(data) {
+    const summaryEl = document.getElementById('floatingResultsSummary');
+    const badgeEl = document.getElementById('totalFoundBadge');
+    const countBadge = document.getElementById('resultsBadgeCount');
+    const btnEl = document.getElementById('floatingResultsBtn');
+
+    if (!data || Object.keys(data).length === 0) {
+        if (summaryEl) summaryEl.innerHTML = '<p class="tw-text-xs tw-text-gray-500 tw-text-center">No hay resultados disponibles.</p>';
+        if (badgeEl) badgeEl.textContent = '0 elementos';
+        if (countBadge) countBadge.textContent = '0';
+        if (btnEl) btnEl.style.display = 'none';
+        return;
+    }
+
+    const totalElements = Object.values(data).reduce((sum, layer) => sum + layer.features.length, 0);
+
+    if (badgeEl) badgeEl.textContent = `${totalElements.toLocaleString('es-MX')} elementos`;
+    if (countBadge) countBadge.textContent = totalElements > 99 ? '99+' : totalElements;
+    if (btnEl) btnEl.style.display = 'flex';
+
+    if (summaryEl) {
+        let html = '';
+        Object.entries(data).forEach(([key, layer]) => {
+            html += `
+                <div class="tw-flex tw-items-center tw-justify-between tw-p-2 tw-bg-white tw-rounded-lg tw-border tw-border-gray-200">
+                    <div class="tw-flex tw-items-center tw-gap-2">
+                        <span class="material-symbols-outlined tw-text-sm" style="color: ${layer.color || '#666'}">${layer.icon || 'layers'}</span>
+                        <span class="tw-text-xs tw-font-semibold tw-text-gray-700">${layer.title}</span>
+                    </div>
+                    <span class="tw-text-xs tw-font-bold tw-text-gray-900">${layer.features.length.toLocaleString('es-MX')}</span>
+                </div>
+            `;
+        });
+        summaryEl.innerHTML = html;
+    }
 }
 
 // ============================================================================

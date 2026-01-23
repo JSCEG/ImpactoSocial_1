@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+<Document id="root_doc">
+<Schema name="multipoligono" id="multipoligono">
+	<SimpleField name="id" type="float"></SimpleField>
+</Schema>
+<Folder><name>multipoligono</name>
+  <Placemark id="multipoligono.1">
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#multipoligono">
+		<SimpleData name="id">1</SimpleData>
+	</SchemaData></ExtendedData>
+      <MultiGeometry><Polygon><outerBoundaryIs><LinearRing><coordinates>-91.6640804854051,18.1216045962827 -91.5562695821157,18.240196589901 -91.5117975845088,18.1835958656741 -91.5077546756355,18.1040853244982 -91.5899604893936,18.0852184164225 -91.6640804854051,18.1216045962827</coordinates></LinearRing></outerBoundaryIs></Polygon></MultiGeometry>
+  </Placemark>
+  <Placemark id="multipoligono.2">
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#multipoligono">
+		<SimpleData name="id">2</SimpleData>
+	</SchemaData></ExtendedData>
+      <MultiGeometry><Polygon><outerBoundaryIs><LinearRing><coordinates>-91.3959008634727,18.2900591326723 -91.3015663230945,18.3224024036592 -91.215317600463,18.2711922245967 -91.215317600463,18.1997675011675 -91.3837721368527,18.1647289575984 -91.4403728610796,18.2294154995721 -91.3959008634727,18.2900591326723</coordinates></LinearRing></outerBoundaryIs></Polygon></MultiGeometry>
+  </Placemark>
+  <Placemark id="multipoligono.3">
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#multipoligono">
+		<SimpleData name="id">3</SimpleData>
+	</SchemaData></ExtendedData>
+      <MultiGeometry><Polygon><outerBoundaryIs><LinearRing><coordinates>-91.1533263310716,18.5407194828202 -91.0953779705536,18.5676722086425 -91.0333867011622,18.5218525747445 -91.0468630640733,18.4369514884041 -91.1169401512114,18.4167369440374 -91.1668026939828,18.4288656706574 -91.1910601472229,18.4773805771377 -91.1533263310716,18.5407194828202</coordinates></LinearRing></outerBoundaryIs></Polygon></MultiGeometry>
+  </Placemark>
+  <Placemark id="multipoligono.4">
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#multipoligono">
+		<SimpleData name="id">4</SimpleData>
+	</SchemaData></ExtendedData>
+      <MultiGeometry><Polygon><outerBoundaryIs><LinearRing><coordinates>-90.8986230720504,18.6444874772362 -90.847412892988,18.6431398409451 -90.8150696220011,18.6121442062494 -90.8204601671656,18.562281663478 -90.8918848905948,18.5474576642758 -90.9646572503152,18.5798009352626 -90.9673525228974,18.6054060247938 -90.8986230720504,18.6444874772362</coordinates></LinearRing></outerBoundaryIs></Polygon></MultiGeometry>
+  </Placemark>
+</Folder>
+</Document></kml>

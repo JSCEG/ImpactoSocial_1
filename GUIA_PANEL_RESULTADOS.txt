@@ -1,0 +1,117 @@
+/* GUÍA RÁPIDA DE USO - PANEL DE RESULTADOS MEJORADO */
+
+╔════════════════════════════════════════════════════════════════╗
+║              PANEL DE RESULTADOS - VERSIÓN MEJORADA            ║
+╚════════════════════════════════════════════════════════════════╝
+
+┌────────────────────────────────────────────────────────────────┐
+│ ESTADO 1: PANEL MINIMIZADO (por defecto después del análisis) │
+└────────────────────────────────────────────────────────────────┘
+
+  ┌──────────────────────────────────────────────────────────┐
+  │  ▊ Hallazgos del Análisis     [📥] [🔽]                 │
+  │     45 HALLAZGOS                                          │
+  └──────────────────────────────────────────────────────────┘
+       ↑                              ↑    ↑
+       │                              │    │
+   Indicador                      Descargar Expandir
+   Visual                          Excel   Panel
+
+
+┌────────────────────────────────────────────────────────────────┐
+│ ESTADO 2: PANEL EXPANDIDO (clic en barra superior o botón)    │
+└────────────────────────────────────────────────────────────────┘
+
+  ┌──────────────────────────────────────────────────────────┐
+  │  ▊ Hallazgos del Análisis     [📥] [🔼]                 │
+  │     45 HALLAZGOS                                          │
+  ├──────────────────────────────────────────────────────────┤
+  │  [📍 Atlas 12] [🗺️ Regiones 8] [🌐 Lenguas 15] ...      │
+  ├──────────────────────────────────────────────────────────┤
+  │  ╔════════════════════════════════════════════╗          │
+  │  ║ No. │ Localidad      │ Población │ Lat    ║          │
+  │  ╠═════╪════════════════╪═══════════╪════════╣          │
+  │  ║  1  │ San Pedro      │   1,234   │ 19.45  ║          │
+  │  ║  2  │ Santa María    │     567   │ 20.12  ║          │
+  │  ║  3  │ El Tepeyac     │     890   │ 18.98  ║          │
+  │  ╚═════╧════════════════╧═══════════╧════════╝          │
+  ├──────────────────────────────────────────────────────────┤
+  │  [📥 DESCARGAR ACTA DE RESULTADOS (.XLSX)]              │
+  └──────────────────────────────────────────────────────────┘
+
+
+╔════════════════════════════════════════════════════════════════╗
+║                   FORMAS DE USAR EL PANEL                      ║
+╚════════════════════════════════════════════════════════════════╝
+
+1️⃣  EXPANDIR/MINIMIZAR
+   • Clic en TODA la barra superior (área gris)
+   • O clic en el botón específico [🔽]/[🔼]
+   • El icono cambia según el estado
+
+2️⃣  DESCARGAR EXCEL
+   • Botón [📥] en la cabecera (siempre visible)
+   • Botón grande verde al final (solo cuando expandido)
+   • Se genera automáticamente con:
+     ✓ Hoja de Resumen
+     ✓ Una hoja por cada capa
+     ✓ Coordenadas geográficas incluidas
+
+3️⃣  NAVEGAR ENTRE CAPAS
+   • Pestañas en la parte superior del panel expandido
+   • Cada pestaña muestra icono, nombre y cantidad
+   • Botón "Ver en Mapa" para hacer zoom a la capa
+
+
+╔════════════════════════════════════════════════════════════════╗
+║              CONTENIDO DEL ARCHIVO EXCEL                       ║
+╚════════════════════════════════════════════════════════════════╝
+
+📊 HOJA 1: RESUMEN
+   ┌─────────────────────────────────────────┐
+   │ REPORTE DE ANÁLISIS DE IMPACTO INDÍGENA │
+   │ Fecha: 19/01/2026 14:30:45             │
+   │                                         │
+   │ Capa              │ Elementos           │
+   │ ─────────────────────────────────────── │
+   │ Atlas Indígena    │    12               │
+   │ Regiones          │     8               │
+   │ Lenguas           │    15               │
+   │ ...               │   ...               │
+   │                                         │
+   │ TOTAL DE IMPACTOS: 45                   │
+   └─────────────────────────────────────────┘
+
+📊 HOJAS 2-N: DATOS POR CAPA
+   ┌────────────────────────────────────────────────────┐
+   │ No. │ Nombre    │ Población │ Latitud  │ Longitud │
+   │ ────┼───────────┼───────────┼──────────┼───────────┤
+   │  1  │ Ejemplo   │   1,234   │ 19.4521  │ -99.1234 │
+   │  2  │ ...       │   ...     │ ...      │ ...      │
+   └────────────────────────────────────────────────────┘
+
+
+╔════════════════════════════════════════════════════════════════╗
+║                    ATAJOS Y TIPS                               ║
+╚════════════════════════════════════════════════════════════════╝
+
+💡 El panel SIEMPRE está visible (minimizado o expandido)
+💡 No necesitas abrir el modal de control para descargar
+💡 Las coordenadas en Excel permiten análisis posteriores
+💡 El nombre del archivo incluye fecha y hora única
+💡 Puedes seguir interactuando con el mapa en ambos estados
+
+
+╔════════════════════════════════════════════════════════════════╗
+║                   FLUJO DE TRABAJO                             ║
+╚════════════════════════════════════════════════════════════════╝
+
+1. Cargar KML → 2. Ejecutar Análisis → 3. Panel aparece minimizado
+                                              ↓
+                            4. Expandir para ver detalles
+                                              ↓
+                            5. Revisar datos en pestañas
+                                              ↓
+                            6. Descargar Excel si necesitas
+                                              ↓
+                            7. Minimizar para seguir trabajando

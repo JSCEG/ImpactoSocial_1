@@ -1,4118 +1,998 @@
 /**
- * GEOVISUALIZADOR DE ÁREAS DE INTERÉS - VERSIÓN MULTICAPA
- * ========================================================
- * 
- * Sistema para análisis geoespacial que permite cargar un área de interés
- * desde un archivo KML y analizar qué elementos de diferentes capas
- * (localidades, pueblos indígenas, municipios, etc.) se encuentran dentro.
+ * GEOVISUALIZADOR DE ÁREAS DE INTERÉS - VERSIÓN 2 (ANÁLISIS MULTICAPA)
+ * ====================================================================
  */
+// --- GLOBALS ---
+let map, kmlLayer, kmlGeoJson, bufferLayer;
+let analysisMode = 'manual';
+let clipType = 'direct';
+let clippedLayers = {};
+let currentAnalysisResults = null;
 
-// ============================================================================
-// VARIABLES PRINCIPALES DE LA APLICACIÓN
-// ============================================================================
-
-let map; // El mapa principal de Leaflet
-let kmlLayer = null; // Capa que muestra el polígono KML subido
-let bufferLayer = null; // Capa del buffer de 500m para área núcleo
-let kmlGeoJson = null; // Datos del KML convertidos a GeoJSON
-let lastAreaBounds = null; // Para poder volver a centrar en el área analizada
-
-// Métricas del KML para reportes
+// Métricas del polígono KML
 let kmlMetrics = {
-    area: 0, // en km²
-    perimeter: 0, // en km
-    hasOverlaps: false, // si tiene superposiciones
-    overlapCount: 0, // número de superposiciones detectadas
-    polygonCount: 0, // número de polígonos en el KML
-    geometryType: 'N/A',
-    bufferUsed: false,
-    bufferRadius: 0,
-    localityDensity: 0, // localidades por km²
-    populationDensity: 0, // población por km²
-    totalPopulation: 0, // población total intersectada
-    intersectsANP: false,
-    intersectsRamsar: false,
-    intersectsZHistoricas: false,
-    intersectsZA: false
+    fileName: '',
+    uploadDate: '',
+    area: 0,
+    perimeter: 0,
+    centroid: null,
+    bounds: null,
+    vertexCount: 0,
+    geometryType: ''
 };
 
-// ============================================================================
-// UTILIDADES Y VARIABLES DE DATOS
-// ============================================================================
+// URLs de datos (V2 Completa - 15 capas)
+const urls = {
+    localidades: 'https://cdn.sassoapps.com/Gabvy/localidades_4326.geojson',
+    localities_points: 'https://cdn.sassoapps.com/Gabvy/localidades_puntos.geojson',
+    atlas: 'https://cdn.sassoapps.com/Gabvy/atlaspueblosindigenas.geojson',
+    municipios: 'https://cdn.sassoapps.com/Gabvy/municipios_4326.geojson',
+    regiones: 'https://cdn.sassoapps.com/Gabvy/regionesindigenas.geojson',
+    ran: 'https://cdn.sassoapps.com/Gabvy/RAN_4326.geojson',
+    lenguas: 'https://cdn.sassoapps.com/Gabvy/lenguasindigenas_corregido.geojson',
+    za_publico: 'https://cdn.sassoapps.com/Gabvy/ZA_publico.geojson',
+    za_publico_a: 'https://cdn.sassoapps.com/Gabvy/ZA_publico_a.geojson',
+    anp_estatal: 'https://cdn.sassoapps.com/Gabvy/anp_estatal.geojson',
+    ramsar: 'https://cdn.sassoapps.com/Gabvy/ramsar.geojson',
+    sitio_arqueologico: 'https://cdn.sassoapps.com/Gabvy/sitio_arqueologico.geojson',
+    z_historicos: 'https://cdn.sassoapps.com/Gabvy/z_historicos.geojson',
+    loc_indigenas_datos: 'https://cdn.sassoapps.com/Gabvy/loc_indigenas_datos.geojson',
+    rutaWixarika: 'https://cdn.sassoapps.com/Gabvy/rutaWixarika.geojson'
+};
 
-// Función para formatear números con separadores de miles
-function formatNumber(n) {
-    if (n == null || isNaN(n)) return '0';
-    try { return n.toLocaleString('es-MX'); } catch (_) { return String(n); }
+const dataCache = new Map();
+
+// Configuración de visualización para las 15 capas
+const LAYER_CONFIG = {
+    // Base
+    localidades: { name: 'Localidades (Pol)', color: '#3b82f6', icon: 'layers', desc: 'Límites Urbanos' },
+    puntos: { name: 'Localidades (Pnt)', color: '#10b981', icon: 'location_on', desc: 'Puntos Rurales' },
+    municipios: { name: 'Municipios', color: '#64748b', icon: 'map', desc: 'División Política' },
+
+    // Indígena
+    atlas: { name: 'Atlas Indígena', color: '#ff00ff', icon: 'temple_buddhist', desc: 'Territorios' },
+    regiones: { name: 'Regiones Indígenas', color: '#ffa500', icon: 'public', desc: 'Regiones INPI' },
+    lenguas: { name: 'Lenguas Indígenas', color: '#00ffff', icon: 'translate', desc: 'Hablantes' },
+    loc_ind: { name: 'Datos Indígenas', color: '#8000ff', icon: 'groups', desc: 'Población Indígena' },
+    ruta: { name: 'Ruta Wixarika', color: '#ff8000', icon: 'alt_route', desc: 'Sitios Sagrados' },
+
+    // Agrario
+    ran: { name: 'Núcleos Agrarios', color: '#8B4513', icon: 'agriculture', desc: 'Ejidos y Comunidades' },
+
+    // Ambiental / Arqueológico
+    anp_estatal: { name: 'ANP Estatal', color: '#22c55e', icon: 'nature', desc: 'Áreas Protegidas' },
+    ramsar: { name: 'Sitios Ramsar', color: '#0ea5e9', icon: 'water', desc: 'Humedales' },
+    za_publico: { name: 'Zonas Arq. (Público)', color: '#ef4444', icon: 'pyramid', desc: 'Acceso Público' },
+    sitio_arqueologico: { name: 'Sitios Arqueológicos', color: '#b91c1c', icon: 'history_edu', desc: 'INAH' },
+    z_historicos: { name: 'Zonas Históricas', color: '#d97706', icon: 'account_balance', desc: 'Patrimonio' }
+};
+
+// Helper para Toasts visuales
+function showAlert(message, type = 'info') {
+    const container = document.getElementById('toastContainer') || document.body;
+    const toast = document.createElement('div');
+    toast.className = `alert alert-${type} tw-fixed tw-bottom-20 tw-left-1/2 tw-transform -tw-translate-x-1/2 tw-z-[9999] tw-shadow-2xl tw-border-0 tw-rounded-2xl tw-flex tw-items-center tw-gap-3 tw-animate-bounce tw-px-6 tw-py-3 tw-bg-white tw-border tw-border-gray-100`;
+
+    // Colores según tipo
+    if (type === 'success') toast.classList.add('tw-text-green-600');
+    else if (type === 'danger') toast.classList.add('tw-text-red-600');
+    else toast.classList.add('tw-text-blue-600');
+
+    const icon = type === 'success' ? 'check_circle' : (type === 'danger' ? 'error' : 'info');
+    toast.innerHTML = `<span class="material-symbols-outlined">${icon}</span>
+                       <span class="tw-text-xs tw-font-bold">${message}</span>`;
+    container.appendChild(toast);
+    setTimeout(() => {
+        toast.classList.remove('tw-animate-bounce');
+        toast.style.opacity = '0';
+        toast.style.transition = 'all 0.5s ease';
+        setTimeout(() => toast.remove(), 500);
+    }, 3500);
 }
 
-// Función para corregir problemas de encoding (mojibake) comunes en español
-function fixMojibake(text) {
-    if (!text || typeof text !== 'string') return text;
+// Helpers para Preloader
+function showPreloader(status = 'Iniciando...') {
+    const p = document.getElementById('preloader');
+    const s = document.getElementById('preloaderStatus');
+    const b = document.getElementById('preloaderBar');
 
-    // Mapa de caracteres comunes mal codificados (Windows-1252 interpretado como UTF-8)
-    const fixes = {
-        'Ã¡': 'á', 'Ã©': 'é', 'Ã­': 'í', 'Ã³': 'ó', 'Ãº': 'ú',
-        'Ã±': 'ñ', 'Ã¼': 'ü',
-        'Ã': 'Á', 'Ã‰': 'É', 'Ã': 'Í', 'Ã“': 'Ó', 'Ãš': 'Ú',
-        'Ã‘': 'Ñ', 'Ãœ': 'Ü',
-        'Â¿': '¿', 'Â¡': '¡',
-        'â‚¬': '€', 'â€š': '‚', 'â€ž': '„', 'â€¦': '…', 'â€°': '‰',
-        'â€¹': '‹', 'â€º': '›', 'â€': '†', 'â€': '‡', 'â€': '•',
-        'â€': '–', 'â€”': '—', 'â€': '˜', 'â„¢': '™', 'â€': 'š',
-        'â€': '›', 'â€': 'œ', 'â€': 'ž', 'â€': 'Ÿ'
+    if (p) p.classList.add('active');
+    if (s) s.textContent = status;
+    if (b) b.style.width = '5%';
+
+    document.body.style.cursor = 'wait';
+    const btn = document.getElementById('uploadKmlBtn');
+    if (btn) btn.disabled = true;
+}
+
+function updatePreloader(status, progress) {
+    const s = document.getElementById('preloaderStatus');
+    const b = document.getElementById('preloaderBar');
+    if (s) s.textContent = status;
+    if (b) b.style.width = `${progress}%`;
+}
+
+function hidePreloader() {
+    const p = document.getElementById('preloader');
+    if (p) p.classList.remove('active');
+    document.body.style.cursor = 'default';
+    const btn = document.getElementById('uploadKmlBtn');
+    if (btn) btn.disabled = false;
+}
+
+/**
+ * Formatea propiedades para popup
+ */
+function formatPopupAllProperties(title, props) {
+    let html = `<div class="tw-p-1"><div class="tw-text-[10px] tw-font-black tw-text-primary tw-uppercase tw-border-b tw-border-gray-100 tw-pb-1 tw-mb-2">${title}</div>`;
+    html += `<div class="tw-max-h-[160px] tw-overflow-y-auto"><table class="tw-w-full tw-text-[9px]">`;
+    for (const [key, value] of Object.entries(props)) {
+        if (value !== null && value !== undefined && value !== '' && typeof value !== 'object') {
+            html += `<tr class="tw-border-b tw-border-gray-50"><td class="tw-font-bold tw-text-gray-400 tw-py-1 tw-pr-2">${key}</td><td class="tw-text-gray-700 tw-py-1">${value}</td></tr>`;
+        }
+    }
+    html += `</table></div></div>`;
+    return html;
+}
+
+async function getLayerData(layerKey) {
+    if (dataCache.has(layerKey)) return dataCache.get(layerKey);
+    const url = urls[layerKey];
+    if (!url) return { type: 'FeatureCollection', features: [] };
+
+    const proxies = [
+        (u) => u,
+        (u) => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
+        (u) => `https://corsproxy.io/?${encodeURIComponent(u)}`
+    ];
+
+    for (let i = 0; i < proxies.length; i++) {
+        try {
+            const fetchUrl = proxies[i](url);
+            console.log(`[Carga] Intento ${i + 1} para ${layerKey}...`);
+            const r = await fetch(fetchUrl);
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+
+            let data;
+            if (i === 1) {
+                const pjson = await r.json();
+                data = JSON.parse(pjson.contents);
+            } else {
+                data = await r.json();
+            }
+
+            if (data && data.features) {
+                console.log(`[Carga] ✓ ${layerKey} cargada con éxito`);
+                dataCache.set(layerKey, data);
+                return data;
+            }
+        } catch (err) {
+            console.warn(`[Carga] ✗ Fallo intento ${i + 1} para ${layerKey}:`, err.message);
+        }
+    }
+
+    console.error(`[Carga] !!! ${layerKey} falló tras todos los intentos.`);
+    return { type: 'FeatureCollection', features: [] };
+}
+
+function initMap() {
+    const mapEl = document.getElementById('map');
+    if (!mapEl) return;
+
+    if (map) { map.remove(); map = null; }
+
+    const baseMaps = {
+        'SENER Oscuro': L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 18 }),
+        'SENER Light': L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 18 }),
+        'Google Satellite': L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', { maxZoom: 20 })
     };
 
-    let fixed = text;
-    Object.entries(fixes).forEach(([wrong, right]) => {
-        fixed = fixed.replace(new RegExp(wrong, 'g'), right);
+    map = L.map('map', {
+        center: [24.1, -102],
+        zoom: 5,
+        minZoom: 4,
+        layers: [baseMaps['SENER Light']],
+        zoomControl: false,
+        attributionControl: false
     });
 
-    return fixed;
+    window.baseMaps = baseMaps;
 }
 
-// Variables para almacenar los datos originales de cada capa geoespacial
-let localitiesData = null;      // Localidades de México
-let atlasData = null;           // Atlas de Pueblos Indígenas
-let municipiosData = null;      // Municipios
-let regionesData = null;        // Regiones Indígenas
-let ranData = null;             // Registro Agrario Nacional
-let ranNoGeomData = null;       // RAN sin geometría (datos tabulares)
-let ranLookupMap = new Map();   // Índice Clv_Unica -> propiedades tabulares
-let lenguasData = null;         // Lenguas Indígenas
-let zaPublicoData = null;       // Zonas de Amortiguamiento Público
-let zaPublicoAData = null;      // Zonas de Amortiguamiento Público A
-let anpEstatalData = null;      // Áreas Naturales Protegidas Estatales
-let ramsarData = null;          // Sitios Ramsar
-let sitioArqueologicoData = null; // Sitios Arqueológicos
-let zHistoricosData = null;     // Zonas Históricas
-let locIndigenasData = null;    // Localidades Indígenas Datos
-let rutaWixarikaData = null;    // Ruta Wixarika
-let localidadesDatosData = null; // Localidades Datos Adicionales (JSON tabular)
-let localitiesPointsData = null; // Datos de localidades puntos (coordenadas sin polígono)
+// Visualización de Buffer
+window.updateBufferVisualization = function () {
+    if (!kmlGeoJson || !map) return;
 
-// Variables para las capas filtradas que se muestran en el mapa
-let clippedLocalitiesLayer = null;
-let clippedAtlasLayer = null;
-let clippedMunicipiosLayer = null;
-let clippedRegionesLayer = null;
-let clippedRanLayer = null;
-let clippedLenguasLayer = null;
-let clippedZaPublicoLayer = null;
-let clippedZaPublicoALayer = null;
-let clippedAnpEstatalLayer = null;
-let clippedRamsarLayer = null;
-let clippedSitioArqueologicoLayer = null;
-let clippedZHistoricosLayer = null;
-let clippedLocIndigenasLayer = null;
-let clippedRutaWixarikaLayer = null;
-let clippedLocalitiesPointsLayer = null;
+    const T = window.turf;
+    if (!T) return;
 
-// Control de capas de Leaflet y utilidades de navegación
-let layersControl = null;
-let overlayMaps = {};               // Para mantener referencias de overlays
-let featureLayersById = new Map();  // Para poder navegar a elementos específicos
-let highlightLayer = null;          // Para resaltar elementos seleccionados
-
-// Variables para el reporte Excel
-let totalElements = 0;              // Total de elementos encontrados
-let layersData = {};                // Datos de todas las capas para el reporte
-
-// ============================================================================
-// FUNCIONES PARA CARGAR LIBRERÍAS EXTERNAS
-// ============================================================================
-
-/**
- * Detecta si el navegador es basado en Chromium (Chrome, Edge, Brave)
- */
-function isChromiumBased() {
-    const userAgent = navigator.userAgent.toLowerCase();
-    return userAgent.includes('chrome') || userAgent.includes('chromium') ||
-        userAgent.includes('edge') || userAgent.includes('brave');
-}
-
-/**
- * Carga un script de forma asíncrona - útil para cargar librerías bajo demanda
- */
-function loadScript(url) {
-    return new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = url;
-        s.async = true;
-        s.onload = () => resolve();
-        s.onerror = () => reject(new Error('No se pudo cargar ' + url));
-        document.head.appendChild(s);
-    });
-}
-
-/**
- * Se asegura de que Turf.js esté disponible, probando múltiples CDNs
- * Turf.js es la librería que usamos para operaciones geoespaciales complejas
- */
-async function ensureTurf() {
-    if (window.turf) return window.turf;
-    const cdns = [
-        'https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js',
-        'https://unpkg.com/@turf/turf@6/turf.min.js'
-    ];
-    for (const url of cdns) {
-        try {
-            await loadScript(url);
-            if (window.turf) return window.turf;
-        } catch (_) { /* Si falla un CDN, prueba el siguiente */ }
+    if (bufferLayer) {
+        map.removeLayer(bufferLayer);
+        bufferLayer = null;
     }
-    throw new Error('Turf no disponible desde ningún CDN');
+
+    try {
+        const clipTypeSelect = document.getElementById('clipTypeSelect');
+        const type = clipTypeSelect ? clipTypeSelect.value : 'direct';
+        const originalFeature = kmlGeoJson.features[0];
+
+        const bufferedFeature = applyClipBuffer(originalFeature, type);
+
+        if (type !== 'exact' && bufferedFeature !== originalFeature) {
+            bufferLayer = L.geoJSON(bufferedFeature, {
+                style: {
+                    color: '#3b82f6',
+                    weight: 3,
+                    fillOpacity: 0.12,
+                    fillColor: '#60a5fa',
+                    dashArray: '8, 8'
+                }
+            }).addTo(map);
+            if (bufferLayer && kmlLayer) bufferLayer.bringToBack();
+        }
+    } catch (error) {
+        console.error('[Buffer] Error:', error);
+    }
+};
+
+function applyClipBuffer(feature, type) {
+    const T = window.turf;
+    if (!T || !feature) return feature;
+    try {
+        if (type === 'direct') return T.buffer(feature, 2, { units: 'kilometers' });
+        if (type === 'indirect') return T.buffer(feature, 5, { units: 'kilometers' });
+        return feature;
+    } catch (e) { return feature; }
 }
 
-// ============================================================================
-// SISTEMA DE NOTIFICACIONES Y FEEDBACK AL USUARIO
-// ============================================================================
+// === LÓGICA DE ANÁLISIS V2 (15 CAPAS) ===
+async function performClipping() {
+    console.log('[ANÁLISIS V2] INICIANDO');
+    if (!kmlGeoJson) { showAlert('Primero carga un archivo KML', 'info'); return; }
 
-/**
- * Muestra alertas bonitas usando Bootstrap que se auto-ocultan después de un tiempo
- */
-function showAlert(message, type = 'info', timeoutMs = 4000) {
-    const container = document.getElementById('alertContainer');
-    if (!container) {
-        alert(message);  // Fallback si no hay contenedor
+    showPreloader('Preparando análisis V2...');
+    await new Promise(r => setTimeout(r, 100));
+
+    try {
+        const clipTypeSelect = document.getElementById('clipTypeSelect');
+        clipType = clipTypeSelect ? clipTypeSelect.value : 'direct';
+        const originalArea = kmlGeoJson.features[0];
+        const clipArea = applyClipBuffer(originalArea, clipType);
+
+        // Limpiar capas previas
+        Object.values(clippedLayers).forEach(l => { if (l && map) map.removeLayer(l); });
+        clippedLayers = {};
+        currentAnalysisResults = {};
+
+        // Estilos
+        const stylePoint = (color) => ({
+            pointToLayer: (f, latlng) => L.circleMarker(latlng, {
+                radius: 6, fillColor: color, color: '#fff', weight: 2, fillOpacity: 0.9, className: 'premium-marker'
+            })
+        });
+        const stylePoly = (color) => ({ style: { color, weight: 2, fillOpacity: 0.3 } });
+
+        const isChecked = (id) => document.querySelector(`input[value="${id}"]`)?.checked;
+
+        // Definición de tareas para las 15 capas
+        const tasks = [
+            // Base
+            { id: 'localidades', type: 'poly', key: 'localidades', urlKey: 'localidades' },
+            { id: 'puntos', type: 'point', key: 'puntos', urlKey: 'localities_points' },
+            { id: 'municipios', type: 'poly', key: 'municipios', urlKey: 'municipios' },
+            // Indígena
+            { id: 'atlas', type: 'point', key: 'atlas', urlKey: 'atlas' }, // CAMBIO: Forzar 'point' para usar circleMarker
+            { id: 'regiones', type: 'poly', key: 'regiones', urlKey: 'regiones' },
+            { id: 'lenguas', type: 'point', key: 'lenguas', urlKey: 'lenguas' }, // A veces son puntos o polys, asumimos point safe
+            { id: 'loc_ind', type: 'point', key: 'loc_ind', urlKey: 'loc_indigenas_datos' },
+            { id: 'ruta', type: 'poly', key: 'ruta', urlKey: 'rutaWixarika' },
+            // Agrario
+            { id: 'ran', type: 'poly', key: 'ran', urlKey: 'ran' },
+            // Ambiental
+            { id: 'anp_estatal', type: 'poly', key: 'anp_estatal', urlKey: 'anp_estatal' },
+            { id: 'ramsar', type: 'poly', key: 'ramsar', urlKey: 'ramsar' },
+            { id: 'za_publico', type: 'poly', key: 'za_publico', urlKey: 'za_publico' },
+            { id: 'sitio_arqueologico', type: 'point', key: 'sitio_arqueologico', urlKey: 'sitio_arqueologico' },
+            { id: 'z_historicos', type: 'poly', key: 'z_historicos', urlKey: 'z_historicos' }
+        ];
+
+        // Validar selección
+        const selectedTasks = tasks.filter(t => isChecked(t.id));
+        if (selectedTasks.length === 0) {
+            showAlert('Selecciona al menos una capa', 'warning');
+            hidePreloader();
+            return;
+        }
+
+        // Ejecutar tareas secuencialmente para actualizar barra de progreso
+        for (let i = 0; i < selectedTasks.length; i++) {
+            const task = selectedTasks[i];
+            const config = LAYER_CONFIG[task.id] || { name: task.id, color: '#000' };
+
+            updatePreloader(`PROCESANDO: ${config.name.toUpperCase()}`, Math.round(((i + 1) / selectedTasks.length) * 100));
+
+            try {
+                const data = await getLayerData(task.urlKey);
+                if (data && data.features.length > 0) {
+                    const style = task.type === 'point' ? stylePoint(config.color) : stylePoly(config.color);
+                    const r = clipLayer(data, style, (p) => formatPopupAllProperties(config.name, p), clipArea);
+
+                    if (r.clipped.length > 0) {
+                        const layer = r.layer.addTo(map);
+                        clippedLayers[task.key] = layer;
+                        currentAnalysisResults[task.key] = r.clipped;
+                    }
+                }
+            } catch (err) {
+                console.error(`Error procesando capa ${task.id}:`, err);
+            }
+        }
+
+        updateLateralControl();
+        updateLegend(); // Nueva función para actualizar leyenda
+        updateResultsBadge();
+
+        const totalHits = Object.values(currentAnalysisResults).reduce((sum, list) => sum + list.length, 0);
+        if (totalHits > 0) {
+            showAlert(`Análisis completado: ${totalHits} hallazgos.`, 'success');
+            // Mostrar botón flotante
+            document.getElementById('floatingResultsBtn').classList.remove('tw-hidden');
+            document.getElementById('floatingResultsBtn').classList.add('tw-flex');
+        } else {
+            showAlert('El análisis no arrojó resultados en el área seleccionada.', 'info');
+        }
+
+    } catch (e) {
+        console.error(e);
+        showAlert('Error crítico durante el análisis', 'danger');
+    } finally {
+        hidePreloader();
+    }
+}
+
+function clipLayer(data, styleOptions, popupFormatter, clipArea) {
+    const T = window.turf;
+    if (!T || !clipArea || !data.features) return { clipped: [], layer: L.layerGroup() };
+
+    // Optimización: bbox check primero
+    const clipBbox = T.bbox(clipArea);
+    const clipPoly = T.bboxPolygon(clipBbox);
+
+    const clipped = data.features.filter(f => {
+        try {
+            // Check rápido de bbox
+            if (!T.booleanIntersects(f, clipPoly)) return false;
+            // Check preciso
+            return T.booleanIntersects(f.geometry, clipArea.geometry);
+        } catch (_) { return false; }
+    });
+
+    const layer = L.geoJSON(T.featureCollection(clipped), styleOptions);
+    if (popupFormatter) layer.eachLayer(l => l.bindPopup(popupFormatter(l.feature.properties)));
+
+    return { clipped, layer };
+}
+
+// === UI UPDATES ===
+
+function updateLateralControl() {
+    const ctrl = document.getElementById('lateralLayerControl');
+    if (!ctrl) return;
+    ctrl.innerHTML = '';
+    let hasContent = false;
+
+    Object.keys(clippedLayers).forEach(key => {
+        const layer = clippedLayers[key];
+        const config = LAYER_CONFIG[key];
+        const count = layer.getLayers().length;
+
+        const btn = document.createElement('div');
+        btn.className = 'tw-w-8 tw-h-8 tw-rounded-full tw-flex tw-items-center tw-justify-center tw-cursor-pointer tw-transition-transform hover:tw-scale-110 tw-border tw-border-gray-200';
+        btn.style.backgroundColor = map.hasLayer(layer) ? config.color : '#f3f4f6';
+        btn.style.color = map.hasLayer(layer) ? 'white' : '#9ca3af';
+        btn.title = `${config.name} (${count})`;
+        btn.innerHTML = `<span class="material-symbols-outlined tw-text-sm">${config.icon}</span>`;
+
+        btn.onclick = () => {
+            if (map.hasLayer(layer)) {
+                map.removeLayer(layer);
+                btn.style.backgroundColor = '#f3f4f6';
+                btn.style.color = '#9ca3af';
+            } else {
+                layer.addTo(map);
+                btn.style.backgroundColor = config.color;
+                btn.style.color = 'white';
+            }
+        };
+
+        ctrl.appendChild(btn);
+        hasContent = true;
+    });
+
+    if (hasContent) ctrl.classList.remove('tw-hidden');
+    else ctrl.classList.add('tw-hidden');
+}
+
+function updateResultsBadge() {
+    const badge = document.getElementById('resultsBadgeCount');
+    if (!badge || !currentAnalysisResults) return;
+    const total = Object.values(currentAnalysisResults).reduce((sum, list) => sum + list.length, 0);
+    badge.textContent = total;
+}
+
+window.updateLegend = function () {
+    const legendEl = document.getElementById('mapLegend');
+    const itemsContainer = document.getElementById('legendItems');
+    if (!legendEl || !itemsContainer) return;
+
+    itemsContainer.innerHTML = '';
+    let visibleCount = 0;
+
+    Object.keys(clippedLayers).forEach(key => {
+        const layer = clippedLayers[key];
+
+        // Solo mostrar en leyenda si la capa está visible en el mapa
+        if (map.hasLayer(layer)) {
+            const config = LAYER_CONFIG[key];
+            const count = layer.getLayers().length;
+            visibleCount++;
+
+            const item = document.createElement('div');
+            item.className = 'tw-flex tw-items-center tw-justify-between tw-mb-1';
+            item.innerHTML = `
+                <div class="tw-flex tw-items-center tw-gap-2">
+                    <div class="tw-w-3 tw-h-3 tw-rounded-full" style="background-color: ${config.color}"></div>
+                    <span class="tw-text-[10px] tw-font-bold tw-text-gray-600">${config.name}</span>
+                </div>
+                <span class="tw-text-[10px] tw-font-bold tw-bg-gray-100 tw-text-gray-500 tw-px-1.5 tw-rounded">${count}</span>
+            `;
+            itemsContainer.appendChild(item);
+        }
+    });
+
+    if (visibleCount > 0) {
+        legendEl.classList.remove('tw-hidden');
+    } else {
+        legendEl.classList.add('tw-hidden');
+    }
+}
+
+// === MODAL & REPORTING ===
+
+function openResultsModal() {
+    if (!currentAnalysisResults) return;
+    const modal = document.getElementById('resultsModal');
+    modal.classList.add('active');
+    renderModalContent(processDataForModal(currentAnalysisResults));
+}
+
+function closeResultsModal() {
+    document.getElementById('resultsModal').classList.remove('active');
+}
+
+function processDataForModal(data) {
+    const processed = {};
+    Object.entries(data).forEach(([key, features]) => {
+        if (features.length > 0) {
+            processed[key] = {
+                title: LAYER_CONFIG[key]?.name || key,
+                icon: LAYER_CONFIG[key]?.icon || 'layers',
+                features: features,
+                key: key
+            };
+        }
+    });
+    return processed;
+}
+
+let currentActiveFilter = null;
+let currentPage = 1;
+const ITEMS_PER_PAGE = 50;
+
+function renderModalContent(data) {
+    const total = Object.values(data).reduce((s, l) => s + l.features.length, 0);
+    document.getElementById('totalElementsCount').textContent = `${total.toLocaleString('es-MX')} REGISTROS ENCONTRADOS`;
+
+    if (!currentActiveFilter && Object.keys(data).length > 0) {
+        currentActiveFilter = Object.keys(data)[0];
+    }
+
+    renderLayerFilters(data);
+    if (currentActiveFilter && data[currentActiveFilter]) {
+        showLayerResults(currentActiveFilter, data[currentActiveFilter]);
+    }
+}
+
+function renderLayerFilters(data) {
+    const container = document.getElementById('layerFilters');
+    container.innerHTML = '';
+
+    Object.entries(data).forEach(([key, info]) => {
+        const btn = document.createElement('button');
+        const isActive = currentActiveFilter === key;
+
+        btn.className = `tw-w-full tw-text-left tw-flex tw-items-center tw-justify-between tw-px-3 tw-py-2 tw-rounded-lg tw-mb-1 tw-transition-colors ${isActive ? 'tw-bg-primary/10 tw-text-primary' : 'hover:tw-bg-gray-100 tw-text-gray-500'}`;
+        btn.innerHTML = `
+            <div class="tw-flex tw-items-center tw-gap-2">
+                <span class="material-symbols-outlined tw-text-sm">${info.icon}</span>
+                <span class="tw-text-[10px] tw-font-bold tw-uppercase">${info.title}</span>
+            </div>
+            <span class="tw-text-[10px] tw-font-bold ${isActive ? 'tw-bg-primary tw-text-white' : 'tw-bg-gray-200 tw-text-gray-600'} tw-px-1.5 tw-rounded-md">${info.features.length}</span>
+        `;
+
+        btn.onclick = () => {
+            currentActiveFilter = key;
+            currentPage = 1;
+            renderLayerFilters(data);
+            showLayerResults(key, info);
+        };
+        container.appendChild(btn);
+    });
+}
+
+function showLayerResults(key, info) {
+    const container = document.getElementById('layerResultsContainer');
+    const features = info.features;
+
+    if (features.length === 0) {
+        container.innerHTML = '<div class="tw-text-center tw-text-gray-400">Sin datos</div>';
         return;
     }
 
-    const wrapper = document.createElement('div');
-    wrapper.className = `alert alert-${type} alert-dismissible fade show shadow`;
-    wrapper.setAttribute('role', 'alert');
-    wrapper.innerHTML = `
-        <div>${message}</div>
-        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+    // Paginación
+    const totalPages = Math.ceil(features.length / ITEMS_PER_PAGE);
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    const pagedFeatures = features.slice(start, start + ITEMS_PER_PAGE);
+
+    // Tabla
+    const firstProps = pagedFeatures[0].properties;
+    const headers = Object.keys(firstProps).slice(0, 5); // Primeras 5 columnas
+
+    let html = `
+        <div class="tw-flex tw-items-center tw-justify-between tw-mb-4">
+            <h3 class="tw-text-xs tw-font-black tw-text-primary tw-uppercase">${info.title} (${features.length})</h3>
+            <button onclick="window.zoomToLayer('${key}')" class="tw-text-[10px] tw-font-bold tw-text-primary hover:tw-underline">Ver Todos en Mapa</button>
+        </div>
+        <div class="tw-overflow-x-auto tw-rounded-lg tw-border tw-border-gray-100">
+            <table class="tw-w-full tw-text-left">
+                <thead class="tw-bg-gray-50">
+                    <tr>
+                        ${headers.map(h => `<th class="tw-px-4 tw-py-2 tw-text-[9px] tw-font-black tw-text-gray-400 tw-uppercase">${h}</th>`).join('')}
+                    </tr>
+                </thead>
+                <tbody class="tw-divide-y tw-divide-gray-50">
+                    ${pagedFeatures.map(f => `
+                        <tr class="hover:tw-bg-gray-50 tw-cursor-pointer" onclick='zoomToFeature(${JSON.stringify(f.geometry)}, ${JSON.stringify(f.properties)})'>
+                            ${headers.map(h => `<td class="tw-px-4 tw-py-2 tw-text-[10px] tw-text-gray-600">${f.properties[h] || '-'}</td>`).join('')}
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        </div>
     `;
 
-    container.appendChild(wrapper);
-
-    // Auto-ocultar después del tiempo especificado
-    if (timeoutMs > 0) {
-        setTimeout(() => {
-            wrapper.classList.remove('show');
-            wrapper.addEventListener('transitionend', () => wrapper.remove());
-        }, timeoutMs);
+    // Controles Paginación
+    if (totalPages > 1) {
+        html += `
+            <div class="tw-flex tw-items-center tw-justify-center tw-gap-2 tw-mt-4">
+                <button ${currentPage === 1 ? 'disabled' : ''} onclick="changePage(-1)" class="tw-w-8 tw-h-8 tw-flex tw-items-center tw-justify-center tw-rounded-lg tw-bg-gray-100 disabled:tw-opacity-50 hover:tw-bg-primary hover:tw-text-white tw-transition-colors">
+                    <span class="material-symbols-outlined tw-text-sm">chevron_left</span>
+                </button>
+                <span class="tw-text-[10px] tw-font-bold tw-text-gray-500">Pág ${currentPage} de ${totalPages}</span>
+                <button ${currentPage === totalPages ? 'disabled' : ''} onclick="changePage(1)" class="tw-w-8 tw-h-8 tw-flex tw-items-center tw-justify-center tw-rounded-lg tw-bg-gray-100 disabled:tw-opacity-50 hover:tw-bg-primary hover:tw-text-white tw-transition-colors">
+                    <span class="material-symbols-outlined tw-text-sm">chevron_right</span>
+                </button>
+            </div>
+        `;
     }
 
-    return wrapper;
+    container.innerHTML = html;
 }
 
-/**
- * Muestra un modal para mensajes importantes que requieren confirmación del usuario
- */
-function showModal({ title = 'Aviso', message = '', okText = 'Aceptar', onOk = null } = {}) {
-    const modalEl = document.getElementById('appModal');
-    if (!modalEl) { showAlert(message, 'info', 5000); return; }
+window.changePage = function (delta) {
+    currentPage += delta;
+    const info = processDataForModal(currentAnalysisResults)[currentActiveFilter];
+    showLayerResults(currentActiveFilter, info);
+}
 
-    const titleEl = document.getElementById('appModalLabel');
-    const bodyEl = document.getElementById('appModalBody');
-    const okBtn = document.getElementById('appModalOkBtn');
+window.zoomToFeature = function (geometry, properties) {
+    if (!geometry) return;
 
-    if (titleEl) titleEl.textContent = title;
-    if (bodyEl) bodyEl.innerHTML = message;
-    if (okBtn) {
-        okBtn.textContent = okText;
-        okBtn.onclick = () => { if (onOk) try { onOk(); } catch (_) { } };
+    // Limpiar highlight anterior
+    if (window.highlightLayer) {
+        map.removeLayer(window.highlightLayer);
+        window.highlightLayer = null;
+    }
+    // Limpiar timer anterior si existe
+    if (window.highlightTimer) {
+        clearTimeout(window.highlightTimer);
+        window.highlightTimer = null;
     }
 
-    try {
-        const modal = new bootstrap.Modal(modalEl);
-        modal.show();
+    const layer = L.geoJSON(geometry);
+    const bounds = layer.getBounds();
 
-        // Fix accessibility issue: remove focus from modal elements when modal is hidden
-        modalEl.addEventListener('hidden.bs.modal', () => {
-            const activeElement = document.activeElement;
-            if (activeElement && modalEl.contains(activeElement)) {
-                activeElement.blur();
+    // Si es punto
+    if (geometry.type === 'Point') {
+        const latlng = L.latLng(geometry.coordinates[1], geometry.coordinates[0]);
+        map.setView(latlng, 16);
+
+        window.highlightLayer = L.circleMarker(latlng, {
+            radius: 10,
+            color: '#800020',
+            fillColor: '#800020',
+            fillOpacity: 0.5,
+            className: 'pulse-animation'
+        }).addTo(map);
+
+        // Popup automático robusto
+        // Buscar el nombre en una lista extensa de propiedades comunes
+        const props = properties || {};
+        const nameKeys = ['VARIANTE', 'variante', 'LOCALIDAD', 'NOMGEO', 'nombre', 'Nombre', 'NAME', 'Name', 'nom_loc', 'NOM_LOC', 'municipio', 'MUNICIPIO', 'etiqueta', 'label'];
+        let name = 'Elemento Seleccionado';
+
+        for (const key of nameKeys) {
+            if (props[key]) {
+                name = props[key];
+                break;
             }
-        }, { once: true });
-    } catch (_) {
-        showAlert(message, 'info', 5000);  // Fallback si el modal no funciona
-    }
-}
-
-/**
- * Oculta la pantalla de carga con una transición suave
- */
-function hidePreloader() {
-    console.log('[DEBUG] hidePreloader called');
-    const pre = document.getElementById('preloader');
-    if (!pre) {
-        console.log('[DEBUG] Preloader element not found');
-        return;
-    }
-
-    pre.setAttribute('hidden', '');
-    if (pre.style.display === 'none') {
-        console.log('[DEBUG] Preloader already hidden');
-        return;
-    }
-
-    console.log('[DEBUG] Hiding preloader with animation');
-    pre.classList.add('preloader-hide');
-
-    setTimeout(() => {
-        pre.style.display = 'none';
-        console.log('[DEBUG] Preloader hidden');
-        // Asegurar que el mapa se redibuje correctamente
-        if (typeof map !== 'undefined' && map) {
-            setTimeout(() => map.invalidateSize(), 100);
         }
-    }, 350);
+
+        // Si no encontró nombre, intentar usar la primera propiedad de texto que no sea ID
+        if (name === 'Elemento Seleccionado') {
+            const firstKey = Object.keys(props).find(k => typeof props[k] === 'string' && !k.toLowerCase().includes('id') && props[k].length > 2);
+            if (firstKey) name = props[firstKey];
+        }
+
+        L.popup({
+            closeButton: false,
+            className: 'custom-popup-guinda',
+            autoPan: false,
+            offset: [0, -10]
+        })
+            .setLatLng(latlng)
+            .setContent(`<div class="tw-text-center tw-font-black tw-text-primary tw-text-xs tw-uppercase tw-px-2 tw-py-1">${name}</div>`)
+            .openOn(map);
+
+    } else {
+        // Para polígonos
+        map.fitBounds(bounds, { padding: [100, 100], animate: true, duration: 1.5 });
+
+        window.highlightLayer = L.geoJSON(geometry, {
+            style: {
+                color: '#800020',
+                weight: 4,
+                fillOpacity: 0.1,
+                className: 'pulse-animation'
+            }
+        }).addTo(map);
+
+        const center = bounds.getCenter();
+
+        // Lógica de nombre repetida para polígonos
+        const props = properties || {};
+        const nameKeys = ['VARIANTE', 'variante', 'LOCALIDAD', 'NOMGEO', 'nombre', 'Nombre', 'NAME', 'Name', 'nom_loc', 'NOM_LOC', 'municipio', 'MUNICIPIO', 'etiqueta', 'label'];
+        let name = 'Elemento Seleccionado';
+
+        for (const key of nameKeys) {
+            if (props[key]) {
+                name = props[key];
+                break;
+            }
+        }
+
+        if (name === 'Elemento Seleccionado') {
+            const firstKey = Object.keys(props).find(k => typeof props[k] === 'string' && !k.toLowerCase().includes('id') && props[k].length > 2);
+            if (firstKey) name = props[firstKey];
+        }
+
+        L.popup({
+            closeButton: false,
+            className: 'custom-popup-guinda',
+            autoPan: false
+        })
+            .setLatLng(center)
+            .setContent(`<div class="tw-text-center tw-font-black tw-text-primary tw-text-xs tw-uppercase tw-px-2 tw-py-1">${name}</div>`)
+            .openOn(map);
+    }
+    closeResultsModal();
+
+    // Auto-remover highlight después de 5 segundos
+    window.highlightTimer = setTimeout(() => {
+        if (window.highlightLayer) {
+            map.removeLayer(window.highlightLayer);
+            window.highlightLayer = null;
+            map.closePopup();
+        }
+    }, 5000);
+}
+
+window.zoomToLayer = function (key) {
+    const layer = clippedLayers[key];
+    if (layer) {
+        map.fitBounds(layer.getBounds(), { padding: [50, 50] });
+        closeResultsModal();
+    }
+}
+
+window.downloadModalExcel = function () {
+    if (!currentAnalysisResults) return;
+
+    const wb = XLSX.utils.book_new();
+
+    // Hoja Resumen
+    const summary = [['CAPA', 'CANTIDAD']];
+    Object.entries(currentAnalysisResults).forEach(([key, list]) => {
+        summary.push([LAYER_CONFIG[key].name, list.length]);
+    });
+    const wsSummary = XLSX.utils.aoa_to_sheet(summary);
+    XLSX.utils.book_append_sheet(wb, wsSummary, 'RESUMEN');
+
+    // Hojas por Capa
+    Object.entries(currentAnalysisResults).forEach(([key, list]) => {
+        if (list.length > 0) {
+            const rows = list.map(f => f.properties);
+            const ws = XLSX.utils.json_to_sheet(rows);
+            XLSX.utils.book_append_sheet(wb, ws, LAYER_CONFIG[key].name.substring(0, 30));
+        }
+    });
+
+    XLSX.writeFile(wb, `Analisis_V2_${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
 
 /**
- * Muestra la pantalla de carga durante operaciones que toman tiempo
+ * Exporta el mapa actual como imagen PNG de alta resolución con leyenda
  */
-function showPreloader() {
-    console.log('[DEBUG] showPreloader called');
-    let pre = document.getElementById('preloader');
-
-    // Crear el preloader si no existe
-    if (!pre) {
-        console.log('[DEBUG] Creating preloader element');
-        pre = document.createElement('div');
-        pre.id = 'preloader';
-        pre.className = 'position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center bg-white';
-        pre.style.zIndex = '2050';
-        pre.innerHTML = `
-            <div class="text-center">
-                <img src="img/mujer.png" alt="Cargando" style="max-height: 120px; object-fit: contain;" class="mb-3">
-                <div class="spinner-border text-primary" role="status" aria-label="Cargando"></div>
-                <p class="mt-3 mb-0">Procesando…</p>
-                <div class="progress mt-3 mx-auto" style="height: 10px; width: min(80vw, 420px);">
-                    <div id="preProgressBar" class="progress-bar bg-success" role="progressbar" style="width: 0%;"
-                        aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div>
-                </div>
-                <p id="preloaderMessage" class="mt-2 mb-0 small text-muted">Preparando…</p>
-            </div>`;
-        document.body.appendChild(pre);
+window.exportMapToPNG = function () {
+    if (!currentAnalysisResults) {
+        showAlert('Primero realiza un análisis para exportar.', 'warning');
+        return;
     }
 
-    console.log('[DEBUG] Showing preloader');
-    pre.classList.remove('preloader-hide');
-    pre.removeAttribute('hidden');
-    pre.style.display = 'flex';
+    // 1. Cerrar modal temporalmente para capturar el mapa
+    closeResultsModal();
+
+    // Pequeño delay para permitir que el modal se cierre visualmente
+    setTimeout(() => {
+        showPreloader('Generando imagen del mapa...');
+
+        const mapContainer = document.getElementById('map');
+        const legend = document.getElementById('mapLegend');
+
+        // Forzar leyenda visible para la captura
+        const wasLegendHidden = legend.classList.contains('tw-hidden');
+        if (wasLegendHidden) legend.classList.remove('tw-hidden');
+
+        html2canvas(mapContainer, {
+            useCORS: true,
+            allowTaint: true,
+            scale: 2, // Mejor calidad
+            backgroundColor: '#ffffff',
+            ignoreElements: (element) => {
+                // Ignorar controles de zoom y botones flotantes
+                return element.classList.contains('leaflet-control-zoom') ||
+                    element.id === 'openControl' ||
+                    element.id === 'floatingResultsBtn';
+            }
+        }).then(canvas => {
+            // Restaurar estado de leyenda
+            if (wasLegendHidden) legend.classList.add('tw-hidden');
+
+            // Crear canvas final para añadir metadatos
+            const finalCanvas = document.createElement('canvas');
+            finalCanvas.width = canvas.width;
+            finalCanvas.height = canvas.height;
+            const ctx = finalCanvas.getContext('2d');
+
+            // Dibujar mapa base
+            ctx.drawImage(canvas, 0, 0);
+
+            // Añadir recuadro de título
+            const scale = 2;
+            const padding = 20 * scale;
+            const boxWidth = 400 * scale;
+            const boxHeight = 100 * scale;
+            const x = 20 * scale;
+            const y = finalCanvas.height - boxHeight - (20 * scale);
+
+            // Fondo semi-transparente para título
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.2)';
+            ctx.shadowBlur = 10 * scale;
+            ctx.beginPath();
+            ctx.roundRect(x, y, boxWidth, boxHeight, 10 * scale);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            // Textos Título
+            ctx.fillStyle = '#800020'; // Primary
+            ctx.font = `bold ${16 * scale}px Montserrat, sans-serif`;
+            ctx.fillText('ANÁLISIS GEOESPACIAL V2', x + padding, y + (30 * scale));
+
+            ctx.fillStyle = '#4b5563'; // Gray-600
+            ctx.font = `bold ${12 * scale}px Inter, sans-serif`;
+            ctx.fillText(`ARCHIVO: ${kmlMetrics.fileName || 'N/A'}`, x + padding, y + (55 * scale));
+
+            const dateStr = new Date().toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' });
+            ctx.font = `${10 * scale}px Inter, sans-serif`;
+            ctx.fillText(`FECHA: ${dateStr} | ÁREA: ${kmlMetrics.area} km²`, x + padding, y + (75 * scale));
+
+            // --- DIBUJAR LEYENDA EXPLÍCITA ---
+            if (!wasLegendHidden) {
+                const legendX = finalCanvas.width - (220 * scale); // 200px ancho + 20px margen
+                const legendY = finalCanvas.height - (20 * scale); // Posición inicial desde abajo
+
+                // Recolectar items de leyenda
+                const items = [];
+                Object.keys(clippedLayers).forEach(key => {
+                    if (map.hasLayer(clippedLayers[key])) {
+                        const config = LAYER_CONFIG[key];
+                        const count = clippedLayers[key].getLayers().length;
+                        items.push({ name: config.name, color: config.color, count: count });
+                    }
+                });
+
+                if (items.length > 0) {
+                    const itemHeight = 25 * scale;
+                    const legendHeight = (items.length * itemHeight) + (40 * scale); // + padding
+                    const currentY = finalCanvas.height - legendHeight - (20 * scale);
+
+                    // Fondo Leyenda
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+                    ctx.shadowColor = 'rgba(0, 0, 0, 0.15)';
+                    ctx.shadowBlur = 8 * scale;
+                    ctx.beginPath();
+                    ctx.roundRect(legendX, currentY, 200 * scale, legendHeight, 10 * scale);
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+
+                    // Título Leyenda
+                    ctx.fillStyle = '#9ca3af'; // Gray-400
+                    ctx.font = `bold ${10 * scale}px Montserrat, sans-serif`;
+                    ctx.fillText('SIMBOLOGÍA', legendX + (15 * scale), currentY + (25 * scale));
+
+                    // Items
+                    items.forEach((item, index) => {
+                        const itemY = currentY + (45 * scale) + (index * itemHeight);
+
+                        // Círculo Color
+                        ctx.beginPath();
+                        ctx.arc(legendX + (25 * scale), itemY - (4 * scale), 6 * scale, 0, 2 * Math.PI);
+                        ctx.fillStyle = item.color;
+                        ctx.fill();
+
+                        // Nombre Capa
+                        ctx.fillStyle = '#4b5563'; // Gray-600
+                        ctx.font = `bold ${11 * scale}px Inter, sans-serif`;
+                        ctx.fillText(item.name, legendX + (40 * scale), itemY);
+
+                        // Conteo (Badge)
+                        const countText = item.count.toString();
+                        const countWidth = ctx.measureText(countText).width + (10 * scale);
+
+                        ctx.fillStyle = '#f3f4f6'; // Gray-100
+                        ctx.beginPath();
+                        ctx.roundRect(legendX + (200 * scale) - countWidth - (15 * scale), itemY - (10 * scale), countWidth, 14 * scale, 4 * scale);
+                        ctx.fill();
+
+                        ctx.fillStyle = '#6b7280'; // Gray-500
+                        ctx.font = `bold ${9 * scale}px Inter, sans-serif`;
+                        ctx.fillText(countText, legendX + (200 * scale) - countWidth - (10 * scale), itemY);
+                    });
+                }
+            }
+
+            // Descargar
+            const link = document.createElement('a');
+            link.download = `Mapa_Analisis_${new Date().getTime()}.png`;
+            link.href = finalCanvas.toDataURL('image/png');
+            link.click();
+
+            hidePreloader();
+            showAlert('Mapa exportado exitosamente', 'success');
+
+            // 2. Reabrir modal al finalizar
+            setTimeout(() => openResultsModal(), 500);
+
+        }).catch(err => {
+            console.error(err);
+            hidePreloader();
+            showAlert('Error al exportar imagen', 'danger');
+            // Reabrir modal en caso de error
+            setTimeout(() => openResultsModal(), 500);
+        });
+    }, 300); // 300ms delay para cierre de modal
 }
 
-/**
- * Actualiza la barra de progreso para mostrar el avance de las operaciones
- */
-function updateProgress(percent, message) {
-    const bar = document.getElementById('preProgressBar');
-    const msg = document.getElementById('preloaderMessage');
-
-    if (bar) {
-        const clampedPercent = Math.max(0, Math.min(100, percent));
-        bar.style.width = `${clampedPercent}%`;
-        bar.setAttribute('aria-valuenow', String(Math.round(clampedPercent)));
-    }
-
-    if (msg && typeof message === 'string') {
-        msg.textContent = message;
-    }
-}
-
-// ============================================================================
-// FUNCIÓN PRINCIPAL DE INICIALIZACIÓN
-// ============================================================================
-
-/**
- * Inicializa la aplicación: configura el mapa, enlaces de eventos y carga inicial
- */
+// === INICIALIZACIÓN ===
 function initApp() {
-    console.log('[DEBUG] initApp started');
-    try {
-        const MAP_CONTAINER_ID = 'map';
-        const PRELOADER_ID = 'preloader';
-        const PRELOADER_BAR_ID = 'preProgressBar';
-        // Layer switches integrados en las cards
-        const CENTER_MAP_BTN_ID = 'center-map-btn';
-        const SEARCH_INPUT_ID = 'search-input';
-        const SEARCH_BTN_ID = 'search-btn';
-        const SEARCH_RESULTS_ID = 'search-results';
-        console.log('[DEBUG] Checking preloader state');
-        // Solo ocultar preloader si no hay operaciones en curso
-        if (!document.getElementById('preloader')?.style.display || document.getElementById('preloader').style.display === 'none') {
-            console.log('[DEBUG] Hiding preloader initially');
+    initMap();
+
+    // Eventos DOM
+    const kInput = document.getElementById('kmlFile');
+    if (kInput) {
+        kInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                document.getElementById('fileNameLabel').textContent = file.name;
+                processKmlFile(file);
+            }
+        });
+    }
+
+    // CLICK EN MAPA: Limpiar highlight
+    map.on('click', () => {
+        if (window.highlightLayer) {
+            map.removeLayer(window.highlightLayer);
+            window.highlightLayer = null;
+            map.closePopup();
+        }
+    });
+
+    document.getElementById('uploadKmlBtn').addEventListener('click', performClipping);
+
+    document.getElementById('clearMap').addEventListener('click', () => {
+        window.location.reload();
+    });
+
+    document.getElementById('clipTypeSelect').addEventListener('change', window.updateBufferVisualization);
+}
+
+function processKmlFile(file) {
+    // LIMPIEZA AUTOMÁTICA AL CARGAR NUEVO KML
+    // Limpiar capas previas
+    Object.values(clippedLayers).forEach(l => { if (l && map) map.removeLayer(l); });
+    clippedLayers = {};
+    currentAnalysisResults = null;
+
+    // Limpiar UI
+    updateLateralControl();
+    updateLegend();
+    updateResultsBadge();
+
+    // Ocultar botones de resultados
+    const resBtn = document.getElementById('floatingResultsBtn');
+    if (resBtn) resBtn.classList.add('tw-hidden');
+
+    // Resetear highlight si existe
+    if (window.highlightLayer) {
+        map.removeLayer(window.highlightLayer);
+        window.highlightLayer = null;
+    }
+
+    showPreloader('Analizando estructura KML...');
+    const reader = new FileReader();
+    reader.onload = function (e) {
+        try {
+            const kmlDom = new DOMParser().parseFromString(e.target.result, 'text/xml');
+            const gj = toGeoJSON.kml(kmlDom);
+            const polys = gj.features.filter(f => f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon');
+
+            if (polys.length === 0) throw new Error('No se encontraron polígonos en el KML');
+
+            kmlGeoJson = { type: 'FeatureCollection', features: [polys[0]] };
+
+            if (kmlLayer) map.removeLayer(kmlLayer);
+            kmlLayer = L.geoJSON(kmlGeoJson, { style: { color: '#B8860B', weight: 4, fillOpacity: 0.1 } }).addTo(map);
+            map.fitBounds(kmlLayer.getBounds(), { padding: [50, 50] });
+
+            // Métricas básicas
+            kmlMetrics.fileName = file.name;
+            kmlMetrics.area = (window.turf.area(polys[0]) / 1000000).toFixed(2);
+
+            updateBufferVisualization();
+            showAlert(`KML Cargado: ${kmlMetrics.area} km²`, 'success');
+
+        } catch (err) {
+            showAlert('Error procesando KML: ' + err.message, 'danger');
+            console.error(err);
+        } finally {
             hidePreloader();
         }
-
-        // ====================================================================
-        // CONFIGURACIÓN DEL MAPA BASE CON MAPTILER
-        // ====================================================================
-
-        const initialView = {
-            center: [24.1, -102],
-            zoom: 5
-        };
-
-        // MapTiler API Keys
-        const mapTilerKeys = {
-            personal: 'jAAFQsMBZ9a6VIm2dCwg',  // Tu API key
-            amigo: 'xRR3xCujdkUjxkDqlNTG'     // API key del amigo
-        };
-
-        // Verificar disponibilidad de MapTiler SDK
-        function checkMapTilerSDK() {
-            if (typeof L.maptiler !== 'undefined' && L.maptiler.maptilerLayer) {
-                console.log('MapTiler SDK disponible');
-                return true;
-            } else {
-                console.warn('MapTiler SDK no disponible');
-                return false;
-            }
-        }
-
-        // Función para crear MapTiler layer usando SDK o fallback con API key específica
-        function createMapTilerLayer(styleId, apiKeyType, fallbackUrl, attribution, name) {
-            const apiKey = mapTilerKeys[apiKeyType];
-
-            if (checkMapTilerSDK()) {
-                try {
-                    // Usar el SDK de MapTiler (método recomendado)
-                    const layer = L.maptiler.maptilerLayer({
-                        apiKey: apiKey,
-                        style: styleId,
-                        maxZoom: 18 // Asegurar maxZoom para clusters
-                    });
-
-                    // Configurar maxZoom manualmente si no está definido
-                    if (!layer.options) layer.options = {};
-                    if (!layer.options.maxZoom) layer.options.maxZoom = 18;
-
-                    console.log(`${name} creado con MapTiler SDK usando key ${apiKeyType}`);
-                    return layer;
-                } catch (error) {
-                    console.warn(`Error creando ${name} con SDK:`, error);
-                }
-            }
-
-            // Fallback a tile layer estándar
-            console.log(`${name} usando fallback`);
-            return L.tileLayer(fallbackUrl, {
-                attribution: attribution,
-                maxZoom: 18
-            });
-        }
-
-        // Tu mapa personalizado de MapTiler
-        const MiMapaPersonalizado = createMapTilerLayer(
-            '0198a42c-5e08-77a1-9773-763ee4e12b32', // Tu style ID
-            'personal', // Usar tu API key
-            'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-            '&copy; <a href="https://www.maptiler.com/">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-            'Mi Mapa Personalizado'
-        );
-
-        // Mapas originales del amigo con su API key
-        const SenerLightOriginal = createMapTilerLayer(
-            '0198a9af-dc7c-79d3-8316-a80767ad1d0f', // Style ID original del amigo
-            'amigo', // Usar API key del amigo
-            'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-            '&copy; <a href="https://www.maptiler.com/">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-            'SENER Light Original'
-        );
-
-        const SenerDarkOriginal = createMapTilerLayer(
-            '0198a9f0-f135-7991-aaec-bea71681556e', // Style ID original del amigo
-            'amigo', // Usar API key del amigo
-            'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-            '&copy; <a href="https://www.maptiler.com/">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-            'SENER Dark Original'
-        );
-
-        // Google Satellite Layer (fallback)
-        const GoogleSatellite = L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
-            attribution: '&copy; Google',
-            maxZoom: 20
-        });
-
-        const baseMaps = {
-            'SENER Azul': MiMapaPersonalizado,
-            'SENER Light': SenerLightOriginal,
-            'SENER Oscuro': SenerDarkOriginal,
-            'Google Satellite': GoogleSatellite
-        };
-
-        // Definir límites aproximados de México para restringir navegación
-        const mexicoBounds = L.latLngBounds([
-            [14.0, -118.0], // Suroeste (aprox. Chiapas / Pacífico)
-            [33.5, -86.0]   // Noreste (frontera norte / Golfo)
-        ]);
-
-        map = L.map(MAP_CONTAINER_ID, {
-            center: initialView.center,
-            zoom: initialView.zoom,
-            minZoom: 4,
-            maxZoom: 18,
-            maxBounds: mexicoBounds,
-            maxBoundsViscosity: 0.9,
-            layers: [baseMaps['SENER Oscuro']]
-        });
-
-        // Evitar hacer zoom out más allá del marco continental relevante
-        map.on('zoomend', () => {
-            if (map.getZoom() < 4) map.setZoom(4);
-        });
-
-        // Ajustar vista para asegurar bounds al iniciar (si se desea ver todo México)
-        map.fitBounds(mexicoBounds.pad(-0.15));
-
-        /**
-         * Asegurar que el mapa calcule su tamaño correctamente
-         */
-        (function ensureMapSized(attempt = 0) {
-            if (!map) return;
-
-            const el = document.getElementById('map');
-            const ready = el && el.clientHeight > 40;
-            map.invalidateSize();
-
-            if (!ready && attempt < 10) {
-                setTimeout(() => ensureMapSized(attempt + 1), 150);
-            }
-        })();
-
-        window.addEventListener('load', () => {
-            setTimeout(() => map && map.invalidateSize(), 100);
-        });
-
-        layersControl = L.control.layers(baseMaps, {}, { collapsed: false }).addTo(map);
-
-        // Guardar referencia al control de capas para sincronización
-        window.layersControl = layersControl;
-
-        // ====================================================================
-        // CONFIGURACIÓN DE DATOS Y ELEMENTOS DEL DOM
-        // ====================================================================
-
-        // URLs de las capas geoespaciales
-        const urls = {
-            localidades: 'https://cdn.sassoapps.com/Gabvy/localidades_4326.geojson',
-            atlas: 'https://cdn.sassoapps.com/Gabvy/atlaspueblosindigenas.geojson',
-            municipios: 'https://cdn.sassoapps.com/Gabvy/municipios_4326.geojson',
-            regiones: 'https://cdn.sassoapps.com/Gabvy/regionesindigenas.geojson',
-            ran: 'https://cdn.sassoapps.com/Gabvy/RAN_4326.geojson',
-            ran_sin_geom: 'https://cdn.sassoapps.com/Gabvy/RAN_4326_sin_geometria.geojson',
-            lenguas: 'https://cdn.sassoapps.com/Gabvy/lenguasindigenas.geojson',
-            za_publico: 'https://cdn.sassoapps.com/Gabvy/ZA_publico.geojson',
-            za_publico_a: 'https://cdn.sassoapps.com/Gabvy/ZA_publico_a.geojson',
-            anp_estatal: 'https://cdn.sassoapps.com/Gabvy/anp_estatal.geojson',
-            ramsar: 'https://cdn.sassoapps.com/Gabvy/ramsar.geojson',
-            sitio_arqueologico: 'https://cdn.sassoapps.com/Gabvy/sitio_arqueologico.geojson',
-            z_historicos: 'https://cdn.sassoapps.com/Gabvy/z_historicos.geojson',
-            loc_indigenas_datos: 'https://cdn.sassoapps.com/Gabvy/loc_indigenas_datos.geojson',
-            rutaWixarika: 'https://cdn.sassoapps.com/Gabvy/rutaWixarika.geojson',
-            localidadesdatos_solo_datos: 'https://cdn.sassoapps.com/Gabvy/localidadesdatos_solo_datos.json',
-            localities_points: 'https://cdn.sassoapps.com/Gabvy/localidades_puntos.geojson' // Puntos
-        };
-
-        // URLs alternativas con proxy CORS (fallback automático)
-        const proxyUrls = {
-            localidades: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.localidades),
-            atlas: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.atlas),
-            municipios: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.municipios),
-            regiones: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.regiones),
-            ran: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.ran),
-            ran_sin_geom: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.ran_sin_geom),
-            lenguas: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.lenguas),
-            za_publico: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.za_publico),
-            za_publico_a: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.za_publico_a),
-            anp_estatal: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.anp_estatal),
-            ramsar: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.ramsar),
-            sitio_arqueologico: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.sitio_arqueologico),
-            z_historicos: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.z_historicos),
-            loc_indigenas_datos: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.loc_indigenas_datos),
-            rutaWixarika: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.rutaWixarika),
-            localidadesdatos_solo_datos: 'https://api.allorigins.win/get?url=' + encodeURIComponent(urls.localidadesdatos_solo_datos)
-        };
-
-        const kmlFileInput = document.getElementById('kmlFile');
-        const uploadKmlBtn = document.getElementById('uploadKmlBtn');
-        const performClipBtn = document.getElementById('performClipBtn');
-        const clearMapBtn = document.getElementById('clearMap');
-        const areaTypeSelect = document.getElementById('areaType');
-        const bufferMetersInput = document.getElementById('bufferMetersInput');
-        const centerKmlBtn = document.getElementById('centerKmlBtn');
-        const resetViewBtn = document.getElementById('resetViewBtn');
-        const layersContainer = document.getElementById('layersContainer');
-        const reloadDataBtn = document.getElementById('reloadDataBtn');
-
-        // Estado inicial: limpiar input KML y deshabilitar botones hasta que se carguen datos
-        if (kmlFileInput) kmlFileInput.value = '';
-        if (uploadKmlBtn) uploadKmlBtn.disabled = true;
-        if (performClipBtn) performClipBtn.disabled = true;
-
-        // ====================================================================
-        // FUNCIONES DE MANEJO DE DATOS GEOESPACIALES
-        // ====================================================================
-
-        /**
-         * Carga los datos de todas las capas desde el servidor de forma asíncrona
-         */
-        /**
-         * Carga una capa individual con manejo de errores robusto
-         */
-        async function loadSingleLayer(url, name) {
-            try {
-                console.log(`Cargando ${name} desde: ${url}`);
-
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 segundos timeout
-
-                // Intentar primero con CORS normal
-                let response;
-                try {
-                    response = await fetch(url, {
-                        signal: controller.signal,
-                        mode: 'cors',
-                        headers: {
-                            'Accept': 'application/json',
-                            'Cache-Control': 'no-cache'
-                        }
-                    });
-                } catch (corsError) {
-                    console.warn(`CORS falló para ${name}, intentando sin CORS:`, corsError);
-
-                    // Fallback: intentar sin CORS (para navegadores Chromium estrictos)
-                    response = await fetch(url, {
-                        signal: controller.signal,
-                        mode: 'no-cors',
-                        cache: 'no-cache'
-                    });
-                }
-
-                clearTimeout(timeoutId);
-
-                if (!response.ok && response.status !== 0) { // status 0 es normal en no-cors
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-
-                // En modo no-cors, response.json() puede fallar, usar texto y parsear
-                let data;
-                try {
-                    data = await response.json();
-                } catch (jsonError) {
-                    console.warn(`JSON parsing falló para ${name}, intentando como texto:`, jsonError);
-                    const text = await response.text();
-                    if (text) {
-                        data = JSON.parse(text);
-                    } else {
-                        throw new Error(`Respuesta vacía para ${name}`);
-                    }
-                }
-
-                console.log(`${name} cargado exitosamente: ${data.features?.length || 0} features`);
-                return data;
-
-            } catch (error) {
-                console.error(`Error cargando ${name}:`, error);
-                if (error.name === 'AbortError') {
-                    throw new Error(`Timeout cargando ${name} (15s)`);
-                }
-
-                // Último fallback: usar un proxy CORS público
-                console.warn(`Intentando proxy CORS para ${name}...`);
-                try {
-                    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
-                    const proxyResponse = await fetch(proxyUrl, {
-                        headers: { 'Accept': 'application/json' }
-                    });
-
-                    if (proxyResponse.ok) {
-                        const proxyData = await proxyResponse.json();
-                        const data = JSON.parse(proxyData.contents);
-                        console.log(`${name} cargado vía proxy: ${data.features?.length || 0} features`);
-                        return data;
-                    }
-                } catch (proxyError) {
-                    console.error(`Proxy también falló para ${name}:`, proxyError);
-                }
-
-                throw new Error(`Error cargando ${name}: ${error.message}`);
-            }
-        }
-
-        /**
-         * Carga datos JSON tabulares (no GeoJSON)
-         */
-        async function loadJsonData(url, name) {
-            try {
-                console.log(`Cargando ${name} desde: ${url}`);
-
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 segundos timeout
-
-                const response = await fetch(url, {
-                    signal: controller.signal,
-                    mode: 'cors',
-                    headers: {
-                        'Accept': 'application/json',
-                        'Cache-Control': 'no-cache'
-                    }
-                });
-
-                clearTimeout(timeoutId);
-
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-
-                const data = await response.json();
-                console.log(`${name} cargado exitosamente: ${Array.isArray(data) ? data.length : 'N/A'} registros`);
-                return data;
-
-            } catch (error) {
-                console.error(`Error cargando ${name}:`, error);
-                if (error.name === 'AbortError') {
-                    throw new Error(`Timeout cargando ${name} (15s)`);
-                }
-
-                // Último fallback: usar un proxy CORS público
-                console.warn(`Intentando proxy CORS para ${name}...`);
-                try {
-                    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
-                    const proxyResponse = await fetch(proxyUrl, {
-                        headers: { 'Accept': 'application/json' }
-                    });
-
-                    if (proxyResponse.ok) {
-                        const proxyData = await proxyResponse.json();
-                        const data = JSON.parse(proxyData.contents);
-                        console.log(`${name} cargado vía proxy: ${Array.isArray(data) ? data.length : 'N/A'} registros`);
-                        return data;
-                    }
-                } catch (proxyError) {
-                    console.error(`Proxy también falló para ${name}:`, proxyError);
-                }
-
-                throw new Error(`Error cargando ${name}: ${error.message}`);
-            }
-        }
-
-        async function loadDataOptional() {
-            console.log('[DEBUG] loadDataOptional started');
-            try {
-                console.log('[DEBUG] Showing preloader');
-                showPreloader();
-                updateProgress(5, 'Iniciando carga de capas geoespaciales...');
-
-                // Mostrar advertencia específica para navegadores Chromium
-                if (isChromiumBased()) {
-                    updateProgress(8, 'Detectado navegador Chromium - usando estrategia CORS especial...');
-                }
-
-                // Cargar capas secuencialmente para evitar problemas de concurrencia
-                updateProgress(5, 'Cargando localidades...');
-                localitiesData = await loadSingleLayer(urls.localidades, 'Localidades');
-
-                updateProgress(10, 'Cargando atlas pueblos indígenas...');
-                atlasData = await loadSingleLayer(urls.atlas, 'Atlas Pueblos Indígenas');
-
-                updateProgress(15, 'Cargando municipios...');
-                municipiosData = await loadSingleLayer(urls.municipios, 'Municipios');
-
-                updateProgress(20, 'Cargando regiones indígenas...');
-                regionesData = await loadSingleLayer(urls.regiones, 'Regiones Indígenas');
-
-                updateProgress(25, 'Cargando RAN...');
-                ranData = await loadSingleLayer(urls.ran, 'RAN');
-
-                updateProgress(28, 'Cargando RAN (datos tabulares)...');
-                ranNoGeomData = await loadSingleLayer(urls.ran_sin_geom, 'RAN (sin geometría)');
-                // Construir índice por Clv_Unica
-                ranLookupMap = new Map();
-                if (ranNoGeomData && Array.isArray(ranNoGeomData.features)) {
-                    ranNoGeomData.features.forEach(f => {
-                        const k = (f.properties?.Clv_Unica ?? f.properties?.CLV_UNICA ?? '').toString().trim();
-                        if (k) ranLookupMap.set(k, { ...f.properties });
-                    });
-                    console.log('[DEBUG] RAN lookup construido con', ranLookupMap.size, 'claves');
-                }
-
-                updateProgress(30, 'Cargando lenguas indígenas...');
-                lenguasData = await loadSingleLayer(urls.lenguas, 'Lenguas Indígenas');
-
-                updateProgress(35, 'Cargando zonas de amortiguamiento público...');
-                zaPublicoData = await loadSingleLayer(urls.za_publico, 'ZA Público');
-
-                updateProgress(40, 'Cargando zonas de amortiguamiento público A...');
-                zaPublicoAData = await loadSingleLayer(urls.za_publico_a, 'ZA Público A');
-
-                updateProgress(45, 'Cargando ANP estatales...');
-                anpEstatalData = await loadSingleLayer(urls.anp_estatal, 'ANP Estatales');
-
-                updateProgress(50, 'Cargando sitios Ramsar...');
-                ramsarData = await loadSingleLayer(urls.ramsar, 'Ramsar');
-
-                updateProgress(55, 'Cargando sitios arqueológicos...');
-                sitioArqueologicoData = await loadSingleLayer(urls.sitio_arqueologico, 'Sitios Arqueológicos');
-
-                updateProgress(60, 'Cargando zonas históricas...');
-                zHistoricosData = await loadSingleLayer(urls.z_historicos, 'Zonas Históricas');
-
-                updateProgress(65, 'Cargando localidades indígenas datos...');
-                locIndigenasData = await loadSingleLayer(urls.loc_indigenas_datos, 'Loc Indígenas Datos');
-
-                updateProgress(70, 'Cargando ruta Wixarika...');
-                rutaWixarikaData = await loadSingleLayer(urls.rutaWixarika, 'Ruta Wixarika');
-
-                updateProgress(75, 'Cargando localidades datos adicionales...');
-                localidadesDatosData = await loadJsonData(urls.localidadesdatos_solo_datos, 'Localidades Datos Adicionales');
-
-                updateProgress(80, 'Cargando localidades puntos...');
-                localitiesPointsData = await loadSingleLayer(urls.localities_points, 'Localidades Puntos');
-
-                // Merge localidades datos adicionales into localitiesData
-                if (localitiesData && localidadesDatosData) {
-                    console.log('Mezclando datos adicionales de localidades...');
-                    localitiesData.features.forEach(feature => {
-                        const cvegeo = feature.properties.CVEGEO;
-                        const extra = localidadesDatosData.find(d => d.CVEGEO === cvegeo);
-                        if (extra) {
-                            Object.assign(feature.properties, extra);
-                        }
-                    });
-                    console.log('Mezcla completada.');
-                    console.log('[DEBUG] Localidades merged properties sample:', localitiesData.features[0]?.properties);
-                }
-
-                updateProgress(100, 'Todas las capas cargadas exitosamente');
-                console.log("Todas las capas cargadas correctamente.");
-                console.log('[DEBUG] About to hide preloader after successful load');
-                showAlert('Todas las capas geoespaciales han sido cargadas exitosamente', 'success');
-
-                setTimeout(() => {
-                    console.log('[DEBUG] Hiding preloader after timeout');
-                    hidePreloader();
-                }, 800);
-
-            } catch (err) {
-                console.error("Error cargando capas:", err);
-                updateProgress(0, 'Error en la carga');
-
-                let errorMessage = 'Error al cargar capas desde el servidor.';
-                if (err.message.includes('Timeout')) {
-                    errorMessage = 'Timeout al cargar capas. El servidor tardó demasiado en responder.';
-                } else if (err.message.includes('HTTP')) {
-                    errorMessage = 'Error del servidor al cargar capas. Verifica que las URLs sean correctas.';
-                } else if (err.message.includes('Failed to fetch') || err.message.includes('CORS')) {
-                    if (isChromiumBased()) {
-                        errorMessage = 'Error de CORS: Los navegadores Chrome/Edge/Brave bloquean la carga de datos externos. Recomendamos usar Firefox para mejor compatibilidad, o contactar al administrador para configurar un servidor local.';
-                    } else {
-                        errorMessage = 'Error de conexión. Verifica tu conexión a internet y que el servidor esté disponible.';
-                    }
-                } else if (err.message.includes('NetworkError')) {
-                    errorMessage = 'Error de red. Verifica tu conexión a internet.';
-                }
-
-                console.log('[DEBUG] Error in loadDataOptional, about to hide preloader');
-                showAlert(errorMessage + ' Usando datos de ejemplo para continuar.', 'warning', 8000);
-                hidePreloader();
-
-                // Usar datos de ejemplo para desarrollo cuando falla la carga externa
-                console.warn('Carga de datos externos falló. Usando datos de ejemplo para desarrollo.');
-                console.log('[DEBUG] Creating sample data');
-                createSampleData();
-            }
-        }
-
-        /**
-         * Crea datos de ejemplo para desarrollo cuando no hay conexión a los servidores
-         */
-        function createSampleData() {
-            console.log('Creando datos de ejemplo para desarrollo...');
-
-            // Datos de ejemplo para México
-            localitiesData = {
-                type: "FeatureCollection",
-                features: [
-                    {
-                        type: "Feature",
-                        properties: {
-                            CVEGEO: "09001001",
-                            NOM_LOC: "Ciudad de México",
-                            NOM_MUN: "Álvaro Obregón",
-                            NOM_ENT: "Ciudad de México",
-                            AMBITO: "Urbano"
-                        },
-                        geometry: {
-                            type: "Point",
-                            coordinates: [-99.1332, 19.4326]
-                        }
-                    },
-                    {
-                        type: "Feature",
-                        properties: {
-                            CVEGEO: "14001001",
-                            NOM_LOC: "Guadalajara",
-                            NOM_MUN: "Guadalajara",
-                            NOM_ENT: "Jalisco",
-                            AMBITO: "Urbano"
-                        },
-                        geometry: {
-                            type: "Point",
-                            coordinates: [-103.3496, 20.6597]
-                        }
-                    },
-                    {
-                        type: "Feature",
-                        properties: {
-                            CVEGEO: "010060024",
-                            CVE_ENT: "01",
-                            CVE_MUN: "006",
-                            CVE_LOC: "0024",
-                            NOMGEO: "Ojo Zarco [Colonia]",
-                            AMBITO: "Rural",
-                            NOM_LOC: "Ojo Zarco [Colonia]",
-                            NOM_MUN: "Aguascalientes",
-                            NOM_ENT: "Aguascalientes"
-                        },
-                        geometry: {
-                            type: "Point",
-                            coordinates: [-102.3, 21.9]
-                        }
-                    }
-                ]
-            };
-
-            municipiosData = {
-                type: "FeatureCollection",
-                features: [
-                    {
-                        type: "Feature",
-                        properties: {
-                            CVEGEO: "09001",
-                            NOM_MUN: "Álvaro Obregón",
-                            NOM_ENT: "Ciudad de México"
-                        },
-                        geometry: {
-                            type: "Polygon",
-                            coordinates: [[
-                                [-99.15, 19.40], [-99.10, 19.40], [-99.10, 19.45], [-99.15, 19.45], [-99.15, 19.40]
-                            ]]
-                        }
-                    }
-                ]
-            };
-
-            lenguasData = {
-                type: "FeatureCollection",
-                features: [
-                    {
-                        type: "Feature",
-                        properties: {
-                            Lengua: "Náhuatl",
-                            NOM_LOC: "Ciudad de México",
-                            NOM_MUN: "Álvaro Obregón",
-                            NOM_ENT: "Ciudad de México"
-                        },
-                        geometry: {
-                            type: "Point",
-                            coordinates: [-99.1332, 19.4326]
-                        }
-                    },
-                    {
-                        type: "Feature",
-                        properties: {
-                            Lengua: "Maya",
-                            NOM_LOC: "Guadalajara",
-                            NOM_MUN: "Guadalajara",
-                            NOM_ENT: "Jalisco"
-                        },
-                        geometry: {
-                            type: "Point",
-                            coordinates: [-103.3496, 20.6597]
-                        }
-                    }
-                ]
-            };
-
-            // Configurar ZA Público A (área - polígono)
-            zaPublicoAData = {
-                type: "FeatureCollection",
-                features: [
-                    {
-                        type: "Feature",
-                        properties: {
-                            NOMBRE: "Tetzcotzinco",
-                            TIPO: "Zona Arqueológica Abierta al Público",
-                            ESTADO: "México",
-                            MUNICIPIO: "Texcoco",
-                            LOCALIDAD: "No aplica"
-                        },
-                        geometry: {
-                            type: "Polygon",
-                            coordinates: [[
-                                [-98.90, 19.50], [-98.85, 19.50], [-98.85, 19.55], [-98.90, 19.55], [-98.90, 19.50]
-                            ]]
-                        }
-                    }
-                ]
-            };
-
-            // Configurar ZA Público (puntos)
-            zaPublicoData = {
-                type: "FeatureCollection",
-                features: [
-                    {
-                        type: "Feature",
-                        properties: {
-                            NOMBRE: "Olintepec",
-                            TIPO: "Zona Arqueológica Abierta al Público",
-                            ESTADO: "Morelos",
-                            MUNICIPIO: "Ayala",
-                            LOCALIDAD: "No aplica"
-                        },
-                        geometry: {
-                            type: "Point",
-                            coordinates: [-99.05, 18.75]
-                        }
-                    }
-                ]
-            };
-
-            // Configurar Zonas Históricas
-            zHistoricosData = {
-                type: "FeatureCollection",
-                features: [
-                    {
-                        type: "Feature",
-                        properties: {
-                            NOMBRE: "Zona de Monumentos Históricos calzada El Albarradón de San Cristóbal",
-                            ESTADO: "México",
-                            MUNICIPIO: "Ecatepec de Morelos",
-                            LOCALIDAD: "Ecatepec de Morelos"
-                        },
-                        geometry: {
-                            type: "Polygon",
-                            coordinates: [[
-                                [-99.05, 19.60], [-99.00, 19.60], [-99.00, 19.65], [-99.05, 19.65], [-99.05, 19.60]
-                            ]]
-                        }
-                    }
-                ]
-            };
-
-            // Configurar Sitios Arqueológicos
-            sitioArqueologicoData = {
-                type: "FeatureCollection",
-                features: [
-                    {
-                        type: "Feature",
-                        properties: {
-                            nombre: "El Vallecito",
-                            nom_ent: "Baja California",
-                            nom_mun: "Tecate",
-                            nom_loc: "Agua de Fierro"
-                        },
-                        geometry: {
-                            type: "Point",
-                            coordinates: [-116.5, 32.5]
-                        }
-                    }
-                ]
-            };
-
-            // Configurar Sitios Ramsar
-            ramsarData = {
-                type: "FeatureCollection",
-                features: [
-                    {
-                        type: "Feature",
-                        properties: {
-                            NOMBRE: "Estero El Soldado",
-                            ESTADO: "Sonora",
-                            MUNICIPIO: "Guaymas"
-                        },
-                        geometry: {
-                            type: "Polygon",
-                            coordinates: [[
-                                [-110.9, 27.9], [-110.8, 27.9], [-110.8, 28.0], [-110.9, 28.0], [-110.9, 27.9]
-                            ]]
-                        }
-                    }
-                ]
-            };
-
-            // Configurar Loc Indígenas Datos
-            locIndigenasData = {
-                type: "FeatureCollection",
-                features: [
-                    {
-                        type: "Feature",
-                        properties: {
-                            ENTIDAD: "Aguascalientes",
-                            MUNICIPIO: "Aguascalientes",
-                            LOCALIDAD: "Aguascalientes",
-                            POBTOTAL: 863893
-                        },
-                        geometry: {
-                            type: "Point",
-                            coordinates: [-102.3, 21.9]
-                        }
-                    }
-                ]
-            };
-
-            // Configurar Ruta Wixarika
-            rutaWixarikaData = {
-                type: "FeatureCollection",
-                features: [
-                    {
-                        type: "Feature",
-                        properties: {
-                            Name: "Ruta Cultural Wixarika"
-                        },
-                        geometry: {
-                            type: "MultiPolygon",
-                            coordinates: [[[
-                                [-104.0, 21.0], [-103.5, 21.0], [-103.5, 21.5], [-104.0, 21.5], [-104.0, 21.0]
-                            ]]]
-                        }
-                    }
-                ]
-            };
-
-            // Inicializar otras capas como vacías
-            atlasData = { type: "FeatureCollection", features: [] };
-            regionesData = { type: "FeatureCollection", features: [] };
-            ranData = { type: "FeatureCollection", features: [] };
-            anpEstatalData = { type: "FeatureCollection", features: [] };
-
-            showAlert('Usando datos de ejemplo para desarrollo. Carga un KML para probar la funcionalidad.', 'info', 5000);
-        }
-
-        // Cargar datos al inicializar (opcional para desarrollo)
-        // Comentar esta línea si quieres trabajar solo con KML sin datos externos
-        loadDataOptional();
-
-        // ====================================================================
-        // FUNCIONES DE NAVEGACIÓN Y VISUALIZACIÓN
-        // ====================================================================
-
-        /**
-         * Obtiene el nombre de visualización amigable para una capa
-         */
-        function getLayerDisplayName(layerName) {
-            const displayNames = {
-                'localidades': 'Localidades',
-                'atlas': 'Atlas Pueblos Indígenas',
-                'municipios': 'Municipios',
-                'regiones': 'Regiones Indígenas',
-                'ran': 'RAN',
-                'lenguas': 'Lenguas Indígenas',
-                'za_publico': 'ZA Público',
-                'za_publico_a': 'ZA Público A',
-                'anp_estatal': 'ANP Estatales',
-                'ramsar': 'Ramsar',
-                'sitio_arqueologico': 'Sitios Arqueológicos',
-                'z_historicos': 'Zonas Históricas',
-                'loc_indigenas_datos': 'Loc Indígenas Datos',
-                'rutaWixarika': 'Ruta Wixarika'
-            };
-            return displayNames[layerName] || layerName;
-        }
-
-        /**
-         * Navega a una feature específica en el mapa con highlight visual
-         */
-        function navigateToFeature(featureId, layerName, features, propertyName) {
-            let targetFeatures = [];
-
-            if (layerName === 'lenguas') {
-                // Para lenguas, buscar todos los puntos de esa lengua
-                targetFeatures = features.filter(f => f.properties[propertyName] === featureId);
-            } else {
-                // Para otras capas, buscar la feature específica
-                targetFeatures = features.filter(f => f.properties[propertyName] === featureId);
-            }
-
-            if (targetFeatures.length === 0) return;
-
-            // Activar automáticamente la capa correspondiente si no está visible
-            const layerMapping = {
-                'localidades': clippedLocalitiesLayer,
-                'atlas': clippedAtlasLayer,
-                'municipios': clippedMunicipiosLayer,
-                'regiones': clippedRegionesLayer,
-                'ran': clippedRanLayer,
-                'lenguas': clippedLenguasLayer,
-                'za_publico': clippedZaPublicoLayer,
-                'za_publico_a': clippedZaPublicoALayer,
-                'anp_estatal': clippedAnpEstatalLayer,
-                'ramsar': clippedRamsarLayer,
-                'sitio_arqueologico': clippedSitioArqueologicoLayer,
-                'z_historicos': clippedZHistoricosLayer,
-                'loc_indigenas_datos': clippedLocIndigenasLayer,
-                'rutaWixarika': clippedRutaWixarikaLayer
-            };
-
-            const correspondingLayer = layerMapping[layerName];
-            if (correspondingLayer && !map.hasLayer(correspondingLayer)) {
-                map.addLayer(correspondingLayer);
-                showAlert(`Capa "${getLayerDisplayName(layerName)}" activada automáticamente`, 'info', 2000);
-            }
-
-            // Remover highlight anterior si existe
-            if (highlightLayer) {
-                map.removeLayer(highlightLayer);
-                highlightLayer = null;
-            }
-
-            // Crear bounds que incluyan todas las features encontradas
-            const group = L.featureGroup();
-            targetFeatures.forEach(f => {
-                const layer = L.geoJSON(f);
-                group.addLayer(layer);
-            });
-
-            const bounds = group.getBounds();
-            if (bounds.isValid()) {
-                // Crear capa de highlight con estilo llamativo
-                highlightLayer = L.geoJSON(targetFeatures, {
-                    style: function (feature) {
-                        return {
-                            color: '#ffff00',        // Amarillo brillante
-                            weight: 4,
-                            opacity: 1,
-                            fillColor: '#ffff00',
-                            fillOpacity: 0.3,
-                            dashArray: '10,5'        // Línea punteada
-                        };
-                    },
-                    pointToLayer: function (feature, latlng) {
-                        return L.circleMarker(latlng, {
-                            radius: 12,
-                            color: '#ffff00',
-                            weight: 4,
-                            opacity: 1,
-                            fillColor: '#ffff00',
-                            fillOpacity: 0.4
-                        });
-                    },
-                    onEachFeature: function (feature, layer) {
-                        const props = feature.properties;
-                        let popupContent;
-                        if (layerName === 'localidades') {
-                            popupContent = createPopupContent('Localidad', '🏘️', [
-                                { value: props.NOMGEO || props.NOM_LOC || props.NOMBRE || 'Sin nombre', isMain: true },
-                                { label: 'CVEGEO', value: props.CVEGEO },
-                                { label: 'Municipio', value: props.NOM_MUN || props.MUNICIPIO },
-                                { label: 'Estado', value: props.NOM_ENT || props.ESTADO },
-                                { label: 'Ámbito', value: props.AMBITO },
-                                { label: 'Población Total', value: props.POBTOT },
-                                { label: 'Población Femenina', value: props.POBFEM },
-                                { label: 'Población Masculina', value: props.POBMAS }
-                            ]);
-                        } else if (layerName === 'localidades_puntos') {
-                            popupContent = createPopupContent('Localidad (Puntos)', '📍', [
-                                { value: props.NOM_LOC || props.NOMGEO || 'Sin nombre', isMain: true },
-                                { label: 'CVEGEO', value: props.CVEGEO },
-                                { label: 'Municipio', value: props.NOM_MUN || props.MUNICIPIO },
-                                { label: 'Estado', value: props.NOM_ENT || props.ESTADO },
-                            ]);
-                        } else if (layerName === 'atlas') {
-                            popupContent = createPopupContent('Atlas Pueblos Indígenas', '🏛️', [
-                                { value: props.CVEGEO, isMain: true },
-                                { label: 'Localidad', value: props.NOM_LOC || props.NOMBRE },
-                                { label: 'Municipio', value: props.NOM_MUN || props.MUNICIPIO }
-                            ]);
-                        } else if (layerName === 'municipios') {
-                            popupContent = createPopupContent('Municipio', '🏛️', [
-                                { value: props.NOMGEO || props.NOM_MUN || props.NOMBRE || 'Sin nombre', isMain: true },
-                                { label: 'CVEGEO', value: props.CVEGEO },
-                                { label: 'Estado', value: props.NOM_ENT || props.ESTADO },
-                                { label: 'Cabecera', value: props.NOM_CAB || props.CABECERA }
-                            ]);
-                        } else if (layerName === 'regiones') {
-                            popupContent = createPopupContent('Región Indígena', '🌄', [
-                                { value: props.Name || props.NOMBRE || 'Sin nombre', isMain: true },
-                                { label: 'Tipo', value: props.Tipo || props.TIPO },
-                                { label: 'Descripción', value: props.Descripci || props.DESCRIPCION }
-                            ]);
-                        } else if (layerName === 'ran') {
-                            popupContent = createPopupContent('RAN', '🌾', [
-                                { value: props.MUNICIPIO || props.Clv_Unica, isMain: true },
-                                { label: 'Clv_Unica', value: props.Clv_Unica },
-                                { label: 'Tipo', value: props.tipo || props.Tipo },
-                                { label: 'Estado', value: props.Estado || props.ESTADO },
-                                { label: 'Municipio', value: props.Municipio || props.MUNICIPIO }
-                            ]);
-                        } else if (layerName === 'lenguas') {
-                            popupContent = createPopupContent('Lengua Indígena', '🗣️', [
-                                { value: props.Lengua || props.LENGUA || 'Sin especificar', isMain: true },
-                                { label: 'Localidad', value: props.NOM_LOC || props.LOCALIDAD },
-                                { label: 'Municipio', value: props.NOM_MUN || props.MUNICIPIO },
-                                { label: 'Estado', value: props.NOM_ENT || props.ESTADO }
-                            ]);
-                        } else if (layerName === 'za_publico') {
-                            popupContent = createPopupContent('ZA Público', '🏞️', [
-                                { value: props["Zona Arqueológica"] || 'Sin nombre', isMain: true },
-                                { label: 'Estado', value: props.ESTADO },
-                                { label: 'Municipio', value: props.MUNICIPIO },
-                                { label: 'Localidad', value: props.LOCALIDAD }
-                            ]);
-                        } else if (layerName === 'za_publico_a') {
-                            popupContent = createPopupContent('ZA Público A', '🏞️', [
-                                { value: props["Zona Arqueológica"] || 'Sin nombre', isMain: true },
-                                { label: 'Estado', value: props.ESTADO },
-                                { label: 'Municipio', value: props.MUNICIPIO },
-                                { label: 'Localidad', value: props.LOCALIDAD }
-                            ]);
-                        } else if (layerName === 'anp_estatal') {
-                            popupContent = createPopupContent('ANP Estatal', '🌿', [
-                                { value: props.NOMBRE || 'Sin nombre', isMain: true },
-                                { label: 'Tipo', value: props.TIPO },
-                                { label: 'Categoría DEC', value: props.CAT_DEC },
-                                { label: 'Entidad', value: props.ENTIDAD },
-                                { label: 'Municipio DEC', value: props.MUN_DEC }
-                            ]);
-                        } else if (layerName === 'ramsar') {
-                            popupContent = createPopupContent('Sitio Ramsar', '🦆', [
-                                { value: props.RAMSAR || 'Sin nombre', isMain: true },
-                                { label: 'Estado', value: props.ESTADO },
-                                { label: 'Municipio', value: props.MUNICIPIOS }
-                            ]);
-                        } else if (layerName === 'sitio_arqueologico') {
-                            popupContent = createPopupContent('Sitio Arqueológico', '🏛️', [
-                                { value: props.nombre || 'Sin nombre', isMain: true },
-                                { label: 'Estado', value: props.nom_ent },
-                                { label: 'Municipio', value: props.nom_mun },
-                                { label: 'Localidad', value: props.nom_loc }
-                            ]);
-                        } else if (layerName === 'z_historicos') {
-                            popupContent = createPopupContent('Zona Histórica', '🏰', [
-                                { value: props.Nombre || 'Sin nombre', isMain: true },
-                                { label: 'Estado', value: props.ESTADO },
-                                { label: 'Municipio', value: props.MUNICIPIO },
-                                { label: 'Localidad', value: props.LOCALIDAD }
-                            ]);
-                        } else if (layerName === 'loc_indigenas_datos') {
-                            popupContent = createPopupContent('Loc Indígenas Datos', '🏘️', [
-                                { value: props.LOCALIDAD || 'Sin Localidad', isMain: true },
-                                { label: 'Entidad', value: props.ENTIDAD },
-                                { label: 'Municipio', value: props.MUNICIPIO },
-                                { label: 'Localidad', value: props.LOCALIDAD },
-                                { label: 'Población Total', value: props.POBTOTAL }
-                            ]);
-                        } else if (layerName === 'rutaWixarika') {
-                            popupContent = createPopupContent('Ruta Wixarika', '🛤️', [
-                                { value: props.Name || 'Sin nombre', isMain: true }
-                            ]);
-                        } else {
-                            // Generic popup for other layers
-                            popupContent = `<h6>${props[propertyName] || 'Sin nombre'}</h6>`;
-                        }
-                        layer.bindPopup(popupContent);
-                        // Only open popup for single features to avoid clutter
-                        if (targetFeatures.length === 1) {
-                            layer.openPopup();
-                        }
-                    }
-                }).addTo(map);
-
-                // Agregar efecto de pulso para puntos
-                if (targetFeatures.length > 0 && targetFeatures[0].geometry.type === 'Point') {
-                    // Crear efecto de pulso
-                    let pulseCount = 0;
-                    const pulseInterval = setInterval(() => {
-                        if (highlightLayer && pulseCount < 6) {
-                            highlightLayer.eachLayer(layer => {
-                                if (layer.setRadius) {
-                                    const currentRadius = layer.getRadius();
-                                    layer.setRadius(currentRadius === 12 ? 16 : 12);
-                                }
-                            });
-                            pulseCount++;
-                        } else {
-                            clearInterval(pulseInterval);
-                        }
-                    }, 300);
-                }
-
-                // Navegar con animación suave
-                map.fitBounds(bounds, {
-                    padding: [20, 20],
-                    maxZoom: targetFeatures.length === 1 ? 15 : 13,
-                    animate: true,
-                    duration: 0.8
-                });
-
-                // Mostrar popup informativo
-                setTimeout(() => {
-                    let displayName = featureId;
-                    if (layerName === 'localidades' && targetFeatures.length === 1) {
-                        const name = targetFeatures[0].properties.NOMGEO || targetFeatures[0].properties.NOM_LOC || 'Sin nombre';
-                        displayName = `${name} (${featureId})`;
-                    } else if (layerName === 'atlas' && targetFeatures.length === 1) {
-                        const name = targetFeatures[0].properties.Localidad || 'Sin localidad';
-                        displayName = `${name} (${featureId})`;
-                    } else if (layerName === 'municipios' && targetFeatures.length === 1) {
-                        const name = targetFeatures[0].properties.NOMGEO || targetFeatures[0].properties.NOM_MUN || 'Sin municipio';
-                        displayName = `${name} (${featureId})`;
-                    } else if (layerName === 'ran' && targetFeatures.length === 1) {
-                        const name = targetFeatures[0].properties.MUNICIPIO || 'Sin municipio';
-                        displayName = `${name} (${featureId})`;
-                    }
-                    if (targetFeatures.length === 1) {
-                        showAlert(`📍 Navegando a: ${displayName}`, 'info', 2000);
-                    } else {
-                        showAlert(`📍 Navegando a ${targetFeatures.length} puntos de: ${displayName}`, 'info', 2000);
-                    }
-                }, 500);
-
-                // Auto-remover highlight después de 8 segundos
-                setTimeout(() => {
-                    if (highlightLayer) {
-                        map.removeLayer(highlightLayer);
-                        highlightLayer = null;
-                    }
-                }, 8000);
-            }
-        }
-
-        /**
-         * Crea una sección colapsible para mostrar elementos de una capa
-         */
-        function createLayerSection(title, features, propertyName, color = '#008000', isLenguasLayer = false, layerName = '') {
-            const section = document.createElement('div');
-            section.className = 'layer-section';
-
-            const header = document.createElement('h6');
-
-            const content = document.createElement('div');
-            content.className = 'layer-content';
-
-            if (features.length === 0) {
-                header.innerHTML = `${title} <span class="badge bg-secondary">0</span>`;
-                content.innerHTML = '<p class="text-muted small mb-0">No se encontraron elementos.</p>';
-            } else {
-                const ul = document.createElement('ul');
-
-                if (isLenguasLayer) {
-                    // Para lenguas indígenas, mostrar solo valores únicos con conteo
-                    const lenguasCount = new Map();
-
-                    features.forEach(f => {
-                        if (f.properties[propertyName]) {
-                            const lengua = f.properties[propertyName];
-                            lenguasCount.set(lengua, (lenguasCount.get(lengua) || 0) + 1);
-                        }
-                    });
-
-                    // Ordenar alfabéticamente
-                    const sortedLenguas = Array.from(lenguasCount.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-
-                    header.innerHTML = `${title} <span class="badge bg-secondary">${formatNumber(sortedLenguas.length)} únicas</span>`;
-
-                    sortedLenguas.forEach(([lengua, count]) => {
-                        const li = document.createElement('li');
-                        li.innerHTML = `<span class="color-dot" style="background:${color}"></span>${lengua} <span class="badge bg-light text-dark ms-1">${count}</span>`;
-                        li.dataset.featureId = lengua;
-                        li.dataset.layerName = layerName;
-                        li.setAttribute('role', 'button');
-                        li.setAttribute('tabindex', '0');
-                        li.setAttribute('aria-label', `Lengua ${lengua} con ${count} puntos - Clic para navegar`);
-
-                        // Agregar evento de navegación
-                        li.addEventListener('click', () => {
-                            navigateToFeature(lengua, layerName, features, propertyName);
-                            li.classList.add('active');
-                            // Remover active de otros elementos
-                            ul.querySelectorAll('li').forEach(otherLi => {
-                                if (otherLi !== li) otherLi.classList.remove('active');
-                            });
-                        });
-
-                        // Soporte para teclado
-                        li.addEventListener('keydown', (e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                                e.preventDefault();
-                                li.click();
-                            }
-                        });
-
-                        ul.appendChild(li);
-                    });
-                } else {
-                    // Para otras capas, mostrar todos los elementos
-                    header.innerHTML = `${title} <span class="badge bg-secondary">${formatNumber(features.length)}</span>`;
-
-                    features.forEach((f, index) => {
-                        if (f.properties[propertyName]) {
-                            const li = document.createElement('li');
-                            // For localities, atlas, and municipios, show name and key instead of just key
-                            let displayText = f.properties[propertyName];
-                            if (layerName === 'localidades') {
-                                const name = f.properties.NOMGEO || f.properties.NOM_LOC || 'Sin nombre';
-                                const key = f.properties.CVEGEO;
-                                displayText = `${name} (${key})`;
-                            } else if (layerName === 'localidades_puntos') {
-                                const name = f.properties.NOM_LOC || f.properties.NOMGEO || 'Sin nombre';
-                                const key = f.properties.CVEGEO;
-                                displayText = `${name} (${key})`;
-                            } else if (layerName === 'atlas') {
-                                const name = f.properties.Localidad || 'Sin localidad';
-                                const key = f.properties.CVEGEO;
-                                displayText = `${name} (${key})`;
-                            } else if (layerName === 'municipios') {
-                                const name = f.properties.NOMGEO || f.properties.NOM_MUN || 'Sin municipio';
-                                const key = f.properties.CVEGEO;
-                                displayText = `${name} (${key})`;
-                            } else if (layerName === 'ran') {
-                                const name = f.properties.NOM_NUC || f.properties.MUNICIPIO || 'Sin municipio';
-                                const key = f.properties.Clv_Unica;
-                                displayText = `${name} (${key})`;
-                            }
-                            li.innerHTML = `<span class="color-dot" style="background:${color}"></span>${displayText}`;
-                            li.dataset.featureId = f.properties[propertyName];
-                            li.dataset.layerName = layerName;
-                            li.setAttribute('role', 'button');
-                            li.setAttribute('tabindex', '0');
-                            li.setAttribute('aria-label', `${displayText} - Clic para navegar`);
-
-                            // Agregar evento de navegación
-                            li.addEventListener('click', () => {
-                                navigateToFeature(f.properties[propertyName], layerName, features, propertyName);
-                                li.classList.add('active');
-                                // Remover active de otros elementos
-                                ul.querySelectorAll('li').forEach(otherLi => {
-                                    if (otherLi !== li) otherLi.classList.remove('active');
-                                });
-                            });
-
-                            // Soporte para teclado
-                            li.addEventListener('keydown', (e) => {
-                                if (e.key === 'Enter' || e.key === ' ') {
-                                    e.preventDefault();
-                                    li.click();
-                                }
-                            });
-
-                            ul.appendChild(li);
-                        }
-                    });
-                }
-
-                content.appendChild(ul);
-            }
-
-            // Toggle functionality
-            header.addEventListener('click', () => {
-                section.classList.toggle('collapsed');
-            });
-
-            section.appendChild(header);
-            section.appendChild(content);
-
-            return section;
-        }
-
-        /**
-         * Actualiza la visualización de todas las capas encontradas
-         */
-        function updateLayersDisplay(layersDataParam) {
-            layersContainer.innerHTML = '';
-
-            // Actualizar variables globales para el reporte
-            layersData = layersDataParam;
-            totalElements = 0;
-
-            // Definir colores para cada capa
-            const layerColors = {
-                localidades: '#008000',
-                atlas: '#ff00ff',
-                municipios: '#0000ff',
-                regiones: '#ffa500',
-                ran: '#ff0000',
-                lenguas: '#00ffff',
-                za_publico: '#800080',
-                za_publico_a: '#800000',
-                anp_estatal: '#008080',
-                ramsar: '#808000',
-                sitio_arqueologico: '#808080',
-                z_historicos: '#400080',
-                loc_indigenas_datos: '#8000ff',
-                rutaWixarika: '#ff8000'
-            };
-
-            // Definir títulos para cada capa
-            const layerTitles = {
-                localidades: 'Localidades',
-                atlas: 'Atlas Pueblos Indígenas',
-                municipios: 'Municipios',
-                regiones: 'Regiones Indígenas',
-                ran: 'RAN',
-                lenguas: 'Lenguas Indígenas',
-                za_publico: 'ZA Público',
-                za_publico_a: 'ZA Público A',
-                anp_estatal: 'ANP Estatales',
-                ramsar: 'Ramsar',
-                sitio_arqueologico: 'Sitios Arqueológicos',
-                z_historicos: 'Zonas Históricas',
-                loc_indigenas_datos: 'Loc Indígenas Datos',
-                rutaWixarika: 'Ruta Wixarika'
-            };
-
-            // Crear secciones para cada capa
-            Object.entries(layersData).forEach(([layerName, data]) => {
-                if (data.features) {
-                    console.log(`[DEBUG] Processing layer ${layerName} with ${data.features.length} features`);
-                    const propertyMap = {
-                        localidades: 'CVEGEO',
-                        localidades_puntos: 'CVEGEO',
-                        atlas: 'CVEGEO',
-                        municipios: 'CVEGEO',
-                        regiones: 'Name',
-                        ran: 'Clv_Unica',
-                        lenguas: 'Lengua',
-                        za_publico: 'Zona Arqueológica',
-                        za_publico_a: 'Zona Arqueológica',
-                        anp_estatal: 'NOMBRE',
-                        ramsar: 'RAMSAR',
-                        sitio_arqueologico: 'nombre',
-                        z_historicos: 'Nombre',
-                        loc_indigenas_datos: 'LOCALIDAD',
-                        rutaWixarika: 'Name'
-                    };
-
-                    const titleMap = layerTitles;
-
-                    // Determinar si es la capa de lenguas para tratamiento especial
-                    const isLenguasLayer = layerName === 'lenguas';
-
-                    // Debug specific layers
-                    if (['ramsar', 'sitio_arqueologico', 'z_historicos'].includes(layerName)) {
-                        console.log(`[DEBUG] ${layerName} - Property map: ${propertyMap[layerName]}, First feature properties:`, data.features[0]?.properties);
-                        console.log(`[DEBUG] ${layerName} - Property value for ${propertyMap[layerName]}:`, data.features[0]?.properties?.[propertyMap[layerName]]);
-                        console.log(`[DEBUG] ${layerName} - All property keys:`, Object.keys(data.features[0]?.properties || {}));
-                        console.log(`[DEBUG] ${layerName} - All property keys values:`, data.features[0]?.properties);
-                        if (layerName === 'ramsar') {
-                            console.log(`[DEBUG] ramsar detailed properties:`, JSON.stringify(data.features[0]?.properties, null, 2));
-                        }
-                    }
-
-                    const section = createLayerSection(
-                        titleMap[layerName],
-                        data.features,
-                        propertyMap[layerName],
-                        layerColors[layerName],
-                        isLenguasLayer,
-                        layerName
-                    );
-
-                    layersContainer.appendChild(section);
-
-                    // Para lenguas, contar solo las únicas para el total
-                    if (isLenguasLayer) {
-                        const uniqueLenguas = new Set();
-                        data.features.forEach(f => {
-                            if (f.properties[propertyMap[layerName]]) {
-                                uniqueLenguas.add(f.properties[propertyMap[layerName]]);
-                            }
-                        });
-                        totalElements += uniqueLenguas.size;
-                    } else {
-                        totalElements += data.features.length;
-                    }
-                }
-            });
-
-            // Actualizar contadores
-            const badge = document.getElementById('foundCountBadge');
-            if (badge) badge.textContent = formatNumber(totalElements);
-            const totalFound = document.getElementById('totalFound');
-            if (totalFound) totalFound.textContent = formatNumber(totalElements);
-            const currentCriteria = document.getElementById('currentCriteria');
-            if (currentCriteria) {
-                currentCriteria.textContent = areaTypeSelect.options[areaTypeSelect.selectedIndex].text;
-            }
-
-            if (totalElements === 0) {
-                layersContainer.innerHTML = '<p class="mb-0 text-muted">No se encontraron elementos en ninguna capa.</p>';
-            }
-
-            // Habilitar/deshabilitar botones de descarga
-            const downloadReportBtn = document.getElementById('downloadReportBtn');
-            const downloadPdfBtn = document.getElementById('downloadPdfBtn');
-            if (downloadReportBtn) {
-                downloadReportBtn.disabled = totalElements === 0;
-            }
-            if (downloadPdfBtn) {
-                downloadPdfBtn.disabled = totalElements === 0;
-            }
-
-            // Mostrar/ocultar contenedor de gráficos
-            const chartsContainer = document.getElementById('chartsContainer');
-            if (chartsContainer) {
-                if (totalElements > 0) {
-                    chartsContainer.style.display = 'block';
-                    generateCharts(layersData);
-                } else {
-                    chartsContainer.style.display = 'none';
-                }
-            }
-        }
-
-        /**
-         * Genera gráficos con análisis de datos
-         */
-        function generateCharts(layersData) {
-            generateLayerChart(layersData);
-            generatePopulationChart(layersData);
-        }
-
-        /**
-         * Genera gráfico de barras con la distribución de elementos por capa
-         */
-        function generateLayerChart(layersData) {
-            const chartData = [];
-            const layerColors = {
-                localidades: '#008000',
-                atlas: '#ff00ff',
-                municipios: '#0000ff',
-                regiones: '#ffa500',
-                ran: '#ff0000',
-                lenguas: '#00ffff',
-                za_publico: '#800080',
-                za_publico_a: '#800000',
-                anp_estatal: '#008080',
-                ramsar: '#808000',
-                sitio_arqueologico: '#808080',
-                z_historicos: '#400080',
-                loc_indigenas_datos: '#8000ff',
-                rutaWixarika: '#ff8000'
-            };
-
-            const layerNames = {
-                localidades: 'Localidades',
-                atlas: 'Atlas Pueblos Indígenas',
-                municipios: 'Municipios',
-                regiones: 'Regiones Indígenas',
-                ran: 'RAN',
-                lenguas: 'Lenguas Indígenas',
-                za_publico: 'ZA Público',
-                za_publico_a: 'ZA Público A',
-                anp_estatal: 'ANP Estatales',
-                ramsar: 'Ramsar',
-                sitio_arqueologico: 'Sitios Arqueológicos',
-                z_historicos: 'Zonas Históricas',
-                loc_indigenas_datos: 'Loc Indígenas Datos',
-                rutaWixarika: 'Ruta Wixarika'
-            };
-
-            Object.entries(layersData).forEach(([layerName, data]) => {
-                if (data.features && data.features.length > 0) {
-                    const count = layerName === 'lenguas' ?
-                        new Set(data.features.map(f => f.properties.Lengua || f.properties.LENGUA)).size :
-                        data.features.length;
-
-                    chartData.push({
-                        name: layerNames[layerName] || layerName,
-                        y: count,
-                        color: layerColors[layerName] || '#666666'
-                    });
-                }
-            });
-
-            Highcharts.chart('layerChart', {
-                chart: {
-                    type: 'bar',
-                    backgroundColor: 'transparent',
-                    style: {
-                        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
-                    }
-                },
-                accessibility: {
-                    enabled: false
-                },
-                title: {
-                    text: null
-                },
-                xAxis: {
-                    categories: chartData.map(item => item.name),
-                    labels: {
-                        style: {
-                            color: '#333',
-                            fontSize: '11px'
-                        }
-                    }
-                },
-                yAxis: {
-                    title: {
-                        text: 'Número de Elementos',
-                        style: {
-                            color: '#7C1946',
-                            fontWeight: 'bold'
-                        }
-                    },
-                    labels: {
-                        style: {
-                            color: '#666'
-                        }
-                    }
-                },
-                legend: {
-                    enabled: false
-                },
-                tooltip: {
-                    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                    borderColor: '#7C1946',
-                    borderRadius: 8,
-                    shadow: true,
-                    style: {
-                        color: '#333'
-                    },
-                    formatter: function () {
-                        return `<b>${this.x}</b><br/>Elementos: <b>${this.y.toLocaleString('es-MX')}</b>`;
-                    }
-                },
-                plotOptions: {
-                    bar: {
-                        dataLabels: {
-                            enabled: true,
-                            color: '#333',
-                            style: {
-                                fontSize: '11px',
-                                fontWeight: 'bold'
-                            },
-                            formatter: function () {
-                                return this.y.toLocaleString('es-MX');
-                            }
-                        }
-                    }
-                },
-                series: [{
-                    name: 'Elementos',
-                    data: chartData,
-                    colorByPoint: true
-                }],
-                credits: {
-                    enabled: false
-                },
-                exporting: {
-                    enabled: true,
-                    buttons: {
-                        contextButton: {
-                            menuItems: ['viewFullscreen', 'printChart', 'downloadPNG', 'downloadJPEG', 'downloadPDF', 'downloadSVG']
-                        }
-                    }
-                }
-            });
-        }
-
-        /**
-         * Genera gráfico de barras con top 10 localidades por población
-         */
-        function generatePopulationChart(layersData) {
-            if (!layersData.localidades || !layersData.localidades.features) {
-                return;
-            }
-
-            const populationData = layersData.localidades.features
-                .filter(f => f.properties.POBTOT && f.properties.POBTOT > 0)
-                .sort((a, b) => (b.properties.POBTOT || 0) - (a.properties.POBTOT || 0))
-                .slice(0, 10)
-                .map(f => ({
-                    name: f.properties.NOMGEO || f.properties.NOM_LOC || 'Sin nombre',
-                    y: f.properties.POBTOT,
-                    color: '#7C1946'
-                }));
-
-            if (populationData.length === 0) {
-                return;
-            }
-
-            Highcharts.chart('populationChart', {
-                chart: {
-                    type: 'column',
-                    backgroundColor: 'transparent',
-                    style: {
-                        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
-                    }
-                },
-                accessibility: {
-                    enabled: false
-                },
-                title: {
-                    text: null
-                },
-                xAxis: {
-                    categories: populationData.map(item => item.name.length > 15 ?
-                        item.name.substring(0, 15) + '...' : item.name),
-                    labels: {
-                        rotation: -45,
-                        style: {
-                            color: '#333',
-                            fontSize: '10px'
-                        }
-                    }
-                },
-                yAxis: {
-                    title: {
-                        text: 'Población Total',
-                        style: {
-                            color: '#7C1946',
-                            fontWeight: 'bold'
-                        }
-                    },
-                    labels: {
-                        style: {
-                            color: '#666'
-                        },
-                        formatter: function () {
-                            return (this.value / 1000).toFixed(0) + 'k';
-                        }
-                    }
-                },
-                legend: {
-                    enabled: false
-                },
-                tooltip: {
-                    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                    borderColor: '#7C1946',
-                    borderRadius: 8,
-                    shadow: true,
-                    style: {
-                        color: '#333'
-                    },
-                    formatter: function () {
-                        return `<b>${this.x}</b><br/>Población: <b>${this.y.toLocaleString('es-MX')}</b>`;
-                    }
-                },
-                plotOptions: {
-                    column: {
-                        dataLabels: {
-                            enabled: true,
-                            color: '#333',
-                            style: {
-                                fontSize: '9px',
-                                fontWeight: 'bold'
-                            },
-                            formatter: function () {
-                                return (this.y / 1000).toFixed(0) + 'k';
-                            },
-                            rotation: -90,
-                            y: -20
-                        }
-                    }
-                },
-                series: [{
-                    name: 'Población',
-                    data: populationData,
-                    color: '#7C1946'
-                }],
-                credits: {
-                    enabled: false
-                },
-                exporting: {
-                    enabled: true,
-                    buttons: {
-                        contextButton: {
-                            menuItems: ['viewFullscreen', 'printChart', 'downloadPNG', 'downloadJPEG', 'downloadPDF', 'downloadSVG']
-                        }
-                    }
-                }
-            });
-        }
-
-        /**
-         * Limpia todas las capas del mapa y resetea el estado de la aplicación
-         */
-        function clearAllLayers() {
-            // Remover todas las capas del mapa
-            [kmlLayer, bufferLayer, clippedLocalitiesLayer, clippedLocalitiesPointsLayer, clippedAtlasLayer, clippedMunicipiosLayer, clippedRegionesLayer, clippedRanLayer, clippedLenguasLayer, clippedZaPublicoLayer, clippedZaPublicoALayer, clippedAnpEstatalLayer, clippedRamsarLayer, clippedSitioArqueologicoLayer, clippedZHistoricosLayer, clippedLocIndigenasLayer, clippedRutaWixarikaLayer, highlightLayer]
-                .forEach(layer => { if (layer) map.removeLayer(layer); });
-
-            // Resetear variables de estado
-            kmlLayer = bufferLayer = clippedLocalitiesLayer = clippedLocalitiesPointsLayer = clippedAtlasLayer = clippedMunicipiosLayer = clippedRegionesLayer = clippedRanLayer = clippedLenguasLayer = clippedZaPublicoLayer = clippedZaPublicoALayer = clippedAnpEstatalLayer = clippedRamsarLayer = clippedSitioArqueologicoLayer = clippedZHistoricosLayer = clippedLocIndigenasLayer = clippedRutaWixarikaLayer = highlightLayer = null;
-            kmlGeoJson = null;
-            lastAreaBounds = null;
-
-            // Resetear UI a estado inicial
-            layersContainer.innerHTML = '<p class="mb-0 text-muted">Sube un KML y realiza el recorte para ver las capas.</p>';
-            uploadKmlBtn.disabled = true;
-            performClipBtn.disabled = true;
-            if (centerKmlBtn) centerKmlBtn.disabled = true;
-            if (resetViewBtn) resetViewBtn.disabled = true;
-
-            // Limpiar el input del archivo KML
-            if (kmlFileInput) {
-                kmlFileInput.value = '';
-            }
-
-            // Resetear contadores y badges
-            const badge = document.getElementById('foundCountBadge');
-            if (badge) badge.textContent = formatNumber(0);
-            const totalFound = document.getElementById('totalFound');
-            if (totalFound) totalFound.textContent = formatNumber(0);
-            const currentCriteria = document.getElementById('currentCriteria');
-            if (currentCriteria) currentCriteria.textContent = '—';
-
-            // Resetear variables globales del reporte
-            totalElements = 0;
-            layersData = {};
-
-            // Recrear control de capas
-            if (layersControl) {
-                map.removeControl(layersControl);
-            }
-            layersControl = L.control.layers(baseMaps, overlayMaps, { collapsed: true }).addTo(map);
-
-            // Deshabilitar botones de descarga
-            const downloadReportBtn = document.getElementById('downloadReportBtn');
-            const downloadPdfBtn = document.getElementById('downloadPdfBtn');
-            if (downloadReportBtn) {
-                downloadReportBtn.disabled = true;
-            }
-            if (downloadPdfBtn) {
-                downloadPdfBtn.disabled = true;
-            }
-
-            // Ocultar gráficos
-            const chartsContainer = document.getElementById('chartsContainer');
-            if (chartsContainer) {
-                chartsContainer.style.display = 'none';
-            }
-        }
-
-        // ====================================================================
-        // PROCESAMIENTO DE ARCHIVOS KML
-        // ====================================================================
-
-        /**
-         * Valida que el archivo seleccionado sea un KML válido
-         */
-        function validateKmlFile(file) {
-            const validExtensions = ['.kml', '.kmz'];
-            const fileName = file.name.toLowerCase();
-            const hasValidExtension = validExtensions.some(ext => fileName.endsWith(ext));
-
-            if (!hasValidExtension) {
-                showAlert('Por favor, selecciona un archivo con extensión .kml o .kmz', 'warning');
-                return false;
-            }
-
-            const maxSize = 10 * 1024 * 1024; // 10MB en bytes
-            if (file.size > maxSize) {
-                showAlert('El archivo es demasiado grande. El tamaño máximo permitido es 10MB.', 'warning');
-                return false;
-            }
-
-            return true;
-        }
-
-        /**
-         * Procesa un archivo KML cargado por el usuario
-         */
-        function processKmlFile(file) {
-            if (!validateKmlFile(file)) {
-                return;
-            }
-
-            const reader = new FileReader();
-
-            reader.onload = function (e) {
-                try {
-                    const kmlText = e.target.result;
-
-                    if (!kmlText || kmlText.trim().length === 0) {
-                        showAlert('El archivo KML está vacío o no se pudo leer correctamente.', 'danger');
-                        return;
-                    }
-
-                    const kmlDom = new DOMParser().parseFromString(kmlText, 'text/xml');
-
-                    const parseError = kmlDom.querySelector('parsererror');
-                    if (parseError) {
-                        showAlert('El archivo KML contiene errores de formato XML. Verifica que sea un archivo válido.', 'danger');
-                        return;
-                    }
-
-                    kmlGeoJson = toGeoJSON.kml(kmlDom);
-
-                    if (!kmlGeoJson || !kmlGeoJson.features || kmlGeoJson.features.length === 0) {
-                        showAlert('El archivo KML no contiene geometrías válidas o no se pudo convertir.', 'warning');
-                        performClipBtn.disabled = true;
-                        return;
-                    }
-
-                    // Buscar todas las geometrías de tipo Polygon o MultiPolygon
-                    const polygons = kmlGeoJson.features.filter(f =>
-                        f.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon')
-                    );
-
-                    // Validar que cada geometría tenga coordenadas suficientes
-                    const validPolygons = polygons.filter(polygon => {
-                        if (!polygon.geometry || !polygon.geometry.coordinates) return false;
-
-                        // Para Polygon: verificar que tenga al menos un anillo con coordenadas
-                        if (polygon.geometry.type === 'Polygon') {
-                            return polygon.geometry.coordinates.length > 0 &&
-                                polygon.geometry.coordinates[0].length >= 4; // Mínimo 4 puntos para un polígono cerrado
-                        }
-
-                        // Para MultiPolygon: verificar que cada polígono sea válido
-                        if (polygon.geometry.type === 'MultiPolygon') {
-                            return polygon.geometry.coordinates.length > 0 &&
-                                polygon.geometry.coordinates.every(poly =>
-                                    poly.length > 0 && poly[0].length >= 4
-                                );
-                        }
-
-                        return false;
-                    });
-
-                    if (validPolygons.length === 0) {
-                        showAlert('El archivo KML contiene geometrías inválidas o vacías', 'warning');
-                        performClipBtn.disabled = true;
-                        return;
-                    }
-
-                    // Check for overlapping polygons with detailed analysis
-                    let hasOverlaps = false;
-                    let overlapDetails = [];
-
-                    // Solo verificar superposiciones si hay múltiples polígonos
-                    if (validPolygons.length > 1) {
-                        for (let i = 0; i < validPolygons.length; i++) {
-                            for (let j = i + 1; j < validPolygons.length; j++) {
-                                try {
-                                    // Verificar que ambos polígonos sean válidos antes de la comparación
-                                    if (validPolygons[i].geometry && validPolygons[j].geometry) {
-                                        if (turf.booleanOverlap(validPolygons[i], validPolygons[j])) {
-                                            hasOverlaps = true;
-                                            try {
-                                                overlapDetails.push({
-                                                    polygon1: i + 1,
-                                                    polygon2: j + 1,
-                                                    area1: turf.area(validPolygons[i]) / 1000000, // km²
-                                                    area2: turf.area(validPolygons[j]) / 1000000  // km²
-                                                });
-                                            } catch (areaError) {
-                                                console.warn('Error calculating area for overlap details:', areaError);
-                                                overlapDetails.push({
-                                                    polygon1: i + 1,
-                                                    polygon2: j + 1,
-                                                    area1: 0,
-                                                    area2: 0
-                                                });
-                                            }
-                                        }
-                                    }
-                                } catch (overlapError) {
-                                    console.warn(`Error checking overlap between polygons ${i + 1} and ${j + 1}:`, overlapError);
-                                    // En caso de error, marcar como superposición por seguridad
-                                    hasOverlaps = true;
-                                    overlapDetails.push({
-                                        polygon1: i + 1,
-                                        polygon2: j + 1,
-                                        area1: 0,
-                                        area2: 0,
-                                        error: 'Error en verificación de superposición'
-                                    });
-                                }
-                            }
-                        }
-                    }
-
-                    let kmlPolygon;
-
-                    if (validPolygons.length === 1) {
-                        // Solo un polígono válido (Polygon o MultiPolygon)
-                        kmlPolygon = validPolygons[0];
-                    } else {
-                        // Múltiples polígonos: combinar en un MultiPolygon preservando agujeros y aplanando MultiPolygons
-                        const parts = [];
-                        validPolygons.forEach(p => {
-                            if (!p.geometry) return;
-                            if (p.geometry.type === 'Polygon') {
-                                // Polygon.coordinates es [rings]
-                                parts.push(p.geometry.coordinates);
-                            } else if (p.geometry.type === 'MultiPolygon') {
-                                // MultiPolygon.coordinates es [[rings], [rings], ...]
-                                parts.push(...p.geometry.coordinates);
-                            }
-                        });
-
-                        kmlPolygon = {
-                            type: 'Feature',
-                            properties: validPolygons[0].properties || {}, // Usar propiedades del primer polígono
-                            geometry: {
-                                type: 'MultiPolygon',
-                                coordinates: parts
-                            }
-                        };
-                    }
-
-                    // Reemplazar kmlGeoJson por la geometría combinada para que el recorte use TODOS los polígonos
-                    kmlGeoJson = { type: 'FeatureCollection', features: [kmlPolygon] };
-
-                    // Calcular métricas del KML
-                    kmlMetrics.geometryType = kmlPolygon.geometry.type;
-                    kmlMetrics.hasOverlaps = hasOverlaps;
-                    kmlMetrics.overlapCount = overlapDetails.length;
-                    kmlMetrics.polygonCount = validPolygons.length;
-
-                    try {
-                        kmlMetrics.area = turf.area(kmlPolygon) / 1000000; // Convertir a km²
-                        kmlMetrics.perimeter = turf.length(kmlPolygon, { units: 'kilometers' });
-                    } catch (error) {
-                        console.warn('Error calculando métricas del KML:', error);
-                        kmlMetrics.area = 0;
-                        kmlMetrics.perimeter = 0;
-                    }
-
-                    if (kmlLayer) map.removeLayer(kmlLayer);
-
-                    // Crear capa con estilo según si hay superposiciones
-                    kmlLayer = L.geoJSON(kmlPolygon, {
-                        style: hasOverlaps ? {
-                            // Estilo especial para polígonos con superposiciones
-                            color: '#ff6b35',
-                            weight: 4,
-                            fillColor: '#ff6b35',
-                            fillOpacity: 0.4,
-                            dashArray: '10,5'
-                        } : {
-                            // Estilo normal
-                            color: '#ff7800',
-                            weight: 3,
-                            fillColor: '#ffa500',
-                            fillOpacity: 0.2
-                        }
-                    }).addTo(map);
-
-                    // Configurar popup y advertencias si hay superposiciones
-                    if (hasOverlaps) {
-                        // Agregar popup de advertencia
-                        kmlLayer.bindPopup(`
-                            <div class="popup-content">
-                                <h6 class="text-warning">⚠️ Polígonos Superpuestos</h6>
-                                <p class="mb-2"><strong>Problema detectado:</strong> Este KML contiene ${validPolygons.length} polígonos con áreas superpuestas.</p>
-                                <p class="mb-2"><strong>Impacto:</strong> Puede causar conteo duplicado de elementos en las zonas de superposición.</p>
-                                <p class="mb-0"><strong>Recomendación:</strong> Revisar el archivo KML para corregir las superposiciones.</p>
-                            </div>
-                        `);
-
-                        // Crear detalles de superposición para mostrar al usuario
-                        let overlapDetailsHtml = '';
-                        if (overlapDetails && overlapDetails.length > 0) {
-                            overlapDetailsHtml = '<p><strong>Superposiciones detectadas:</strong></p><ul>';
-                            overlapDetails.slice(0, 5).forEach(detail => {
-                                overlapDetailsHtml += `<li>Polígono ${detail.polygon1} (${detail.area1.toFixed(2)} km²) se superpone con Polígono ${detail.polygon2} (${detail.area2.toFixed(2)} km²)</li>`;
-                            });
-                            if (overlapDetails.length > 5) {
-                                overlapDetailsHtml += `<li>... y ${overlapDetails.length - 5} superposiciones más</li>`;
-                            }
-                            overlapDetailsHtml += '</ul>';
-                        }
-
-                        // Mostrar alerta inmediata
-                        showAlert(`⚠️ KML "${file.name}" cargado con advertencias de superposición`, 'warning', 4000);
-
-                        // Mostrar modal informativo después de un breve delay
-                        setTimeout(() => {
-                            showModal({
-                                title: '⚠️ Polígonos Superpuestos Detectados',
-                                message: `
-                                    <div class="alert alert-warning">
-                                        <strong>Se detectaron superposiciones en el KML "${file.name}"</strong>
-                                    </div>
-                                    <p><strong>Detalles del problema:</strong></p>
-                                    <ul>
-                                        <li>Número de polígonos: ${validPolygons.length}</li>
-                                        <li>Superposiciones encontradas: ${overlapDetails?.length || 'Múltiples'}</li>
-                                        <li>Posible conteo duplicado en zonas de superposición</li>
-                                    </ul>
-                                    ${overlapDetailsHtml}
-                                    <div class="alert alert-info small mt-3">
-                                        <strong>Recomendación:</strong> Revisar el archivo KML en un editor GIS para corregir las superposiciones antes del análisis final.
-                                    </div>
-                                    <p class="small text-muted">El área se ha marcado visualmente en el mapa con líneas punteadas naranjas y está disponible para análisis.</p>
-                                `,
-                                okText: 'Entendido'
-                            });
-                        }, 1000);
-                    }
-
-                    setTimeout(() => {
-                        map.invalidateSize();
-                        const b = kmlLayer.getBounds();
-                        if (b && b.isValid()) {
-                            map.fitBounds(b, { padding: [24, 24], maxZoom: 15, animate: true, duration: 0.5 });
-                            lastAreaBounds = b;
-                        }
-                    }, 50);
-
-                    performClipBtn.disabled = false;
-                    if (centerKmlBtn) centerKmlBtn.disabled = false;
-
-                    // Mensaje de éxito adaptado según si hay superposiciones
-                    const successMessage = hasOverlaps
-                        ? `KML cargado con advertencias. Se encontraron ${validPolygons.length} polígonos con superposiciones.`
-                        : `KML cargado exitosamente. Se encontró${validPolygons.length > 1 ? 'ron ' + validPolygons.length + ' polígonos' : ' un polígono'}.`;
-
-                    showAlert(successMessage, hasOverlaps ? 'warning' : 'success');
-
-                } catch (error) {
-                    console.error('Error procesando KML:', error);
-
-                    // Proporcionar mensajes de error más específicos
-                    let errorMessage = 'Error procesando el archivo KML';
-
-                    if (error.message.includes('parseFromString')) {
-                        errorMessage = 'El archivo KML contiene XML inválido o corrupto';
-                    } else if (error.message.includes('toGeoJSON')) {
-                        errorMessage = 'No se pudo convertir el KML a formato GeoJSON';
-                    } else if (error.message.includes('coordinates')) {
-                        errorMessage = 'El archivo KML contiene coordenadas inválidas';
-                    } else if (error.message.includes('geometry')) {
-                        errorMessage = 'El archivo KML contiene geometrías inválidas';
-                    } else if (error.message.includes('turf')) {
-                        errorMessage = 'Error en el análisis geoespacial del KML';
-                    } else if (error.message) {
-                        errorMessage = error.message;
-                    }
-
-                    showAlert(
-                        errorMessage + '. Verifica que sea un archivo KML válido.',
-                        'danger',
-                        8000
-                    );
-                }
-            };
-
-            reader.onerror = function () {
-                showAlert('Error al leer el archivo. Intenta nuevamente con un archivo diferente.', 'danger');
-            };
-
-            reader.readAsText(file);
-        }
-
-        // ====================================================================
-        // PROCESAMIENTO GEOESPACIAL PRINCIPAL
-        // ====================================================================
-
-        /**
-         * Función auxiliar para crear popups limpios sin campos N/A
-         */
-        function createPopupContent(title, icon, fields) {
-            let content = `
-                <div class="popup-content">
-                    <h6 class="popup-title">${icon} ${title}</h6>
-                    <div class="popup-info">
-            `;
-
-            fields.forEach(field => {
-                if (field.value && field.value !== 'N/A' && field.value !== '' && field.value !== null && field.value !== undefined) {
-                    let displayValue = field.value;
-                    // Apply thousands separator to population numbers
-                    if (field.label && (field.label.includes('Población') || field.label.includes('POBTOTAL')) && !isNaN(field.value)) {
-                        displayValue = formatNumber(field.value);
-                    }
-                    if (field.isMain) {
-                        content += `<strong>${displayValue}</strong><br>`;
-                    } else {
-                        content += `<small><strong>${field.label}:</strong> ${displayValue}</small><br>`;
-                    }
-                }
-            });
-
-            content += `
-                    </div>
-                </div>
-            `;
-
-            return content;
-        }
-
-        /**
-         * Función auxiliar para recortar una capa específica
-         */
-        function clipLayer(data, propertyName, styleOptions, popupFormatter, clipArea) {
-            const clipGeom = clipArea || kmlGeoJson.features.find(f => f.geometry.type.includes('Polygon'));
-            const clipped = data.features.filter(f => turf.booleanIntersects(f.geometry, clipGeom.geometry));
-            const layer = L.geoJSON(turf.featureCollection(clipped), styleOptions);
-
-            if (popupFormatter) {
-                layer.eachLayer(l => {
-                    const props = l.feature.properties;
-                    l.bindPopup(popupFormatter(props));
-                });
-            }
-
-            return { clipped, layer };
-        }
-
-        /**
-         * FUNCIÓN PRINCIPAL: Realiza el recorte de todas las capas según el área seleccionada
-         */
-        async function performClipping() {
-            try {
-                showPreloader();
-                updateProgress(0, 'Iniciando análisis geoespacial...');
-
-                // Pequeño delay para asegurar que el preloader se muestre
-                await new Promise(resolve => setTimeout(resolve, 100));
-
-                updateProgress(5, 'Validando insumos…');
-
-                if (!kmlGeoJson) {
-                    hidePreloader();
-                    showModal({
-                        title: 'Recorte de Capas',
-                        message: 'Primero carga un archivo KML válido para poder realizar el recorte.',
-                        okText: 'Entendido'
-                    });
-                    return;
-                }
-
-                // Verificar que al menos algunas capas estén disponibles
-                const availableLayers = [
-                    { data: localitiesData, name: 'Localidades' },
-                    { data: atlasData, name: 'Atlas Pueblos Indígenas' },
-                    { data: municipiosData, name: 'Municipios' },
-                    { data: regionesData, name: 'Regiones Indígenas' },
-                    { data: ranData, name: 'RAN' },
-                    { data: lenguasData, name: 'Lenguas Indígenas' },
-                    { data: zaPublicoData, name: 'ZA Público' },
-                    { data: zaPublicoAData, name: 'ZA Público A' },
-                    { data: anpEstatalData, name: 'ANP Estatales' },
-                    { data: ramsarData, name: 'Ramsar' },
-                    { data: sitioArqueologicoData, name: 'Sitios Arqueológicos' },
-                    { data: zHistoricosData, name: 'Zonas Históricas' },
-                    { data: locIndigenasData, name: 'Loc Indígenas Datos' },
-                    { data: rutaWixarikaData, name: 'Ruta Wixarika' }
-                ].filter(layer => layer.data && layer.data.features && layer.data.features.length > 0);
-
-                if (availableLayers.length === 0) {
-                    hidePreloader();
-                    showModal({
-                        title: 'Sin datos disponibles',
-                        message: 'No hay capas geoespaciales disponibles para realizar el recorte. Esto puede deberse a problemas de conexión durante la carga inicial.',
-                        okText: 'Entendido'
-                    });
-                    return;
-                }
-
-                console.log(`Capas disponibles para recorte: ${availableLayers.map(l => l.name).join(', ')}`);
-                showAlert(`Procesando ${availableLayers.length} capas disponibles`, 'info', 2000);
-
-                const T = await ensureTurf();
-                updateProgress(8, 'Realizando el análisis, por favor espere…');
-
-                const kmlPolygon = kmlGeoJson.features.find(f => f.geometry.type.includes('Polygon'));
-                let clipArea = kmlPolygon;
-
-                // Crear buffer según el tipo de área seleccionado
-                if (areaTypeSelect.value === 'nucleo') {
-                    // Área núcleo: buffer dinámico en metros alrededor del polígono
-                    try {
-                        const meters = Math.max(0, parseFloat(bufferMetersInput?.value || '500'));
-                        const km = meters / 1000.0;
-                        updateProgress(15, `Generando buffer de ${meters} m para área núcleo…`);
-                        clipArea = turf.buffer(kmlPolygon, km, { units: 'kilometers' });
-
-                        if (bufferLayer) map.removeLayer(bufferLayer);
-                        bufferLayer = L.geoJSON(clipArea, {
-                            style: { color: '#0078ff', weight: 2, fillColor: '#0078ff', fillOpacity: 0.1 }
-                        }).addTo(map);
-
-                        lastAreaBounds = L.geoJSON(clipArea).getBounds();
-
-                        // Actualizar métricas del buffer
-                        kmlMetrics.bufferUsed = true;
-                        kmlMetrics.bufferRadius = meters; // almacenado en metros
-                    } catch (err) {
-                        console.error("Error creando buffer:", err);
-                        showAlert("No se pudo crear el buffer solicitado.", 'danger');
-                        hidePreloader();
-                        return;
-                    }
-                } else if (areaTypeSelect.value === 'exacta') {
-                    // Área exacta: usar el polígono original sin buffer
-                    updateProgress(15, 'Usando área exacta del polígono…');
-                    clipArea = kmlPolygon;
-                    kmlMetrics.bufferUsed = false;
-                    kmlMetrics.bufferRadius = 0;
-                } else {
-                    // Área de influencia directa/indirecta: por ahora usar polígono original
-                    // (puede implementarse lógica específica en el futuro)
-                    updateProgress(15, `Procesando área de influencia ${areaTypeSelect.value === 'directa' ? 'directa' : 'indirecta'}…`);
-                    clipArea = kmlPolygon;
-                    kmlMetrics.bufferUsed = false;
-                    kmlMetrics.bufferRadius = 0;
-                }
-
-                // Remover capas anteriores
-                [clippedLocalitiesLayer, clippedAtlasLayer, clippedMunicipiosLayer, clippedRegionesLayer, clippedRanLayer, clippedLenguasLayer, clippedZaPublicoLayer, clippedZaPublicoALayer, clippedAnpEstatalLayer, clippedRamsarLayer, clippedSitioArqueologicoLayer, clippedZHistoricosLayer]
-                    .forEach(layer => { if (layer) map.removeLayer(layer); });
-
-                // Recrear control de capas
-                if (layersControl) {
-                    map.removeControl(layersControl);
-                }
-                layersControl = L.control.layers(null, null, { collapsed: false }).addTo(map);
-
-                // Procesar solo las capas que estén disponibles
-                const layersData = {};
-                let processedCount = 0;
-                const totalLayers = availableLayers.length;
-
-                // Inicializar todas las capas posibles con arrays vacíos
-                const allLayerNames = ['localidades', 'atlas', 'municipios', 'regiones', 'ran', 'lenguas', 'za_publico', 'za_publico_a', 'anp_estatal', 'ramsar', 'sitio_arqueologico', 'z_historicos', 'loc_indigenas_datos', 'rutaWixarika'];
-                allLayerNames.forEach(name => {
-                    layersData[name] = { features: [] };
-                });
-
-                if (localitiesData && localitiesData.features) {
-                    updateProgress(20 + (processedCount * 60 / totalLayers), 'Procesando localidades…');
-                    const locResult = clipLayer(localitiesData, "CVEGEO",
-                        { pointToLayer: (f, latlng) => L.circleMarker(latlng, { radius: 6, fillColor: '#008000', color: '#000', weight: 1, opacity: 1, fillOpacity: 0.8 }) },
-                        p => createPopupContent('Localidad', '🏘️', [
-                            { value: p.NOMGEO || p.NOM_LOC || p.NOMBRE || 'Sin nombre', isMain: true },
-                            { label: 'CVEGEO', value: p.CVEGEO },
-                            { label: 'Municipio', value: p.NOM_MUN || p.MUNICIPIO },
-                            { label: 'Estado', value: p.NOM_ENT || p.ESTADO },
-                            { label: 'Ámbito', value: p.AMBITO },
-                            { label: 'Población Total', value: p.POBTOT },
-                            { label: 'Población Femenina', value: p.POBFEM },
-                            { label: 'Población Masculina', value: p.POBMAS }
-                        ]), clipArea);
-                    clippedLocalitiesLayer = locResult.layer.addTo(map);
-                    layersControl.addOverlay(clippedLocalitiesLayer, "Localidades");
-                    layersData.localidades = { features: locResult.clipped };
-                    console.log('[DEBUG] Localidades clipped properties sample:', locResult.clipped[0]?.properties);
-
-                    // Calcular densidades
-                    const totalLocalities = locResult.clipped.length;
-                    let totalPopulation = 0;
-                    locResult.clipped.forEach(f => {
-                        const pop = f.properties.POBTOT || f.properties.POBTOTAL || 0;
-                        totalPopulation += pop;
-                    });
-
-                    kmlMetrics.localityDensity = kmlMetrics.area > 0 ? totalLocalities / kmlMetrics.area : 0;
-                    kmlMetrics.populationDensity = kmlMetrics.area > 0 ? totalPopulation / kmlMetrics.area : 0;
-                    kmlMetrics.totalPopulation = totalPopulation;
-
-                    processedCount++;
-                }
-
-                if (atlasData && atlasData.features) {
-                    updateProgress(20 + (processedCount * 60 / totalLayers), 'Procesando atlas pueblos indígenas…');
-                    const atlasResult = clipLayer(atlasData, "CVEGEO",
-                        { pointToLayer: (f, latlng) => L.circleMarker(latlng, { radius: 5, fillColor: '#ff00ff', color: '#000', weight: 1, opacity: 1, fillOpacity: 0.8 }) },
-                        p => createPopupContent('Atlas Pueblos Indígenas', '🏛️', [
-                            { value: p.Localidad || p.CVEGEO, isMain: true },
-                            { label: 'CVEGEO', value: p.CVEGEO },
-                            { label: 'Municipio', value: p.NOM_MUN || p.MUNICIPIO }
-                        ]), clipArea);
-                    clippedAtlasLayer = atlasResult.layer.addTo(map);
-                    layersControl.addOverlay(clippedAtlasLayer, "Atlas Pueblos Indígenas");
-                    layersData.atlas = { features: atlasResult.clipped };
-                    console.log('[DEBUG] Atlas clipped properties sample:', atlasResult.clipped[0]?.properties);
-                    processedCount++;
-                } else {
-                    // Crear capa vacía para mostrar en el control de capas
-                    clippedAtlasLayer = L.layerGroup().addTo(map);
-                    layersControl.addOverlay(clippedAtlasLayer, "Atlas Pueblos Indígenas");
-                }
-
-                if (municipiosData && municipiosData.features) {
-                    updateProgress(20 + (processedCount * 60 / totalLayers), 'Procesando municipios…');
-                    const munResult = clipLayer(municipiosData, "CVEGEO",
-                        { style: { color: '#0000ff', weight: 2, fillOpacity: 0.1 } },
-                        p => createPopupContent('Municipio', '🏛️', [
-                            { value: p.NOMGEO || p.NOM_MUN || p.NOMBRE || p.MUNICIPIO || 'Sin nombre', isMain: true },
-                            { label: 'CVEGEO', value: p.CVEGEO },
-                            { label: 'Estado', value: p.NOM_ENT || p.ESTADO },
-                            { label: 'Cabecera', value: p.NOM_CAB || p.CABECERA }
-                        ]), clipArea);
-                    clippedMunicipiosLayer = munResult.layer.addTo(map);
-                    layersControl.addOverlay(clippedMunicipiosLayer, "Municipios");
-                    layersData.municipios = { features: munResult.clipped };
-                    processedCount++;
-                } else {
-                    clippedMunicipiosLayer = L.layerGroup().addTo(map);
-                    layersControl.addOverlay(clippedMunicipiosLayer, "Municipios");
-                }
-
-                if (regionesData && regionesData.features) {
-                    updateProgress(20 + (processedCount * 60 / totalLayers), 'Procesando regiones indígenas…');
-                    const regResult = clipLayer(regionesData, "Name",
-                        { style: { color: '#ffa500', weight: 2, fillOpacity: 0.1 } },
-                        p => createPopupContent('Región Indígena', '🌄', [
-                            { value: p.Name || p.NOMBRE || 'Sin nombre', isMain: true },
-                            { label: 'Tipo', value: p.Tipo || p.TIPO },
-                            { label: 'Descripción', value: p.Descripci || p.DESCRIPCION }
-                        ]), clipArea);
-                    clippedRegionesLayer = regResult.layer.addTo(map);
-                    layersControl.addOverlay(clippedRegionesLayer, "Regiones Indígenas");
-                    layersData.regiones = { features: regResult.clipped };
-                    processedCount++;
-                } else {
-                    clippedRegionesLayer = L.layerGroup().addTo(map);
-                    layersControl.addOverlay(clippedRegionesLayer, "Regiones Indígenas");
-                }
-
-                if (ranData && ranData.features) {
-                    updateProgress(20 + (processedCount * 60 / totalLayers), 'Procesando RAN…');
-                    const ranResult = clipLayer(ranData, "Clv_Unica",
-                        { style: { color: '#ff0000', weight: 2, fillOpacity: 0.1 } },
-                        p => createPopupContent('RAN', '🌾', [
-                            { value: p.NOM_NUC || p.MUNICIPIO || p.Clv_Unica, isMain: true },
-                            { label: 'Nombre del Núcleo', value: p.NOM_NUC },
-                            { label: 'Clv_Unica', value: p.Clv_Unica },
-                            { label: 'Tipo', value: p.tipo || p.Tipo },
-                            { label: 'Estado', value: p.Estado || p.ESTADO },
-                            { label: 'Municipio', value: p.Municipio || p.MUNICIPIO }
-                        ]), clipArea);
-                    // Enriquecer propiedades de las features recortadas con datos tabulares
-                    if (Array.isArray(ranResult.clipped) && ranLookupMap && ranLookupMap.size) {
-                        ranResult.clipped.forEach(f => {
-                            const key = (f.properties?.Clv_Unica ?? '').toString().trim();
-                            const extra = key ? ranLookupMap.get(key) : null;
-                            if (extra) Object.assign(f.properties, extra);
-                        });
-                    }
-                    clippedRanLayer = ranResult.layer.addTo(map);
-                    layersControl.addOverlay(clippedRanLayer, "RAN");
-                    layersData.ran = { features: ranResult.clipped };
-                    processedCount++;
-                } else {
-                    clippedRanLayer = L.layerGroup().addTo(map);
-                    layersControl.addOverlay(clippedRanLayer, "RAN");
-                }
-
-                if (lenguasData && lenguasData.features) {
-                    updateProgress(20 + (processedCount * 60 / totalLayers), 'Procesando lenguas indígenas…');
-                    const lenguasResult = clipLayer(lenguasData, "Lengua",
-                        { pointToLayer: (f, latlng) => L.circleMarker(latlng, { radius: 5, fillColor: '#00ffff', color: '#000', weight: 1, opacity: 1, fillOpacity: 0.8 }) },
-                        p => createPopupContent('Lengua Indígena', '🗣️', [
-                            { value: p.Lengua || p.LENGUA || 'Sin especificar', isMain: true },
-                            { label: 'Localidad', value: p.NOM_LOC || p.LOCALIDAD },
-                            { label: 'Municipio', value: p.NOM_MUN || p.MUNICIPIO },
-                            { label: 'Estado', value: p.NOM_ENT || p.ESTADO }
-                        ]), clipArea);
-                    clippedLenguasLayer = lenguasResult.layer.addTo(map);
-                    layersControl.addOverlay(clippedLenguasLayer, "Lenguas Indígenas");
-                    layersData.lenguas = { features: lenguasResult.clipped };
-                    console.log('[DEBUG] Lenguas clipped properties sample:', lenguasResult.clipped[0]?.properties);
-                    processedCount++;
-                } else {
-                    clippedLenguasLayer = L.layerGroup().addTo(map);
-                    layersControl.addOverlay(clippedLenguasLayer, "Lenguas Indígenas");
-                }
-
-                if (zaPublicoData && zaPublicoData.features) {
-                    updateProgress(20 + (processedCount * 60 / totalLayers), 'Procesando ZA público…');
-                    const zaPublicoResult = clipLayer(zaPublicoData, "Zona Arqueológica",
-                        { pointToLayer: (f, latlng) => L.circleMarker(latlng, { radius: 6, fillColor: '#800080', color: '#000', weight: 1, opacity: 1, fillOpacity: 0.8 }) },
-                        p => createPopupContent('ZA Público', '🏞️', [
-                            { value: p["Zona Arqueológica"] || 'Sin nombre', isMain: true },
-                            { label: 'Estado', value: p.ESTADO },
-                            { label: 'Municipio', value: p.MUNICIPIO },
-                            { label: 'Localidad', value: p.LOCALIDAD }
-                        ]), clipArea);
-                    clippedZaPublicoLayer = zaPublicoResult.layer.addTo(map);
-                    layersControl.addOverlay(clippedZaPublicoLayer, "Zonas Arqueológicas (Puntos)");
-                    layersData.za_publico = { features: zaPublicoResult.clipped };
-                    if (zaPublicoResult.clipped.length > 0) kmlMetrics.intersectsZA = true;
-                    processedCount++;
-                } else {
-                    clippedZaPublicoLayer = L.layerGroup().addTo(map);
-                    layersControl.addOverlay(clippedZaPublicoLayer, "Zonas Arqueológicas (Puntos)");
-                }
-
-                if (zaPublicoAData && zaPublicoAData.features) {
-                    updateProgress(20 + (processedCount * 60 / totalLayers), 'Procesando ZA público A…');
-                    const zaPublicoAResult = clipLayer(zaPublicoAData, "Zona Arqueológica",
-                        { style: { color: '#800000', weight: 2, fillOpacity: 0.1 } },
-                        p => createPopupContent('ZA Público A', '🏞️', [
-                            { value: p["Zona Arqueológica"] || 'Sin nombre', isMain: true },
-                            { label: 'Estado', value: p.ESTADO },
-                            { label: 'Municipio', value: p.MUNICIPIO },
-                            { label: 'Localidad', value: p.LOCALIDAD }
-                        ]), clipArea);
-                    clippedZaPublicoALayer = zaPublicoAResult.layer.addTo(map);
-                    layersControl.addOverlay(clippedZaPublicoALayer, "Zonas Arqueológicas (Áreas)");
-                    layersData.za_publico_a = { features: zaPublicoAResult.clipped };
-                    if (zaPublicoAResult.clipped.length > 0) kmlMetrics.intersectsZA = true;
-                    processedCount++;
-                } else {
-                    clippedZaPublicoALayer = L.layerGroup().addTo(map);
-                    layersControl.addOverlay(clippedZaPublicoALayer, "Zonas Arqueológicas (Áreas)");
-                }
-
-                if (anpEstatalData && anpEstatalData.features) {
-                    updateProgress(20 + (processedCount * 60 / totalLayers), 'Procesando ANP estatales…');
-                    const anpEstatalResult = clipLayer(anpEstatalData, "NOMBRE",
-                        { style: { color: '#008080', weight: 2, fillOpacity: 0.1 } },
-                        p => createPopupContent('ANP Estatal', '🌿', [
-                            { value: p.NOMBRE || 'Sin nombre', isMain: true },
-                            { label: 'Tipo', value: p.TIPO },
-                            { label: 'Categoría DEC', value: p.CAT_DEC },
-                            { label: 'Entidad', value: p.ENTIDAD },
-                            { label: 'Municipio DEC', value: p.MUN_DEC }
-                        ]), clipArea);
-                    clippedAnpEstatalLayer = anpEstatalResult.layer.addTo(map);
-                    layersControl.addOverlay(clippedAnpEstatalLayer, "ANP Estatales");
-                    layersData.anp_estatal = { features: anpEstatalResult.clipped };
-                    if (anpEstatalResult.clipped.length > 0) kmlMetrics.intersectsANP = true;
-                    processedCount++;
-                } else {
-                    clippedAnpEstatalLayer = L.layerGroup().addTo(map);
-                    layersControl.addOverlay(clippedAnpEstatalLayer, "ANP Estatales");
-                }
-
-                if (ramsarData && ramsarData.features) {
-                    console.log('[DEBUG] Processing Ramsar data:', ramsarData.features.length, 'features');
-                    updateProgress(20 + (processedCount * 60 / totalLayers), 'Procesando Ramsar…');
-                    const ramsarResult = clipLayer(ramsarData, "RAMSAR",
-                        { style: { color: '#808000', weight: 2, fillOpacity: 0.1 } },
-                        p => createPopupContent('Sitio Ramsar', '🦆', [
-                            { value: p.RAMSAR || 'Sin nombre', isMain: true },
-                            { label: 'Estado', value: p.ESTADO },
-                            { label: 'Municipio', value: p.MUNICIPIOS }
-                        ]), clipArea);
-                    console.log('[DEBUG] Ramsar clipped result:', ramsarResult.clipped.length, 'features');
-                    clippedRamsarLayer = ramsarResult.layer.addTo(map);
-                    layersControl.addOverlay(clippedRamsarLayer, "Ramsar");
-                    layersData.ramsar = { features: ramsarResult.clipped };
-                    if (ramsarResult.clipped.length > 0) kmlMetrics.intersectsRamsar = true;
-                    processedCount++;
-                } else {
-                    console.log('[DEBUG] Ramsar data not available or empty');
-                    clippedRamsarLayer = L.layerGroup().addTo(map);
-                    layersControl.addOverlay(clippedRamsarLayer, "Ramsar");
-                }
-
-                if (sitioArqueologicoData && sitioArqueologicoData.features) {
-                    console.log('[DEBUG] Processing Sitios Arqueológicos data:', sitioArqueologicoData.features.length, 'features');
-                    updateProgress(20 + (processedCount * 60 / totalLayers), 'Procesando sitios arqueológicos…');
-                    const sitioArqueologicoResult = clipLayer(sitioArqueologicoData, "nombre",
-                        { pointToLayer: (f, latlng) => L.circleMarker(latlng, { radius: 5, fillColor: '#808080', color: '#000', weight: 1, opacity: 1, fillOpacity: 0.8 }) },
-                        p => createPopupContent('Sitio Arqueológico', '🏛️', [
-                            { value: p.nombre || 'Sin nombre', isMain: true },
-                            { label: 'Estado', value: p.nom_ent },
-                            { label: 'Municipio', value: p.nom_mun },
-                            { label: 'Localidad', value: p.nom_loc }
-                        ]), clipArea);
-                    console.log('[DEBUG] Sitios Arqueológicos clipped result:', sitioArqueologicoResult.clipped.length, 'features');
-                    clippedSitioArqueologicoLayer = sitioArqueologicoResult.layer.addTo(map);
-                    layersControl.addOverlay(clippedSitioArqueologicoLayer, "Sitios Arqueológicos");
-                    layersData.sitio_arqueologico = { features: sitioArqueologicoResult.clipped };
-                    processedCount++;
-                } else {
-                    console.log('[DEBUG] Sitios Arqueológicos data not available or empty');
-                    clippedSitioArqueologicoLayer = L.layerGroup().addTo(map);
-                    layersControl.addOverlay(clippedSitioArqueologicoLayer, "Sitios Arqueológicos");
-                }
-
-                if (zHistoricosData && zHistoricosData.features) {
-                    console.log('[DEBUG] Processing Zonas Históricas data:', zHistoricosData.features.length, 'features');
-                    updateProgress(20 + (processedCount * 60 / totalLayers), 'Procesando zonas históricas…');
-                    const zHistoricosResult = clipLayer(zHistoricosData, "Nombre",
-                        { style: { color: '#400080', weight: 2, fillOpacity: 0.1 } },
-                        p => createPopupContent('Zona Histórica', '🏰', [
-                            { value: p.Nombre || 'Sin nombre', isMain: true },
-                            { label: 'Estado', value: p.ESTADO },
-                            { label: 'Municipio', value: p.MUNICIPIO },
-                            { label: 'Localidad', value: p.LOCALIDAD }
-                        ]), clipArea);
-                    console.log('[DEBUG] Zonas Históricas clipped result:', zHistoricosResult.clipped.length, 'features');
-                    clippedZHistoricosLayer = zHistoricosResult.layer.addTo(map);
-                    layersControl.addOverlay(clippedZHistoricosLayer, "Zonas Históricas");
-                    layersData.z_historicos = { features: zHistoricosResult.clipped };
-                    if (zHistoricosResult.clipped.length > 0) kmlMetrics.intersectsZHistoricas = true;
-                    processedCount++;
-                } else {
-                    console.log('[DEBUG] Zonas Históricas data not available or empty');
-                    clippedZHistoricosLayer = L.layerGroup().addTo(map);
-                    layersControl.addOverlay(clippedZHistoricosLayer, "Zonas Históricas");
-                }
-
-                if (locIndigenasData && locIndigenasData.features) {
-                    console.log('[DEBUG] Processing Loc Indígenas Datos data:', locIndigenasData.features.length, 'features');
-                    updateProgress(20 + (processedCount * 60 / totalLayers), 'Procesando loc indígenas datos…');
-                    const locIndigenasResult = clipLayer(locIndigenasData, "CVEGEO",
-                        { pointToLayer: (f, latlng) => L.circleMarker(latlng, { radius: 5, fillColor: '#8000ff', color: '#000', weight: 1, opacity: 1, fillOpacity: 0.8 }) },
-                        p => createPopupContent('Loc Indígenas Datos', '🏘️', [
-                            { value: p.LOCALIDAD || 'Sin Localidad', isMain: true },
-                            { label: 'Entidad', value: p.ENTIDAD },
-                            { label: 'Municipio', value: p.MUNICIPIO },
-                            { label: 'Localidad', value: p.LOCALIDAD },
-                            { label: 'Población Total', value: p.POBTOTAL }
-                        ]), clipArea);
-                    console.log('[DEBUG] Loc Indígenas Datos clipped result:', locIndigenasResult.clipped.length, 'features');
-                    clippedLocIndigenasLayer = locIndigenasResult.layer.addTo(map);
-                    layersControl.addOverlay(clippedLocIndigenasLayer, "Loc Indígenas Datos");
-                    layersData.loc_indigenas_datos = { features: locIndigenasResult.clipped };
-                    processedCount++;
-                } else {
-                    console.log('[DEBUG] Loc Indígenas Datos data not available or empty');
-                    clippedLocIndigenasLayer = L.layerGroup().addTo(map);
-                    layersControl.addOverlay(clippedLocIndigenasLayer, "Loc Indígenas Datos");
-                }
-
-                if (rutaWixarikaData && rutaWixarikaData.features) {
-                    console.log('[DEBUG] Processing Ruta Wixarika data:', rutaWixarikaData.features.length, 'features');
-                    updateProgress(20 + (processedCount * 60 / totalLayers), 'Procesando ruta Wixarika…');
-                    const rutaWixarikaResult = clipLayer(rutaWixarikaData, "Name",
-                        { style: { color: '#ff8000', weight: 2, fillOpacity: 0.1 } },
-                        p => createPopupContent('Ruta Wixarika', '🛤️', [
-                            { value: p.Name || 'Sin nombre', isMain: true }
-                        ]), clipArea);
-                    console.log('[DEBUG] Ruta Wixarika clipped result:', rutaWixarikaResult.clipped.length, 'features');
-                    clippedRutaWixarikaLayer = rutaWixarikaResult.layer.addTo(map);
-                    layersControl.addOverlay(clippedRutaWixarikaLayer, "Ruta Wixarika");
-                    layersData.rutaWixarika = { features: rutaWixarikaResult.clipped };
-                    processedCount++;
-                } else {
-                    console.log('[DEBUG] Ruta Wixarika data not available or empty');
-                    clippedRutaWixarikaLayer = L.layerGroup().addTo(map);
-                    layersControl.addOverlay(clippedRutaWixarikaLayer, "Ruta Wixarika");
-                }
-
-                // After all layers are processed, handle the localities points
-                if (localitiesPointsData && localitiesPointsData.features) {
-                    updateProgress(85, 'Procesando localidades puntos adicionales...');
-
-                    // Filter out points that are already included in the polygons
-                    const existingCvegeo = new Set();
-                    if (layersData.localidades && layersData.localidades.features) {
-                        layersData.localidades.features.forEach(f => {
-                            if (f.properties?.CVEGEO) {
-                                existingCvegeo.add(f.properties.CVEGEO);
-                            }
-                        });
-                    }
-
-                    const clippedPoints = localitiesPointsData.features.filter(f => {
-                        const cvegeo = f.properties?.CVEGEO;
-                        // Only include if intersects AND is not already in polygons
-                        return cvegeo && !existingCvegeo.has(cvegeo) && T.booleanIntersects(f.geometry, clipArea.geometry);
-                    });
-
-                    if (clippedPoints.length > 0) {
-                        // Add origin property to distinguish from polygon localities
-                        clippedPoints.forEach(point => {
-                            point.properties.origen = 'Capa de Coordenadas';
-                        });
-
-                        // Create buffers of 100m around each point locality
-                        const bufferedPoints = clippedPoints.map(point => {
-                            try {
-                                const buffer = T.buffer(point, 0.1, { units: 'kilometers' }); // 100m buffer
-                                return {
-                                    ...point,
-                                    geometry: buffer.geometry
-                                };
-                            } catch (error) {
-                                console.warn('Error creating buffer for point:', point.properties?.CVEGEO, error);
-                                return point; // Return original point if buffer fails
-                            }
-                        });
-
-                        // Combine polygon localities and buffered point localities into a single collection
-                        const allLocalitiesFeatures = [];
-                        if (layersData.localidades && layersData.localidades.features) {
-                            allLocalitiesFeatures.push(...layersData.localidades.features);
-                        }
-                        allLocalitiesFeatures.push(...bufferedPoints);
-
-                        const allLocalitiesCollection = T.featureCollection(allLocalitiesFeatures);
-
-                        // Remove existing localities layer if it exists
-                        if (clippedLocalitiesLayer) {
-                            map.removeLayer(clippedLocalitiesLayer);
-                            layersControl.removeLayer(clippedLocalitiesLayer);
-                        }
-
-                        // Create unified localities layer with both polygons and buffered points
-                        clippedLocalitiesLayer = L.geoJSON(allLocalitiesCollection, {
-                            style: (feature) => {
-                                const isBufferedPoint = feature.properties?.origen === 'Capa de Coordenadas';
-                                return {
-                                    color: isBufferedPoint ? '#FF6600' : '#008000', // Orange for buffered points, green for polygons
-                                    weight: 2,
-                                    opacity: 0.9,
-                                    fillColor: isBufferedPoint ? '#FF6600' : '#008000',
-                                    fillOpacity: 0.3
-                                };
-                            },
-                            pointToLayer: (feature, latlng) => {
-                                const isBufferedPoint = feature.properties?.origen === 'Capa de Coordenadas';
-                                return L.circleMarker(latlng, {
-                                    radius: isBufferedPoint ? 8 : 6,
-                                    fillColor: isBufferedPoint ? '#FF6600' : '#008000',
-                                    color: '#222',
-                                    weight: 1,
-                                    opacity: 1,
-                                    fillOpacity: isBufferedPoint ? 0.8 : 0.9
-                                });
-                            },
-                            onEachFeature: (feature, layer) => {
-                                if (feature.properties) {
-                                    const props = feature.properties;
-                                    const nombre = props.NOM_LOC || props.NOMGEO || '—';
-                                    const isBufferedPoint = props.origen === 'Capa de Coordenadas';
-
-                                    // Enhanced popup with buffer information
-                                    const popupTitle = isBufferedPoint ?
-                                        `Localidad (Coordenadas + 100m buffer)` :
-                                        `Localidad (Polígono)`;
-                                    const popupDescription = isBufferedPoint ?
-                                        `Identificada por coordenadas geográficas con buffer de 100m.` :
-                                        `Identificada por geometría poligonal.`;
-
-                                    layer.bindPopup(`<strong>${popupTitle}</strong><br><strong>Nombre:</strong> ${nombre}<br><strong>CVEGEO:</strong> ${props.CVEGEO || '—'}<br><strong>Municipio:</strong> ${props.NOM_MUN || props.MUNICIPIO || '—'}<br><strong>Estado:</strong> ${props.NOM_ENT || props.ESTADO || '—'}<br><small><em>${popupDescription}</em></small>`);
-
-                                    // Add to navigation map for interaction
-                                    const id = props.CVEGEO;
-                                    if (id) {
-                                        const ref = { layer };
-                                        if (layer.getBounds) ref.bounds = layer.getBounds();
-                                        else if (layer.getLatLng) ref.latlng = layer.getLatLng();
-                                        featureLayersById.set(id, ref);
-                                    }
-                                }
-
-                                // Add click interaction for highlighting and navigation
-                                layer.on('click', () => {
-                                    const id = feature.properties?.CVEGEO;
-                                    if (id) {
-                                        // Find the corresponding list item and highlight it
-                                        const listItems = document.querySelectorAll('[data-cvegeo]');
-                                        listItems.forEach(item => {
-                                            if (item.dataset.cvegeo === id) {
-                                                item.classList.add('active');
-                                                item.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-                                            } else {
-                                                item.classList.remove('active');
-                                            }
-                                        });
-                                    }
-                                    if (layer.openPopup) layer.openPopup();
-                                });
-                            }
-                        }).addTo(map);
-
-                        layersControl.addOverlay(clippedLocalitiesLayer, "Localidades");
-
-                        // Update layersData to include all localities together
-                        layersData.localidades = { features: allLocalitiesFeatures };
-
-                        console.log(`Localidades unificadas: ${allLocalitiesFeatures.length} total (${layersData.localidades.features.length - bufferedPoints.length} polígonos + ${bufferedPoints.length} puntos con buffers de 100m)`);
-                    } else {
-                        // No additional points, just keep the existing polygon localities
-                        if (layersData.localidades && layersData.localidades.features) {
-                            const allLocalitiesCollection = T.featureCollection(layersData.localidades.features);
-
-                            // Remove existing localities layer if it exists
-                            if (clippedLocalitiesLayer) {
-                                map.removeLayer(clippedLocalitiesLayer);
-                                layersControl.removeLayer(clippedLocalitiesLayer);
-                            }
-
-                            // Recreate unified localities layer
-                            clippedLocalitiesLayer = L.geoJSON(allLocalitiesCollection, {
-                                style: (feature) => ({
-                                    color: '#008000',
-                                    weight: 2,
-                                    opacity: 0.9,
-                                    fillColor: '#008000',
-                                    fillOpacity: 0.3
-                                }),
-                                pointToLayer: (feature, latlng) => L.circleMarker(latlng, {
-                                    radius: 6,
-                                    fillColor: '#008000',
-                                    color: '#222',
-                                    weight: 1,
-                                    opacity: 1,
-                                    fillOpacity: 0.9
-                                }),
-                                onEachFeature: (feature, layer) => {
-                                    if (feature.properties) {
-                                        const props = feature.properties;
-                                        const nombre = props.NOM_LOC || props.NOMGEO || '—';
-
-                                        layer.bindPopup(`<strong>Localidad (Polígono)</strong><br><strong>Nombre:</strong> ${nombre}<br><strong>CVEGEO:</strong> ${props.CVEGEO || '—'}<br><strong>Municipio:</strong> ${props.NOM_MUN || props.MUNICIPIO || '—'}<br><strong>Estado:</strong> ${props.NOM_ENT || props.ESTADO || '—'}<br><small><em>Identificada por geometría poligonal.</em></small>`);
-
-                                        const id = props.CVEGEO;
-                                        if (id) {
-                                            const ref = { layer };
-                                            if (layer.getBounds) ref.bounds = layer.getBounds();
-                                            else if (layer.getLatLng) ref.latlng = layer.getLatLng();
-                                            featureLayersById.set(id, ref);
-                                        }
-                                    }
-
-                                    layer.on('click', () => {
-                                        const id = feature.properties?.CVEGEO;
-                                        if (id) {
-                                            const listItems = document.querySelectorAll('[data-cvegeo]');
-                                            listItems.forEach(item => {
-                                                if (item.dataset.cvegeo === id) {
-                                                    item.classList.add('active');
-                                                    item.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-                                                } else {
-                                                    item.classList.remove('active');
-                                                }
-                                            });
-                                        }
-                                        if (layer.openPopup) layer.openPopup();
-                                    });
-                                }
-                            }).addTo(map);
-
-                            layersControl.addOverlay(clippedLocalitiesLayer, "Localidades");
-                        }
-                    }
-                }
-
-                updateLayersDisplay(layersData);
-
-                // Ajustar vista del mapa
-                const bounds = clipArea ? L.geoJSON(clipArea).getBounds() : kmlLayer.getBounds();
-                if (bounds && bounds.isValid()) {
-                    map.fitBounds(bounds, { padding: [24, 24], maxZoom: 15 });
-                    lastAreaBounds = bounds;
-                }
-
-                if (resetViewBtn) resetViewBtn.disabled = false;
-
-                updateProgress(100, 'Todas las capas procesadas exitosamente');
-
-                // Mantener el preloader visible un poco más para que el usuario vea el progreso completo
-                setTimeout(() => {
-                    hidePreloader();
-                    showAlert('Recorte completado exitosamente. Se han procesado todas las capas.', 'success');
-                }, 1200);
-
-            } catch (error) {
-                console.error('Error en el recorte:', error);
-                showAlert('Error durante el procesamiento. Verifica los datos y vuelve a intentar.', 'danger', 6000);
-                hidePreloader();
-            }
-        }
-
-        // ====================================================================
-        // FUNCIONES DE REPORTE EXCEL
-        // ====================================================================
-
-        /**
-         * Genera y descarga un reporte Excel con todos los datos analizados
-         */
-        function generateExcelReport() {
-            try {
-                showAlert('Generando reporte Excel...', 'info', 2000);
-
-                const workbook = XLSX.utils.book_new();
-
-                // Hoja de resumen
-                const summaryData = [
-                    ['Análisis Geoespacial - Áreas de Interés'],
-                    ['Fecha del análisis', new Date().toLocaleString('es-MX')],
-                    ['Archivo KML', kmlFileInput?.files[0]?.name || 'No especificado'],
-                    ['Tipo de área', areaTypeSelect.options[areaTypeSelect.selectedIndex].text],
-                    ['Total elementos encontrados', formatNumber(totalElements)],
-                    [],
-                    ['Métricas del KML:'],
-                    ['Área del KML', formatNumber(kmlMetrics.area) + ' km²'],
-                    ['Perímetro', formatNumber(kmlMetrics.perimeter) + ' km'],
-                    ['Geometría', kmlMetrics.geometryType],
-                    ['Número de polígonos', kmlMetrics.polygonCount],
-                    ['Superposiciones detectadas', kmlMetrics.hasOverlaps ? `Sí (${kmlMetrics.overlapCount})` : 'No'],
-                    ['Buffer aplicado', kmlMetrics.bufferUsed ? 'Sí (' + kmlMetrics.bufferRadius + ' km)' : 'No'],
-                    ['Densidad de localidades', formatNumber(kmlMetrics.localityDensity) + ' loc/km²'],
-                    ['Población total intersectada', formatNumber(kmlMetrics.totalPopulation) + ' hab.'],
-                    ['Densidad poblacional', formatNumber(kmlMetrics.populationDensity) + ' hab/km²'],
-                    ['Intersección con ANP', kmlMetrics.intersectsANP ? 'Sí' : 'No'],
-                    ['Intersección con Ramsar', kmlMetrics.intersectsRamsar ? 'Sí' : 'No'],
-                    ['Intersección con Zonas Históricas', kmlMetrics.intersectsZHistoricas ? 'Sí' : 'No'],
-                    ['Intersección con Zonas Arqueológicas', kmlMetrics.intersectsZA ? 'Sí' : 'No'],
-                    [],
-                    ['Resumen por capas:']
-                ];
-
-                // Agregar resumen de cada capa
-                Object.entries(layersData).forEach(([layerName, data]) => {
-                    if (data.features && data.features.length > 0) {
-                        const displayName = fixMojibake(getLayerDisplayName(layerName));
-                        let count = data.features.length;
-                        if (layerName === 'lenguas') {
-                            // Para lenguas, contar únicas
-                            const uniqueLenguas = new Set();
-                            data.features.forEach(f => {
-                                if (f.properties.Lengua || f.properties.LENGUA) {
-                                    uniqueLenguas.add(f.properties.Lengua || f.properties.LENGUA);
-                                }
-                            });
-                            count = uniqueLenguas.size;
-                        }
-                        summaryData.push([displayName, count + ' elementos']);
-                    }
-                });
-
-                const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
-                XLSX.utils.book_append_sheet(workbook, summarySheet, 'Resumen');
-
-                // Generar hojas para cada capa con datos detallados
-                const layerConfigs = {
-                    localidades: { property: 'CVEGEO', headers: ['CVEGEO', 'Localidad', 'Municipio', 'Estado', 'Ámbito', 'Población Total', 'Población Femenina', 'Población Masculina'] },
-                    atlas: { property: 'CVEGEO', headers: ['CVEGEO', 'Localidad'] },
-                    municipios: { property: 'CVEGEO', headers: ['CVEGEO', 'Municipio'] },
-                    regiones: { property: 'Name', headers: ['Nombre'] },
-                    ran: { property: 'Clv_Unica', headers: ['NOM_NUC', 'Clv_Unica', 'Municipio', 'Estado', 'Tipo'] },
-                    lenguas: { property: 'Lengua', headers: ['Lengua', 'Total'] },
-                    za_publico: { property: 'Zona Arqueológica', headers: ['Nombre', 'Estado', 'Municipio'] },
-                    za_publico_a: { property: 'Zona Arqueológica', headers: ['Nombre', 'Estado', 'Municipio'] },
-                    anp_estatal: { property: 'NOMBRE', headers: ['Nombre', 'Tipo', 'Categoría DEC', 'Entidad', 'Municipio DEC'] },
-                    ramsar: { property: 'RAMSAR', headers: ['Nombre', 'Estado', 'Municipio'] },
-                    sitio_arqueologico: { property: 'nombre', headers: ['Nombre', 'Estado', 'Municipio', 'Localidad'] },
-                    z_historicos: { property: 'Nombre', headers: ['Nombre', 'Estado', 'Municipio'] },
-                    loc_indigenas_datos: { property: 'LOCALIDAD', headers: ['Entidad', 'Municipio', 'Localidad', 'Población Total', 'PIHOGARES', 'pPIHOGARES', 'TIPOLOC_PI', 'POB_AFRO', 'pPOB_AFRO', 'TIPOLOC_AF', 'cve_ent', 'cve_mun', 'cve_loc', 'cvegeo'] },
-                    rutaWixarika: { property: 'Name', headers: ['Nombre'] }
-                };
-
-                Object.entries(layersData).forEach(([layerName, data]) => {
-                    if (data.features && data.features.length > 0) {
-                        const config = layerConfigs[layerName];
-                        if (config) {
-                            // Function to get value for a header
-                            const getValueForHeader = (feature, header) => {
-                                let value = '';
-                                switch (header) {
-                                    case 'CVEGEO':
-                                        value = feature.properties.CVEGEO || '';
-                                        break;
-                                    case 'Localidad':
-                                        value = feature.properties.NOMGEO || feature.properties.NOM_LOC || feature.properties.nom_loc || feature.properties.LOCALIDAD || feature.properties.Localidad || '';
-                                        break;
-                                    case 'Municipio':
-                                        value = feature.properties.NOMGEO || feature.properties.NOM_MUN || feature.properties.nom_mun || feature.properties.MUNICIPIO || feature.properties.MUNICIPIOS || '';
-                                        break;
-                                    case 'Estado':
-                                        value = feature.properties.NOM_ENT || feature.properties.nom_ent || feature.properties.ESTADO || '';
-                                        break;
-                                    case 'Ámbito':
-                                        value = feature.properties.AMBITO || '';
-                                        break;
-                                    case 'Cabecera':
-                                        value = feature.properties.NOM_CAB || feature.properties.CABECERA || '';
-                                        break;
-                                    case 'Población Total':
-                                        value = feature.properties.POBTOT || feature.properties.POBTOTAL || '';
-                                        break;
-                                    case 'Población Femenina':
-                                        value = feature.properties.POBFEM || '';
-                                        break;
-                                    case 'Población Masculina':
-                                        value = feature.properties.POBMAS || '';
-                                        break;
-                                    case 'Nombre':
-                                        value = feature.properties[config.property] || feature.properties.NOMBRE || feature.properties.nombre || feature.properties.Name || '';
-                                        break;
-                                    case 'Tipo':
-                                        value = feature.properties.TIPO || feature.properties.Tipo || feature.properties.tipo || '';
-                                        break;
-                                    case 'NOM_NUC':
-                                        value = feature.properties.NOM_NUC || '';
-                                        break;
-                                    case 'Estado':
-                                        value = feature.properties.Estado || feature.properties.ESTADO || '';
-                                        break;
-                                    case 'Descripción':
-                                        value = feature.properties.Descripci || feature.properties.DESCRIPCION || '';
-                                        break;
-                                    case 'Categoría DEC':
-                                        value = feature.properties.CAT_DEC || '';
-                                        break;
-                                    case 'Entidad':
-                                        value = feature.properties.ENTIDAD || '';
-                                        break;
-                                    case 'Municipio DEC':
-                                        value = feature.properties.MUN_DEC || '';
-                                        break;
-                                    case 'Clv_Unica':
-                                        value = feature.properties.Clv_Unica || '';
-                                        break;
-                                    case 'Lengua':
-                                        value = feature.properties.Lengua || feature.properties.LENGUA || '';
-                                        break;
-                                    case 'Zona Arqueológica':
-                                        value = feature.properties["Zona Arqueológica"] || '';
-                                        break;
-                                    case 'RAMSAR':
-                                        value = feature.properties.RAMSAR || '';
-                                        break;
-                                    case 'PIHOGARES':
-                                        value = feature.properties.PIHOGARES || '';
-                                        break;
-                                    case 'pPIHOGARES':
-                                        value = feature.properties.pPIHOGARES || '';
-                                        break;
-                                    case 'TIPOLOC_PI':
-                                        value = feature.properties.TIPOLOC_PI || '';
-                                        break;
-                                    case 'POB_AFRO':
-                                        value = feature.properties.POB_AFRO || '';
-                                        break;
-                                    case 'pPOB_AFRO':
-                                        value = feature.properties.pPOB_AFRO || '';
-                                        break;
-                                    case 'TIPOLOC_AF':
-                                        value = feature.properties.TIPOLOC_AF || '';
-                                        break;
-                                    case 'cve_ent':
-                                        value = feature.properties.cve_ent || '';
-                                        break;
-                                    case 'cve_mun':
-                                        value = feature.properties.cve_mun || '';
-                                        break;
-                                    case 'cve_loc':
-                                        value = feature.properties.cve_loc || '';
-                                        break;
-                                    case 'cvegeo':
-                                        value = feature.properties.cvegeo || '';
-                                        break;
-                                    case 'Total':
-                                        value = 'N/A'; // For lenguas count
-                                        break;
-                                    default:
-                                        value = feature.properties[header] || '';
-                                }
-                                return value;
-                            };
-
-                            // Filter headers to only include those with data
-                            const filteredHeaders = config.headers.filter(header => {
-                                return data.features.some(feature => {
-                                    const value = getValueForHeader(feature, header);
-                                    return value && typeof value === 'string' && value.trim() !== '';
-                                });
-                            });
-
-                            let sheetData = [filteredHeaders];
-
-                            if (layerName === 'lenguas') {
-                                // Special handling for lenguas: group by language and count
-                                const lenguasCount = new Map();
-                                data.features.forEach(feature => {
-                                    const lengua = feature.properties.Lengua || feature.properties.LENGUA || 'Sin especificar';
-                                    lenguasCount.set(lengua, (lenguasCount.get(lengua) || 0) + 1);
-                                });
-                                lenguasCount.forEach((count, lengua) => {
-                                    sheetData.push([lengua, count]);
-                                });
-                            } else {
-                                data.features.forEach(feature => {
-                                    const row = [];
-                                    filteredHeaders.forEach(header => {
-                                        const value = getValueForHeader(feature, header);
-                                        row.push(value);
-                                    });
-                                    sheetData.push(row);
-                                });
-                            }
-
-                            const sheet = XLSX.utils.aoa_to_sheet(sheetData);
-                            const displayName = getLayerDisplayName(layerName);
-                            XLSX.utils.book_append_sheet(workbook, sheet, displayName.substring(0, 31)); // Excel limita nombres de hoja a 31 caracteres
-                        }
-                    }
-                });
-
-                // Descargar archivo
-                const fileName = `reporte_analisis_${new Date().toISOString().split('T')[0]}.xlsx`;
-                XLSX.writeFile(workbook, fileName);
-
-                showAlert(`Reporte Excel generado exitosamente: ${fileName}`, 'success', 4000);
-
-            } catch (error) {
-                console.error('Error generando reporte Excel:', error);
-                showAlert('Error al generar el reporte Excel. Intenta nuevamente.', 'danger', 4000);
-            }
-        }
-
-        /**
-         * Agrega páginas de análisis detallado por capa al PDF
-         */
-        async function addDetailedLayerAnalysis(pdf, layersData, primaryColor, secondaryColor, chartImages) {
-            const keyLayers = ['lenguas', 'ran', 'ramsar', 'z_historicos', 'sitio_arqueologico'];
-
-            for (const layerName of keyLayers) {
-                if (layersData[layerName] && layersData[layerName].features && layersData[layerName].features.length > 0) {
-                    pdf.addPage();
-                    pdf.setFillColor(247, 244, 242);
-                    pdf.rect(0, 0, 210, 297, 'F');
-
-                    const displayName = getLayerDisplayName(layerName);
-                    pdf.setTextColor(...primaryColor);
-                    pdf.setFontSize(16);
-                    pdf.text(`Análisis: ${displayName}`, 20, 30);
-
-                    pdf.setTextColor(0, 0, 0);
-                    pdf.setFontSize(12);
-
-                    if (layerName === 'lenguas') {
-                        // Análisis de lenguas indígenas
-                        const lenguasCount = new Map();
-                        layersData.lenguas.features.forEach(f => {
-                            if (f.properties.Lengua || f.properties.LENGUA) {
-                                const lengua = f.properties.Lengua || f.properties.LENGUA;
-                                lenguasCount.set(lengua, (lenguasCount.get(lengua) || 0) + 1);
-                            }
-                        });
-
-                        pdf.text('Distribución de Lenguas Indígenas:', 20, 50);
-                        let yPos = 65;
-                        const sortedLenguas = Array.from(lenguasCount.entries()).sort((a, b) => b[1] - a[1]);
-
-                        sortedLenguas.slice(0, 15).forEach(([lengua, count]) => {
-                            pdf.text(`${lengua}: ${count} puntos`, 25, yPos);
-                            yPos += 8;
-                        });
-
-                        if (sortedLenguas.length > 15) {
-                            pdf.text(`... y ${sortedLenguas.length - 15} lenguas más`, 25, yPos);
-                        }
-
-                    } else if (layerName === 'ran') {
-                        // Análisis de RAN - agrupar por nombre único y mostrar conteos
-                        const ranCount = new Map();
-                        const ranKeys = new Map(); // Para almacenar claves únicas por RAN
-
-                        layersData.ran.features.forEach(f => {
-                            const nombre = f.properties.MUNICIPIO || f.properties.Clv_Unica || 'Sin nombre';
-                            const clave = f.properties.Clv_Unica || 'Sin clave';
-
-                            if (!ranCount.has(nombre)) {
-                                ranCount.set(nombre, 0);
-                                ranKeys.set(nombre, new Set());
-                            }
-                            ranCount.set(nombre, ranCount.get(nombre) + 1);
-                            ranKeys.get(nombre).add(clave);
-                        });
-
-                        pdf.text('Núcleos Agrarios Nacionales (RAN) - Elementos únicos:', 20, 50);
-                        let yPos = 65;
-                        const sortedRan = Array.from(ranCount.entries()).sort((a, b) => b[1] - a[1]);
-
-                        // Mostrar tabla de RAN únicos
-                        pdf.setFontSize(10);
-                        pdf.text('RAN', 25, yPos);
-                        pdf.text('Conteo', 120, yPos);
-                        pdf.text('Claves', 150, yPos);
-                        yPos += 5;
-                        pdf.line(25, yPos, 185, yPos); // Línea separadora
-                        yPos += 5;
-
-                        sortedRan.slice(0, 12).forEach(([ran, count]) => {
-                            const keys = Array.from(ranKeys.get(ran)).join(', ');
-                            const truncatedKeys = keys.length > 25 ? keys.substring(0, 22) + '...' : keys;
-
-                            pdf.text(ran.length > 20 ? ran.substring(0, 17) + '...' : ran, 25, yPos);
-                            pdf.text(count.toString(), 125, yPos);
-                            pdf.text(truncatedKeys, 150, yPos);
-                            yPos += 6;
-                        });
-
-                        pdf.setFontSize(12);
-                        if (sortedRan.length > 12) {
-                            pdf.text(`... y ${sortedRan.length - 12} RAN únicos más`, 25, yPos);
-                        }
-
-                        // Nota sobre total de elementos
-                        yPos += 10;
-                        pdf.setFontSize(10);
-                        pdf.text(`* Total de elementos RAN analizados: ${layersData.ran.features.length}`, 25, yPos);
-                        pdf.text(`* Elementos únicos por nombre: ${sortedRan.length}`, 25, yPos + 6);
-
-                    } else if (layerName === 'ramsar') {
-                        // Análisis de Ramsar
-                        pdf.text('Sitios Ramsar:', 20, 50);
-                        let yPos = 65;
-                        layersData.ramsar.features.forEach(f => {
-                            const nombre = f.properties.RAMSAR || 'Sin nombre';
-                            const estado = f.properties.ESTADO || '';
-                            const municipio = f.properties.MUNICIPIOS || '';
-                            pdf.text(`• ${nombre} (${estado}, ${municipio})`, 25, yPos);
-                            yPos += 8;
-                        });
-
-                    } else if (layerName === 'z_historicos') {
-                        // Análisis de zonas históricas
-                        pdf.text('Zonas Históricas:', 20, 50);
-                        let yPos = 65;
-                        layersData.z_historicos.features.slice(0, 15).forEach(f => {
-                            const nombre = f.properties.Nombre || 'Sin nombre';
-                            const estado = f.properties.ESTADO || '';
-                            const municipio = f.properties.MUNICIPIO || '';
-                            pdf.text(`• ${nombre}`, 25, yPos);
-                            pdf.setFontSize(10);
-                            pdf.text(`  ${estado}, ${municipio}`, 30, yPos + 5);
-                            pdf.setFontSize(12);
-                            yPos += 12;
-                        });
-
-                        if (layersData.z_historicos.features.length > 15) {
-                            pdf.text(`... y ${layersData.z_historicos.features.length - 15} más`, 25, yPos);
-                        }
-
-                    } else if (layerName === 'sitio_arqueologico') {
-                        // Análisis de sitios arqueológicos
-                        pdf.text('Sitios Arqueológicos:', 20, 50);
-                        let yPos = 65;
-                        layersData.sitio_arqueologico.features.slice(0, 15).forEach(f => {
-                            const nombre = f.properties.nombre || 'Sin nombre';
-                            const estado = f.properties.nom_ent || '';
-                            const municipio = f.properties.nom_mun || '';
-                            pdf.text(`• ${nombre}`, 25, yPos);
-                            pdf.setFontSize(10);
-                            pdf.text(`  ${estado}, ${municipio}`, 30, yPos + 5);
-                            pdf.setFontSize(12);
-                            yPos += 12;
-                        });
-
-                        if (layersData.sitio_arqueologico.features.length > 15) {
-                            pdf.text(`... y ${layersData.sitio_arqueologico.features.length - 15} más`, 25, yPos);
-                        }
-                    }
-                }
-            }
-        }
-
-        /**
-         * Genera y descarga un reporte PDF completo con gráficos y datos
-         * @param {boolean} activateAllLayers - Si true, activa todas las capas antes de generar el reporte
-         */
-        async function generatePdfReport(activateAllLayers = false) {
-            try {
-                showPreloader();
-                updateProgress(0, 'Preparando datos del reporte...');
-
-                const { jsPDF } = window.jspdf;
-                const pdf = new jsPDF('p', 'mm', 'a4');
-
-                // Configuración de colores institucionales
-                const primaryColor = [124, 25, 70]; // RGB para #7C1946
-                const secondaryColor = [25, 126, 116]; // RGB para #197E74
-
-                // Inicializar contenedor de imágenes de gráficos
-                let chartImages = {};
-
-                updateProgress(5, 'Generando gráficos...');
-
-                // Asegurar que los gráficos estén generados antes de capturar
-                generateCharts(layersData);
-                await new Promise(resolve => setTimeout(resolve, 2000)); // Esperar renderizado
-
-                updateProgress(10, 'Generando portada...');
-
-                // Calcular páginas del índice
-                const tocPages = [
-                    { title: 'Portada', page: 1 },
-                    { title: 'Índice', page: 2 },
-                    { title: 'Resumen Ejecutivo', page: 3 }
-                ];
-
-                let currentPage = 4; // Después de portada, índice y resumen
-
-                if (layersData.localidades && layersData.localidades.features && layersData.localidades.features.length > 0) {
-                    tocPages.push({ title: 'Análisis de Localidades', page: currentPage++ });
-                }
-
-                // Agregar página para cada capa
-                const allLayers = [
-                    'localidades', 'atlas', 'municipios', 'regiones', 'ran',
-                    'lenguas', 'za_publico', 'za_publico_a', 'anp_estatal',
-                    'ramsar', 'sitio_arqueologico', 'z_historicos', 'loc_indigenas_datos', 'rutaWixarika'
-                ];
-
-                const layerTitles = {
-                    localidades: 'Localidades',
-                    atlas: 'Atlas Pueblos Indígenas',
-                    municipios: 'Municipios',
-                    regiones: 'Regiones Indígenas',
-                    ran: 'RAN',
-                    lenguas: 'Lenguas Indígenas',
-                    za_publico: 'Zonas Arqueológicas (Puntos)',
-                    za_publico_a: 'Zonas Arqueológicas (Áreas)',
-                    anp_estatal: 'ANP Estatales',
-                    ramsar: 'Ramsar',
-                    sitio_arqueologico: 'Sitios Arqueológicos',
-                    z_historicos: 'Zonas Históricas',
-                    loc_indigenas_datos: 'Loc Indígenas Datos',
-                    rutaWixarika: 'Ruta Wixarika'
-                };
-
-                allLayers.forEach(layerName => {
-                    tocPages.push({ title: layerTitles[layerName], page: currentPage++ });
-                });
-
-                // Agregar páginas de análisis detallado adicionales si existen
-                const keyLayers = ['lenguas', 'ran', 'ramsar', 'z_historicos', 'sitio_arqueologico'];
-                keyLayers.forEach(layerName => {
-                    if (layersData[layerName] && layersData[layerName].features && layersData[layerName].features.length > 0) {
-                        const displayName = getLayerDisplayName(layerName);
-                        tocPages.push({ title: `Análisis: ${displayName}`, page: currentPage++ });
-                    }
-                });
-
-                tocPages.push({ title: 'Vista del Mapa', page: currentPage });
-
-                // Página 1: Portada
-                pdf.setFillColor(...primaryColor);
-                pdf.rect(0, 0, 210, 297, 'F');
-
-                // Logos institucionales
-                try {
-                    // Logo Gobierno de México (tamaño reducido)
-                    pdf.addImage('img/logo_gob.png', 'PNG', 20, 20, 30, 23);
-                    // Logo SENER (tamaño reducido)
-                    pdf.addImage('img/logo_sener.png', 'PNG', 160, 20, 30, 23);
-                } catch (logoError) {
-                    console.warn('Error cargando logos:', logoError);
-                }
-
-                // Logo y título
-                pdf.setTextColor(255, 255, 255);
-                pdf.setFontSize(24);
-                pdf.text('Evaluación de Proyecto KML', 105, 80, { align: 'center' });
-
-                pdf.setFontSize(16);
-                pdf.text('Geovisualizador de Áreas de Interés', 105, 100, { align: 'center' });
-
-                // Información del proyecto
-                pdf.setFontSize(12);
-                const currentDate = new Date().toLocaleDateString('es-MX', {
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit'
-                });
-
-                pdf.text(`Fecha: ${currentDate}`, 105, 130, { align: 'center' });
-                pdf.text(`Archivo KML: ${kmlFileInput?.files[0]?.name || 'No especificado'}`, 105, 145, { align: 'center' });
-                pdf.text(`Tipo de área: ${areaTypeSelect.options[areaTypeSelect.selectedIndex].text}`, 105, 160, { align: 'center' });
-
-                // Mostrar métricas del KML
-                pdf.setFontSize(10);
-                pdf.text(`Área KML: ${formatNumber(kmlMetrics.area)} km²`, 105, 175, { align: 'center' });
-                pdf.text(`Perímetro: ${formatNumber(kmlMetrics.perimeter)} km`, 105, 182, { align: 'center' });
-                pdf.text(`Geometría: ${kmlMetrics.geometryType} (${kmlMetrics.polygonCount} polígono${kmlMetrics.polygonCount > 1 ? 's' : ''})`, 105, 189, { align: 'center' });
-                if (kmlMetrics.hasOverlaps) {
-                    pdf.text(`⚠️ Superposiciones: ${kmlMetrics.overlapCount} detectadas`, 105, 196, { align: 'center' });
-                }
-                if (kmlMetrics.bufferUsed) {
-                    pdf.text(`Buffer: ${kmlMetrics.bufferRadius} km añadido`, 105, kmlMetrics.hasOverlaps ? 203 : 196, { align: 'center' });
-                }
-                pdf.setFontSize(12);
-
-                // Página 2: Índice
-                pdf.addPage();
-                pdf.setFillColor(255, 255, 255);
-                pdf.rect(0, 0, 210, 297, 'F');
-
-                pdf.setTextColor(...primaryColor);
-                pdf.setFontSize(18);
-                pdf.text('Índice', 20, 30);
-
-                pdf.setTextColor(0, 0, 0);
-                pdf.setFontSize(12);
-                pdf.text('Contenido del Reporte:', 20, 50);
-
-                pdf.setFontSize(11);
-                let tocY = 70;
-                tocPages.forEach(item => {
-                    // Justificación: título a la izquierda, número de página a la derecha
-                    pdf.text(item.title, 25, tocY);
-                    pdf.text(item.page.toString(), 180, tocY);
-                    tocY += 8;
-                });
-
-                updateProgress(20, 'Generando resumen ejecutivo...');
-
-                // Página 2: Resumen Ejecutivo
-                pdf.addPage();
-                pdf.setFillColor(247, 244, 242); // #F7F4F2
-                pdf.rect(0, 0, 210, 297, 'F');
-
-                pdf.setTextColor(...primaryColor);
-                pdf.setFontSize(18);
-                pdf.text('Resumen Ejecutivo', 20, 30);
-
-                pdf.setTextColor(0, 0, 0);
-                pdf.setFontSize(12);
-                pdf.text(`Total de elementos encontrados: ${formatNumber(totalElements)}`, 20, 50);
-
-                // KPIs principales
-                pdf.setFontSize(11);
-                pdf.text(`Área del KML: ${formatNumber(kmlMetrics.area)} km²`, 20, 65);
-                pdf.text(`Densidad de localidades: ${formatNumber(kmlMetrics.localityDensity)} loc/km²`, 20, 75);
-                pdf.text(`Población total intersectada: ${formatNumber(kmlMetrics.totalPopulation)} hab.`, 20, 85);
-                pdf.text(`Densidad poblacional: ${formatNumber(kmlMetrics.populationDensity)} hab/km²`, 20, 95);
-
-                // Semáforo de intersecciones clave
-                pdf.text('Intersecciones clave:', 20, 110);
-                pdf.setFontSize(10);
-                const semaforoY = 120;
-                pdf.text('ANP:', 25, semaforoY);
-                pdf.text(kmlMetrics.intersectsANP ? 'Sí' : 'No', 45, semaforoY);
-                pdf.text('Ramsar:', 65, semaforoY);
-                pdf.text(kmlMetrics.intersectsRamsar ? 'Sí' : 'No', 90, semaforoY);
-                pdf.text('Zonas Históricas:', 110, semaforoY);
-                pdf.text(kmlMetrics.intersectsZHistoricas ? 'Sí' : 'No', 150, semaforoY);
-                pdf.text('Zonas Arqueológicas:', 25, semaforoY + 6);
-                pdf.text(kmlMetrics.intersectsZA ? 'Sí' : 'No', 70, semaforoY + 6);
-                pdf.setFontSize(12);
-
-                // Incluir gráfico de distribución de capas si está disponible
-                if (chartImages.layerChart) {
-                    // Dimensiones para mantener proporción (capturado a scale 2, reducimos a tamaño PDF)
-                    const chartWidth = 160;
-                    const chartHeight = 75;
-                    const chartX = (210 - chartWidth) / 2; // Centrado
-                    pdf.addImage(chartImages.layerChart, 'PNG', chartX, 60, chartWidth, chartHeight);
-                    pdf.text('Distribución de Elementos por Capa:', 20, 150);
-                } else {
-                    // Resumen por capas como texto
-                    pdf.text('Distribución por capas:', 20, 70);
-                    let yPos = 85;
-                    Object.entries(layersData).forEach(([layerName, data]) => {
-                        if (data.features && data.features.length > 0) {
-                            const displayName = getLayerDisplayName(layerName);
-                            const count = layerName === 'lenguas' ?
-                                new Set(data.features.map(f => f.properties.Lengua || f.properties.LENGUA)).size :
-                                data.features.length;
-                            pdf.text(`${displayName}: ${formatNumber(count)} elementos`, 25, yPos);
-                            yPos += 8;
-                        }
-                    });
-                }
-
-                updateProgress(25, 'Capturando gráficos...');
-
-                // Capturar gráficos inmediatamente después de generarlos
-                const chartContainers = ['layerChart', 'populationChart'];
-
-                for (const containerId of chartContainers) {
-                    const container = document.getElementById(containerId);
-                    if (container && container.offsetHeight > 0 && container.querySelector('svg')) {
-                        try {
-                            console.log(`Capturando gráfico ${containerId}...`);
-                            const canvas = await html2canvas(container, {
-                                useCORS: true,
-                                allowTaint: false,
-                                scale: 2, // Mayor resolución para mejor calidad
-                                backgroundColor: '#ffffff',
-                                logging: false,
-                                width: container.offsetWidth,
-                                height: container.offsetHeight
-                            });
-                            chartImages[containerId] = canvas.toDataURL('image/png');
-                            console.log(`Gráfico ${containerId} capturado exitosamente`);
-                        } catch (error) {
-                            console.warn(`Error capturando gráfico ${containerId}:`, error);
-                        }
-                    } else {
-                        console.warn(`Contenedor ${containerId} no listo para captura:`, {
-                            exists: !!container,
-                            height: container?.offsetHeight,
-                            hasSvg: !!container?.querySelector('svg')
-                        });
-                    }
-                }
-
-                updateProgress(30, 'Generando análisis de localidades...');
-
-                // Página 3: Análisis de Localidades
-                if (layersData.localidades && layersData.localidades.features && layersData.localidades.features.length > 0) {
-                    pdf.addPage();
-                    pdf.setFillColor(255, 255, 255);
-                    pdf.rect(0, 0, 210, 297, 'F');
-
-                    pdf.setTextColor(...primaryColor);
-                    pdf.setFontSize(18);
-                    pdf.text('Análisis de Localidades', 20, 30);
-
-                    // Top 10 localidades por población
-                    const localidadesData = layersData.localidades.features
-                        .filter(f => f.properties.POBTOT)
-                        .sort((a, b) => (b.properties.POBTOT || 0) - (a.properties.POBTOT || 0))
-                        .slice(0, 10);
-
-                    pdf.setTextColor(0, 0, 0);
-                    pdf.setFontSize(12);
-
-                    // Incluir gráfico de población si está disponible
-                    if (chartImages.populationChart) {
-                        // Dimensiones para mantener proporción (ancho:alto ≈ 2.125:1)
-                        const chartWidth = 160;
-                        const chartHeight = 75;
-                        const chartX = (210 - chartWidth) / 2; // Centrado
-                        pdf.addImage(chartImages.populationChart, 'PNG', chartX, 50, chartWidth, chartHeight);
-                        pdf.text('Top 10 Localidades por Población Total:', 20, 140);
-
-                        let yPos = 155;
-                        localidadesData.slice(0, 5).forEach((loc, index) => {
-                            const nombre = loc.properties.NOMGEO || loc.properties.NOM_LOC || 'Sin nombre';
-                            const poblacion = formatNumber(loc.properties.POBTOT || 0);
-                            pdf.text(`${index + 1}. ${nombre}: ${poblacion} hab.`, 25, yPos);
-                            yPos += 8;
-                        });
-                    } else {
-                        pdf.text('Top 10 Localidades por Población Total:', 20, 50);
-
-                        let yPos = 65;
-                        localidadesData.forEach((loc, index) => {
-                            const nombre = loc.properties.NOMGEO || loc.properties.NOM_LOC || 'Sin nombre';
-                            const poblacion = formatNumber(loc.properties.POBTOT || 0);
-                            pdf.text(`${index + 1}. ${nombre}: ${poblacion} habitantes`, 25, yPos);
-                            yPos += 8;
-                        });
-                    }
-                }
-
-                updateProgress(50, 'Generando páginas por capa...');
-
-                // Usar las variables ya definidas arriba para el índice
-
-                for (const layerName of allLayers) {
-                    if (layersData[layerName] && layersData[layerName].features && layersData[layerName].features.length > 0) {
-                        pdf.addPage();
-                        pdf.setFillColor(255, 255, 255);
-                        pdf.rect(0, 0, 210, 297, 'F');
-
-                        pdf.setTextColor(...primaryColor);
-                        pdf.setFontSize(16);
-                        pdf.text(layerTitles[layerName], 20, 30);
-
-                        pdf.setTextColor(0, 0, 0);
-                        pdf.setFontSize(12);
-
-                        const features = layersData[layerName].features;
-                        const count = layerName === 'lenguas' ?
-                            new Set(features.map(f => f.properties.Lengua || f.properties.LENGUA)).size :
-                            features.length;
-
-                        pdf.text(`Total de elementos: ${formatNumber(count)}`, 20, 50);
-
-                        // Mostrar Top 10 elementos y nota para ver Excel completo
-                        let yPos = 70;
-                        const maxItems = 10;
-                        const displayFeatures = features.slice(0, maxItems);
-
-                        if (displayFeatures.length > 0) {
-                            pdf.text(`Top ${maxItems} elementos:`, 20, yPos - 5);
-                            yPos += 5;
-
-                            displayFeatures.forEach((feature, index) => {
-                                const props = feature.properties;
-                                let displayText = '';
-
-                                // Obtener texto de display según la capa
-                                switch (layerName) {
-                                    case 'localidades':
-                                        displayText = fixMojibake(props.NOMGEO || props.NOM_LOC || 'Sin nombre');
-                                        break;
-                                    case 'atlas':
-                                        displayText = fixMojibake(props.Localidad || props.NOM_LOC || 'Sin localidad');
-                                        break;
-                                    case 'Tipo':
-                                        value = feature.properties.Tipo || feature.properties.TIPO || '';
-                                        break;
-                                    case 'municipios':
-                                        displayText = fixMojibake(props.NOMGEO || props.NOM_MUN || 'Sin municipio');
-                                        break;
-                                    case 'ran':
-                                        displayText = fixMojibake(props.MUNICIPIO || 'Sin municipio');
-                                        break;
-                                    case 'lenguas':
-                                        displayText = fixMojibake(props.Lengua || props.LENGUA || 'Sin lengua');
-                                        break;
-                                    case 'loc_indigenas_datos':
-                                        displayText = fixMojibake(props.LOCALIDAD || 'Sin localidad');
-                                        break;
-                                    default:
-                                        const propertyMap = {
-                                            regiones: 'Name',
-                                            za_publico: 'Zona Arqueológica',
-                                            za_publico_a: 'Zona Arqueológica',
-                                            anp_estatal: 'NOMBRE',
-                                            ramsar: 'RAMSAR',
-                                            sitio_arqueologico: 'nombre',
-                                            z_historicos: 'Nombre',
-                                            rutaWixarika: 'Name'
-                                        };
-                                        displayText = fixMojibake(props[propertyMap[layerName]] || 'Sin nombre');
-                                }
-
-                                pdf.text(`${index + 1}. ${displayText}`, 25, yPos);
-                                yPos += 8;
-                            });
-
-                            if (features.length > maxItems) {
-                                yPos += 5;
-                                pdf.setFontSize(9);
-                                pdf.text(`Nota: ${formatNumber(features.length - maxItems)} elementos adicionales.`, 25, yPos);
-                                pdf.text('Ver listado completo en el reporte Excel descargable.', 25, yPos + 6);
-                                pdf.setFontSize(12);
-                            }
-                        }
-
-                    } else {
-                        // Página con "Sin dato" para capas sin información
-                        pdf.addPage();
-                        pdf.setFillColor(247, 244, 242);
-                        pdf.rect(0, 0, 210, 297, 'F');
-
-                        pdf.setTextColor(...primaryColor);
-                        pdf.setFontSize(16);
-                        pdf.text(layerTitles[layerName], 20, 30);
-
-                        pdf.setTextColor(100, 100, 100);
-                        pdf.setFontSize(14);
-                        pdf.text('Sin dato disponible', 105, 120, { align: 'center' });
-                    }
-                }
-
-                updateProgress(70, 'Generando análisis detallado...');
-
-                // Agregar páginas de análisis detallado para capas clave (si se requieren adicionales)
-                await addDetailedLayerAnalysis(pdf, layersData, primaryColor, secondaryColor, chartImages);
-
-                updateProgress(60, 'Capturando vista del mapa...');
-
-                // Página del Mapa (número variable después de análisis)
-                pdf.addPage();
-                pdf.setFillColor(255, 255, 255);
-                pdf.rect(0, 0, 210, 297, 'F');
-
-                pdf.setTextColor(...primaryColor);
-                pdf.setFontSize(18);
-                pdf.text('Vista del Mapa', 20, 30);
-
-                // Preparar mapa para captura: SIEMPRE centrar en área KML original
-                if (kmlGeoJson && kmlGeoJson.features) {
-                    const kmlBounds = L.geoJSON(kmlGeoJson).getBounds();
-                    if (kmlBounds && kmlBounds.isValid()) {
-                        map.fitBounds(kmlBounds, { padding: [24, 24], maxZoom: 15, animate: false });
-                        // Esperar a que el mapa se renderice completamente
-                        await new Promise(resolve => setTimeout(resolve, 1000));
-                    }
-                } else if (lastAreaBounds && lastAreaBounds.isValid()) {
-                    // Fallback a lastAreaBounds si no hay kmlGeoJson
-                    map.fitBounds(lastAreaBounds, { padding: [24, 24], maxZoom: 15, animate: false });
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                }
-
-                // Preparar mapa para captura de PDF (MapTiler tiene problemas con html2canvas)
-                let originalBaseLayer = null;
-                let tempOSMLayer = null;
-
-                // Guardar la capa base actual y reemplazar temporalmente con OSM para mejor captura
-                map.eachLayer(layer => {
-                    if (layer instanceof L.TileLayer) {
-                        // Es una capa base MapTiler, guardarla
-                        originalBaseLayer = layer;
-                        map.removeLayer(layer);
-                        return; // Solo guardar la primera capa tile encontrada
-                    }
-                });
-
-                // Agregar capa OSM temporal para mejor captura
-                if (!tempOSMLayer) {
-                    tempOSMLayer = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-                        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-                        maxZoom: 18
-                    }).addTo(map);
-                }
-
-                // Esperar a que la nueva capa base se cargue
-                await new Promise(resolve => setTimeout(resolve, 1000));
-
-                // Si se solicita activar todas las capas, hacerlo antes de capturar
-                if (activateAllLayers) {
-                    updateProgress(65, 'Activando todas las capas para captura...');
-
-                    // Activar todas las capas disponibles
-                    const layerMapping = {
-                        localidades: clippedLocalitiesLayer,
-                        atlas: clippedAtlasLayer,
-                        municipios: clippedMunicipiosLayer,
-                        regiones: clippedRegionesLayer,
-                        ran: clippedRanLayer,
-                        lenguas: clippedLenguasLayer,
-                        za_publico: clippedZaPublicoLayer,
-                        za_publico_a: clippedZaPublicoALayer,
-                        anp_estatal: clippedAnpEstatalLayer,
-                        ramsar: clippedRamsarLayer,
-                        sitio_arqueologico: clippedSitioArqueologicoLayer,
-                        z_historicos: clippedZHistoricosLayer,
-                        loc_indigenas_datos: clippedLocIndigenasLayer,
-                        rutaWixarika: clippedRutaWixarikaLayer
-                    };
-
-                    Object.entries(layerMapping).forEach(([layerName, layer]) => {
-                        if (layer && !map.hasLayer(layer)) {
-                            map.addLayer(layer);
-                        }
-                    });
-
-                    // Esperar a que las capas se activen completamente
-                    await new Promise(resolve => setTimeout(resolve, 1500));
-                }
-
-                // Capturar screenshot del mapa con timeout
-                const mapElement = document.getElementById('map');
-                if (mapElement) {
-                    try {
-                        const canvas = await Promise.race([
-                            html2canvas(mapElement, {
-                                useCORS: true,
-                                allowTaint: false,
-                                scale: 0.8,
-                                width: 800,
-                                height: 600,
-                                timeout: 15000
-                            }),
-                            new Promise((_, reject) =>
-                                setTimeout(() => reject(new Error('Timeout')), 15000)
-                            )
-                        ]);
-
-                        const imgData = canvas.toDataURL('image/png');
-                        pdf.addImage(imgData, 'PNG', 10, 40, 190, 142);
-
-                        // Agregar leyenda de capas activas
-                        pdf.setTextColor(...primaryColor);
-                        pdf.setFontSize(12);
-                        pdf.text('Capas activas en el mapa:', 20, 190);
-
-                        pdf.setTextColor(0, 0, 0);
-                        pdf.setFontSize(10);
-                        let legendY = 200;
-                        const layerColors = {
-                            localidades: '#008000',
-                            atlas: '#ff00ff',
-                            municipios: '#0000ff',
-                            regiones: '#ffa500',
-                            ran: '#ff0000',
-                            lenguas: '#00ffff',
-                            za_publico: '#800080',
-                            za_publico_a: '#800000',
-                            anp_estatal: '#008080',
-                            ramsar: '#808000',
-                            sitio_arqueologico: '#808080',
-                            z_historicos: '#400080',
-                            loc_indigenas_datos: '#8000ff',
-                            rutaWixarika: '#ff8000'
-                        };
-
-                        if (activateAllLayers) {
-                            // Mostrar todas las capas disponibles
-                            Object.entries(layersData).forEach(([layerName, data]) => {
-                                if (data.features && data.features.length > 0) {
-                                    const displayName = getLayerDisplayName(layerName);
-                                    const count = layerName === 'lenguas' ?
-                                        new Set(data.features.map(f => f.properties.Lengua || f.properties.LENGUA)).size :
-                                        data.features.length;
-                                    // Dibujar punto de color
-                                    pdf.setFillColor(layerColors[layerName] || '#666666');
-                                    pdf.circle(23, legendY - 2, 1.5, 'F');
-                                    pdf.setFillColor(0, 0, 0);
-                                    pdf.text(`${displayName}: ${formatNumber(count)} elementos`, 30, legendY);
-                                    legendY += 6;
-                                }
-                            });
-                        } else {
-                            // Mostrar solo capas activas (comportamiento original)
-                            Object.entries(layersData).forEach(([layerName, data]) => {
-                                if (data.features && data.features.length > 0) {
-                                    const displayName = getLayerDisplayName(layerName);
-                                    const count = layerName === 'lenguas' ?
-                                        new Set(data.features.map(f => f.properties.Lengua || f.properties.LENGUA)).size :
-                                        data.features.length;
-                                    // Dibujar punto de color
-                                    pdf.setFillColor(layerColors[layerName] || '#666666');
-                                    pdf.circle(23, legendY - 2, 1.5, 'F');
-                                    pdf.setFillColor(0, 0, 0);
-                                    pdf.text(`${displayName}: ${formatNumber(count)} elementos`, 30, legendY);
-                                    legendY += 6;
-                                }
-                            });
-                        }
-                    } catch (error) {
-                        console.warn('Error capturando mapa:', error);
-                        pdf.setTextColor(100, 100, 100);
-                        pdf.setFontSize(12);
-                        pdf.text('Vista del mapa no disponible', 105, 120, { align: 'center' });
-                    }
-                }
-
-                // Restaurar la capa base original después de la captura
-                if (tempOSMLayer) {
-                    map.removeLayer(tempOSMLayer);
-                }
-                if (originalBaseLayer) {
-                    map.addLayer(originalBaseLayer);
-                }
-
-                updateProgress(80, 'Finalizando reporte...');
-
-                // Pie de página en todas las páginas
-                const pageCount = pdf.getNumberOfPages();
-                for (let i = 1; i <= pageCount; i++) {
-                    pdf.setPage(i);
-                    pdf.setTextColor(100, 100, 100);
-                    pdf.setFontSize(8);
-                    pdf.text('Geovisualizador de Áreas de Interés - Gobierno de México', 105, 285, { align: 'center' });
-                    pdf.text(`Página ${i} de ${pageCount}`, 190, 285, { align: 'right' });
-                }
-
-                updateProgress(100, 'Descargando archivo...');
-
-                // Descargar archivo
-                const fileName = `reporte_evaluacion_${new Date().toISOString().split('T')[0]}.pdf`;
-                pdf.save(fileName);
-
-                hidePreloader();
-                showAlert(`Reporte PDF generado exitosamente: ${fileName}`, 'success', 4000);
-
-            } catch (error) {
-                console.error('Error generando reporte PDF:', error);
-                hidePreloader();
-                showAlert('Error al generar el reporte PDF. Intenta nuevamente.', 'danger', 4000);
-            }
-        }
-
-        // ====================================================================
-        // EVENTOS Y ENLACES
-        // ====================================================================
-
-        // Habilitar botón de subida cuando se selecciona archivo
-        if (kmlFileInput) kmlFileInput.addEventListener('change', () => {
-            if (uploadKmlBtn) uploadKmlBtn.disabled = kmlFileInput.files.length === 0;
-        });
-
-        // Procesar archivo KML
-        if (uploadKmlBtn) uploadKmlBtn.addEventListener('click', () => {
-            if (kmlFileInput && kmlFileInput.files[0]) {
-                processKmlFile(kmlFileInput.files[0]);
-            }
-        });
-
-        // Realizar recorte
-        if (performClipBtn) performClipBtn.addEventListener('click', performClipping);
-
-        // Limpiar mapa
-        if (clearMapBtn) clearMapBtn.addEventListener('click', clearAllLayers);
-
-        // Centrar en KML
-        if (centerKmlBtn) {
-            centerKmlBtn.addEventListener('click', () => {
-                if (kmlLayer) {
-                    const bounds = kmlLayer.getBounds();
-                    if (bounds && bounds.isValid()) {
-                        map.fitBounds(bounds, { padding: [24, 24], maxZoom: 15, animate: true, duration: 0.6 });
-                    }
-                }
-            });
-        }
-
-        // Restaurar vista del área
-        if (resetViewBtn) {
-            resetViewBtn.addEventListener('click', () => {
-                if (lastAreaBounds && lastAreaBounds.isValid()) {
-                    map.fitBounds(lastAreaBounds, { padding: [24, 24], maxZoom: 15, animate: true, duration: 0.6 });
-                }
-            });
-        }
-
-        // Recargar datos desde servidor
-        if (reloadDataBtn) {
-            reloadDataBtn.addEventListener('click', () => {
-                // Limpiar datos actuales
-                localitiesData = null;
-                atlasData = null;
-                municipiosData = null;
-                regionesData = null;
-                ranData = null;
-                lenguasData = null;
-                zaPublicoData = null;
-                zaPublicoAData = null;
-                anpEstatalData = null;
-                ramsarData = null;
-                sitioArqueologicoData = null;
-                zHistoricosData = null;
-                locIndigenasData = null;
-                rutaWixarikaData = null;
-                localidadesDatosData = null;
-
-                // Reintentar carga
-                showAlert('Reintentando carga de datos...', 'info', 3000);
-                loadDataOptional();
-            });
-        }
-
-        // Descargar reporte Excel
-        const downloadReportBtn = document.getElementById('downloadReportBtn');
-        if (downloadReportBtn) {
-            downloadReportBtn.addEventListener('click', generateExcelReport);
-        }
-
-        // Descargar reporte PDF
-        const downloadPdfBtn = document.getElementById('downloadPdfBtn');
-        if (downloadPdfBtn) {
-            downloadPdfBtn.addEventListener('click', () => {
-                // Mostrar modal para elegir si descargar con todas las capas o solo las activas
-                showModal({
-                    title: 'Opciones del Reporte PDF',
-                    message: `
-                        <p>¿Cómo deseas generar el reporte PDF?</p>
-                        <div class="form-check">
-                            <input class="form-check-input" type="radio" name="pdfLayersOption" id="pdfAllLayers" value="all" checked>
-                            <label class="form-check-label" for="pdfAllLayers">
-                                <strong>Con todas las capas activas</strong><br>
-                                <small class="text-muted">Se activarán automáticamente todas las capas antes de generar el reporte</small>
-                            </label>
-                        </div>
-                        <div class="form-check mt-2">
-                            <input class="form-check-input" type="radio" name="pdfLayersOption" id="pdfCurrentLayers" value="current">
-                            <label class="form-check-label" for="pdfCurrentLayers">
-                                <strong>Con capas actualmente visibles</strong><br>
-                                <small class="text-muted">Solo se mostrarán las capas que están activas en el mapa</small>
-                            </label>
-                        </div>
-                    `,
-                    okText: 'Generar Reporte',
-                    onOk: () => {
-                        const selectedOption = document.querySelector('input[name="pdfLayersOption"]:checked').value;
-                        generatePdfReport(selectedOption === 'all');
-                    }
-                });
-            });
-        }
-
-    } catch (error) {
-        console.error('Error inicializando aplicación:', error);
-        console.log('[DEBUG] Error in initApp, about to show error alert');
-        showAlert('Error al inicializar la aplicación. Recarga la página.', 'danger', 8000);
-    }
-    console.log('[DEBUG] initApp completed');
+    };
+    reader.readAsText(file);
 }
 
-// Inicializar cuando el DOM esté listo
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initApp);
 } else {

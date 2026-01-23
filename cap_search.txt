@@ -1,0 +1,574 @@
+entrega_final\index0.js:// Datos de capas (solo indígenas)
+entrega_final\index0.js:// Capas recortadas
+entrega_final\index0.js:// Referencias de features por capa para navegación desde el listado
+entrega_final\index0.js:            console.warn('Capa falló:', name, e2);
+entrega_final\index0.js:    updateProgress(5, 'Cargando capas indígenas…');
+entrega_final\index0.js:            // Interacción para lenguas: enciende la capa si está apagada, centra bounds de todas y resalta una
+entrega_final\index0.js:                // Resto de capas (genérico)
+entrega_final\index0.js:        // Re-crear control de capas incluyendo basemaps actuales del mapa
+entrega_final\index0.js:            // Recuperar las capas base desde el propio mapa (las primeras tile layers activas)
+entrega_final\index0.js:                try { if (T && clipArea && T.booleanIntersects(loc.geometry, clipArea.geometry)) { loc.properties = loc.properties || {}; loc.properties.origen = 'Capa de Poligonos'; clippedLocalities.push(loc); } } catch (_) { }
+entrega_final\index0.js:                        pt.properties = pt.properties || {}; pt.properties.origen = 'Capa de Coordenadas'; clippedPoints.push(pt);
+entrega_final\index0.js:        // Combinar Localidades en una sola capa para el mapa (polígonos + puntos + etiquetas)
+entrega_final\index0.js:            rows.forEach(r => { if (r[1] > 0) resumen.push({ Capa: r[0], Total: r[1] }); });
+entrega_final\index1.js:let kmlLayer = null; // Capa del polígono KML original cargado por el usuario
+entrega_final\index1.js:let bufferLayer = null; // Capa del buffer generado para área núcleo
+entrega_final\index1.js:let clippedLocalitiesLayer = null; // Capa de localidades resultantes del recorte
+entrega_final\index1.js:let clippedPointsLayer = null; // Capa de localidades puntos resultantes del recorte
+entrega_final\index1.js:let labelLayer = null; // Capa de etiquetas CVEGEO sobre el mapa
+entrega_final\index1.js:let layersData = {};                // Datos de todas las capas para el reporte
+entrega_final\index1.js:            // Si el clic no fue en una capa, limpiar el resaltado
+entrega_final\index1.js:         * Limpia todas las capas del mapa y resetea el estado de la aplicación
+entrega_final\index1.js:            // Remover todas las capas del mapa
+entrega_final\index1.js:            // Limpiar la capa resaltada
+entrega_final\index1.js:                // Restablecer el estilo de la capa previamente resaltada
+entrega_final\index1.js:         * @param {object} ref - Referencia que contiene bounds o latlng de la feature y la capa.
+entrega_final\index1.js:            // Si la capa seleccionada ya está resaltada, límpiela y regrese
+entrega_final\index1.js:            // Resaltar la nueva capa
+entrega_final\index1.js:                // Asegurarse de que la capa resaltada esté al frente
+entrega_final\index1.js:         * - Leaflet.js: Para visualización de capas en el mapa
+entrega_final\index1.js:                // Limpiar capas previas para nueva operación
+entrega_final\index1.js:                            loc.properties.origen = 'Capa de Poligonos';
+entrega_final\index1.js:                            point.properties.origen = 'Capa de Coordenadas';
+entrega_final\index1.js:                // VISUALIZACIÓN DE RESULTADOS Y GENERACIÓN DE CAPAS
+entrega_final\index1.js:         * Genera gráfico de barras con la distribución de elementos por capa
+entrega_final\index1.js:        // Limpiar todas las capas y resetear aplicación con confirmación modal
+entrega_final\index1.js:                        'Esta acción eliminará todas las capas y datos cargados.',
+entrega_final\index1.js:                message: 'Se han eliminado todas las capas. Puedes cargar un nuevo archivo KML.',
+entrega_final\index2.js:let kmlLayer = null; // Capa que muestra el polígono KML subido
+entrega_final\index2.js:let bufferLayer = null; // Capa del buffer de 500m para área núcleo
+entrega_final\index2.js:// Variables para almacenar los datos originales de cada capa geoespacial
+entrega_final\index2.js:// Variables para las capas filtradas que se muestran en el mapa
+entrega_final\index2.js:// Control de capas de Leaflet y utilidades de navegación
+entrega_final\index2.js:let layersData = {};                // Datos de todas las capas para el reporte
+entrega_final\index2.js:        // Guardar referencia al control de capas para sincronización
+entrega_final\index2.js:        // URLs de las capas geoespaciales
+entrega_final\index2.js:         * Carga los datos de todas las capas desde el servidor de forma asíncrona
+entrega_final\index2.js:         * Carga una capa individual con manejo de errores robusto
+entrega_final\index2.js:                updateProgress(5, 'Iniciando carga de capas geoespaciales...');
+entrega_final\index2.js:                // Cargar capas secuencialmente para evitar problemas de concurrencia
+entrega_final\index2.js:                updateProgress(100, 'Todas las capas cargadas exitosamente');
+entrega_final\index2.js:                console.log("Todas las capas cargadas correctamente.");
+entrega_final\index2.js:                showAlert('Todas las capas geoespaciales han sido cargadas exitosamente', 'success');
+entrega_final\index2.js:                console.error("Error cargando capas:", err);
+entrega_final\index2.js:                let errorMessage = 'Error al cargar capas desde el servidor.';
+entrega_final\index2.js:                    errorMessage = 'Timeout al cargar capas. El servidor tardó demasiado en responder.';
+entrega_final\index2.js:                    errorMessage = 'Error del servidor al cargar capas. Verifica que las URLs sean correctas.';
+entrega_final\index2.js:            // Inicializar otras capas como vacías
+entrega_final\index2.js:         * Obtiene el nombre de visualización amigable para una capa
+entrega_final\index2.js:                // Para otras capas, buscar la feature específica
+entrega_final\index2.js:            // Activar automáticamente la capa correspondiente si no está visible
+entrega_final\index2.js:                showAlert(`Capa "${getLayerDisplayName(layerName)}" activada automáticamente`, 'info', 2000);
+entrega_final\index2.js:                // Crear capa de highlight con estilo llamativo
+entrega_final\index2.js:         * Crea una sección colapsible para mostrar elementos de una capa
+entrega_final\index2.js:                    // Para otras capas, mostrar todos los elementos
+entrega_final\index2.js:         * Actualiza la visualización de todas las capas encontradas
+entrega_final\index2.js:            // Definir colores para cada capa
+entrega_final\index2.js:            // Definir títulos para cada capa
+entrega_final\index2.js:            // Crear secciones para cada capa
+entrega_final\index2.js:                    // Determinar si es la capa de lenguas para tratamiento especial
+entrega_final\index2.js:                layersContainer.innerHTML = '<p class="mb-0 text-muted">No se encontraron elementos en ninguna capa.</p>';
+entrega_final\index2.js:         * Genera gráfico de barras con la distribución de elementos por capa
+entrega_final\index2.js:         * Limpia todas las capas del mapa y resetea el estado de la aplicación
+entrega_final\index2.js:            // Remover todas las capas del mapa
+entrega_final\index2.js:            layersContainer.innerHTML = '<p class="mb-0 text-muted">Sube un KML y realiza el recorte para ver las capas.</p>';
+entrega_final\index2.js:            // Recrear control de capas
+entrega_final\index2.js:                    // Crear capa con estilo según si hay superposiciones
+entrega_final\index2.js:         * Función auxiliar para recortar una capa específica
+entrega_final\index2.js:         * FUNCIÓN PRINCIPAL: Realiza el recorte de todas las capas según el área seleccionada
+entrega_final\index2.js:                        title: 'Recorte de Capas',
+entrega_final\index2.js:                // Verificar que al menos algunas capas estén disponibles
+entrega_final\index2.js:                        message: 'No hay capas geoespaciales disponibles para realizar el recorte. Esto puede deberse a problemas de conexión durante la carga inicial.',
+entrega_final\index2.js:                console.log(`Capas disponibles para recorte: ${availableLayers.map(l => l.name).join(', ')}`);
+entrega_final\index2.js:                showAlert(`Procesando ${availableLayers.length} capas disponibles`, 'info', 2000);
+entrega_final\index2.js:                // Remover capas anteriores
+entrega_final\index2.js:                // Recrear control de capas
+entrega_final\index2.js:                // Procesar solo las capas que estén disponibles
+entrega_final\index2.js:                // Inicializar todas las capas posibles con arrays vacíos
+entrega_final\index2.js:                    // Crear capa vacía para mostrar en el control de capas
+entrega_final\index2.js:                            point.properties.origen = 'Capa de Coordenadas';
+entrega_final\index2.js:                                const isBufferedPoint = feature.properties?.origen === 'Capa de Coordenadas';
+entrega_final\index2.js:                                const isBufferedPoint = feature.properties?.origen === 'Capa de Coordenadas';
+entrega_final\index2.js:                                    const isBufferedPoint = props.origen === 'Capa de Coordenadas';
+entrega_final\index2.js:                updateProgress(100, 'Todas las capas procesadas exitosamente');
+entrega_final\index2.js:                    showAlert('Recorte completado exitosamente. Se han procesado todas las capas.', 'success');
+entrega_final\index2.js:                    ['Resumen por capas:']
+entrega_final\index2.js:                // Agregar resumen de cada capa
+entrega_final\index2.js:                // Generar hojas para cada capa con datos detallados
+entrega_final\index2.js:         * Agrega páginas de análisis detallado por capa al PDF
+entrega_final\index2.js:         * @param {boolean} activateAllLayers - Si true, activa todas las capas antes de generar el reporte
+entrega_final\index2.js:                // Asegurar que los gráficos estén generados antes de capturar
+entrega_final\index2.js:                // Agregar página para cada capa
+entrega_final\index2.js:                // Incluir gráfico de distribución de capas si está disponible
+entrega_final\index2.js:                    // Dimensiones para mantener proporción (capturado a scale 2, reducimos a tamaño PDF)
+entrega_final\index2.js:                    pdf.text('Distribución de Elementos por Capa:', 20, 150);
+entrega_final\index2.js:                    // Resumen por capas como texto
+entrega_final\index2.js:                    pdf.text('Distribución por capas:', 20, 70);
+entrega_final\index2.js:                updateProgress(25, 'Capturando gráficos...');
+entrega_final\index2.js:                // Capturar gráficos inmediatamente después de generarlos
+entrega_final\index2.js:                            console.log(`Capturando gráfico ${containerId}...`);
+entrega_final\index2.js:                            console.log(`Gráfico ${containerId} capturado exitosamente`);
+entrega_final\index2.js:                            console.warn(`Error capturando gráfico ${containerId}:`, error);
+entrega_final\index2.js:                        console.warn(`Contenedor ${containerId} no listo para captura:`, {
+entrega_final\index2.js:                updateProgress(50, 'Generando páginas por capa...');
+entrega_final\index2.js:                                // Obtener texto de display según la capa
+entrega_final\index2.js:                        // Página con "Sin dato" para capas sin información
+entrega_final\index2.js:                // Agregar páginas de análisis detallado para capas clave (si se requieren adicionales)
+entrega_final\index2.js:                updateProgress(60, 'Capturando vista del mapa...');
+entrega_final\index2.js:                // Preparar mapa para captura: SIEMPRE centrar en área KML original
+entrega_final\index2.js:                // Preparar mapa para captura de PDF (MapTiler tiene problemas con html2canvas)
+entrega_final\index2.js:                // Guardar la capa base actual y reemplazar temporalmente con OSM para mejor captura
+entrega_final\index2.js:                        // Es una capa base MapTiler, guardarla
+entrega_final\index2.js:                        return; // Solo guardar la primera capa tile encontrada
+entrega_final\index2.js:                // Agregar capa OSM temporal para mejor captura
+entrega_final\index2.js:                // Esperar a que la nueva capa base se cargue
+entrega_final\index2.js:                // Si se solicita activar todas las capas, hacerlo antes de capturar
+entrega_final\index2.js:                    updateProgress(65, 'Activando todas las capas para captura...');
+entrega_final\index2.js:                    // Activar todas las capas disponibles
+entrega_final\index2.js:                    // Esperar a que las capas se activen completamente
+entrega_final\index2.js:                // Capturar screenshot del mapa con timeout
+entrega_final\index2.js:                        // Agregar leyenda de capas activas
+entrega_final\index2.js:                        pdf.text('Capas activas en el mapa:', 20, 190);
+entrega_final\index2.js:                            // Mostrar todas las capas disponibles
+entrega_final\index2.js:                            // Mostrar solo capas activas (comportamiento original)
+entrega_final\index2.js:                        console.warn('Error capturando mapa:', error);
+entrega_final\index2.js:                // Restaurar la capa base original después de la captura
+entrega_final\index2.js:                // Mostrar modal para elegir si descargar con todas las capas o solo las activas
+entrega_final\index2.js:                                <strong>Con todas las capas activas</strong><br>
+entrega_final\index2.js:                                <small class="text-muted">Se activarán automáticamente todas las capas antes de generar el reporte</small>
+entrega_final\index2.js:                                <strong>Con capas actualmente visibles</strong><br>
+entrega_final\index2.js:                                <small class="text-muted">Solo se mostrarán las capas que están activas en el mapa</small>
+entrega_final\index3.js: * GEOVISUALIZADOR DE ÁREAS DE INTERÉS - VERSIÓN MULTICAPA
+entrega_final\index3.js:// Función para obtener el nombre de visualización amigable para una capa
+entrega_final\index3.js:// Variables para almacenar los datos originales de cada capa geoespacial
+entrega_final\index3.js:// Variables para las capas filtradas que se muestran en el mapa
+entrega_final\index3.js:// Control de capas de Leaflet y utilidades de navegación
+entrega_final\index3.js:// Grupos globales por capa temática para evitar duplicados en el control
+entrega_final\index3.js:let layersData = {};                // Datos de todas las capas para el reporte
+entrega_final\index3.js:            // Crear un único control de capas global y reutilizarlo
+entrega_final\index3.js:            // Guardar referencia al control de capas para sincronización
+entrega_final\index3.js:        // URLs de las capas geoespaciales
+entrega_final\index3.js:                kmlResultsContainer.innerHTML = '<p class="text-muted mb-0">Selecciona un área analizada para ver sus resultados por capas.</p>';
+entrega_final\index3.js:            // Construir lista por capas como en index2, usando createLayerSection ya existente
+entrega_final\index3.js:                        <span class="badge bg-secondary">Capas: ${layersFound}</span>
+entrega_final\index3.js:                kmlResultsContainer.innerHTML = '<p class="text-muted mb-0">No se encontraron elementos en ninguna capa para esta área.</p>';
+entrega_final\index3.js:         * Carga los datos de todas las capas desde el servidor de forma asíncrona
+entrega_final\index3.js:         * Carga una capa individual con manejo de errores robusto
+entrega_final\index3.js:                updateProgress(5, 'Iniciando carga de capas geoespaciales...');
+entrega_final\index3.js:                // Cargar capas secuencialmente para evitar problemas de concurrencia
+entrega_final\index3.js:                updateProgress(100, 'Todas las capas cargadas exitosamente');
+entrega_final\index3.js:                console.log("Todas las capas cargadas correctamente.");
+entrega_final\index3.js:                showAlert('Todas las capas geoespaciales han sido cargadas exitosamente', 'success');
+entrega_final\index3.js:                console.error("Error cargando capas:", err);
+entrega_final\index3.js:                let errorMessage = 'Error al cargar capas desde el servidor.';
+entrega_final\index3.js:                    errorMessage = 'Timeout al cargar capas. El servidor tardó demasiado en responder.';
+entrega_final\index3.js:                    errorMessage = 'Error del servidor al cargar capas. Verifica que las URLs sean correctas.';
+entrega_final\index3.js:            // Inicializar otras capas como vacías
+entrega_final\index3.js:         * Navega a todas las features de una capa específica en el mapa con highlight visual
+entrega_final\index3.js:            // Activar automáticamente la capa correspondiente si no está visible
+entrega_final\index3.js:                showAlert(`Capa "${getLayerDisplayName(layerName)}" activada automáticamente`, 'info', 2000);
+entrega_final\index3.js:                // Crear capa de highlight con estilo llamativo
+entrega_final\index3.js:                            popupContent = `<h6>${props.NOMBRE || props.nombre || props.Name || props.name || 'Elemento'}</h6><small>Capa: ${getLayerDisplayName(layerName)}</small>`;
+entrega_final\index3.js:                // Para otras capas, buscar la feature específica
+entrega_final\index3.js:            // Activar automáticamente la capa correspondiente si no está visible
+entrega_final\index3.js:                showAlert(`Capa "${getLayerDisplayName(layerName)}" activada automáticamente`, 'info', 2000);
+entrega_final\index3.js:                // Crear capa de highlight con estilo llamativo
+entrega_final\index3.js:         * Crea una sección colapsible para mostrar elementos de una capa
+entrega_final\index3.js:                    // Para otras capas, mostrar todos los elementos
+entrega_final\index3.js:         * Actualiza la visualización de todas las capas encontradas
+entrega_final\index3.js:            // Definir colores para cada capa
+entrega_final\index3.js:            // Crear secciones para cada capa
+entrega_final\index3.js:                    // Determinar si es la capa de lenguas para tratamiento especial
+entrega_final\index3.js:                layersContainer.innerHTML = '<p class="mb-0 text-muted">No se encontraron elementos en ninguna capa.</p>';
+entrega_final\index3.js:         * Genera gráfico de barras con la distribución de elementos por capa
+entrega_final\index3.js:         * Limpia todas las capas del mapa y resetea el estado de la aplicación
+entrega_final\index3.js:            // Remover todas las capas del mapa
+entrega_final\index3.js:            layersContainer.innerHTML = '<p class="mb-0 text-muted">Sube un KML y realiza el recorte para ver las capas.</p>';
+entrega_final\index3.js:         * Función auxiliar para recortar una capa específica
+entrega_final\index3.js:         * FUNCIÓN PRINCIPAL: Realiza el recorte de todas las capas según el área seleccionada
+entrega_final\index3.js:                        title: 'Recorte de Capas',
+entrega_final\index3.js:                // Verificar que al menos algunas capas estén disponibles
+entrega_final\index3.js:                        message: 'No hay capas geoespaciales disponibles para realizar el recorte. Esto puede deberse a problemas de conexión durante la carga inicial.',
+entrega_final\index3.js:                console.log(`Capas disponibles para recorte: ${availableLayers.map(l => l.name).join(', ')}`);
+entrega_final\index3.js:                showAlert(`Procesando ${availableLayers.length} capas disponibles`, 'info', 2000);
+entrega_final\index3.js:                // Remover capas anteriores
+entrega_final\index3.js:                // Recrear control de capas
+entrega_final\index3.js:                // Procesar solo las capas que estén disponibles
+entrega_final\index3.js:                // Inicializar todas las capas posibles con arrays vacíos
+entrega_final\index3.js:                    // Crear capa vacía para mostrar en el control de capas
+entrega_final\index3.js:                            point.properties.origen = 'Capa de Coordenadas';
+entrega_final\index3.js:                // Crear capa de puntos adicionales si hay resultados
+entrega_final\index3.js:                updateProgress(100, 'Todas las capas procesadas exitosamente');
+entrega_final\index3.js:                    showAlert('Recorte completado exitosamente. Se han procesado todas las capas.', 'success');
+entrega_final\index3.js:                    ['Resumen por capas:']
+entrega_final\index3.js:                // Agregar resumen de cada capa
+entrega_final\index3.js:                // Generar hojas para cada capa con datos detallados
+entrega_final\index3.js:         * - Hoja "Resumen": una fila por área con métricas y conteos por capa (Lenguas = únicas)
+entrega_final\index3.js:            // 3) Detalle por capa (todas las áreas) — una hoja por capa, filas con columna 'Área'
+entrega_final\index3.js:         * Agrega páginas de análisis detallado por capa al PDF
+entrega_final\index3.js:         * @param {boolean} activateAllLayers - Si true, activa todas las capas antes de generar el reporte
+entrega_final\index3.js:                // Asegurar que los gráficos estén generados antes de capturar
+entrega_final\index3.js:                // Agregar página para cada capa
+entrega_final\index3.js:                // Incluir gráfico de distribución de capas si está disponible
+entrega_final\index3.js:                    // Dimensiones para mantener proporción (capturado a scale 2, reducimos a tamaño PDF)
+entrega_final\index3.js:                    pdf.text('Distribución de Elementos por Capa:', 20, 150);
+entrega_final\index3.js:                    // Resumen por capas como texto
+entrega_final\index3.js:                    pdf.text('Distribución por capas:', 20, 70);
+entrega_final\index3.js:                updateProgress(25, 'Capturando gráficos...');
+entrega_final\index3.js:                // Capturar gráficos inmediatamente después de generarlos
+entrega_final\index3.js:                            console.log(`Capturando gráfico ${containerId}...`);
+entrega_final\index3.js:                            console.log(`Gráfico ${containerId} capturado exitosamente`);
+entrega_final\index3.js:                            console.warn(`Error capturando gráfico ${containerId}:`, error);
+entrega_final\index3.js:                        console.warn(`Contenedor ${containerId} no listo para captura:`, {
+entrega_final\index3.js:                updateProgress(50, 'Generando páginas por capa...');
+entrega_final\index3.js:                                // Obtener texto de display según la capa
+entrega_final\index3.js:                        // Página con "Sin dato" para capas sin información
+entrega_final\index3.js:                // Agregar páginas de análisis detallado para capas clave (si se requieren adicionales)
+entrega_final\index3.js:                updateProgress(60, 'Capturando vista del mapa...');
+entrega_final\index3.js:                // Preparar mapa para captura: SIEMPRE centrar en área KML original
+entrega_final\index3.js:                // Preparar mapa para captura de PDF (MapTiler tiene problemas con html2canvas)
+entrega_final\index3.js:                // Guardar la capa base actual y reemplazar temporalmente con OSM para mejor captura
+entrega_final\index3.js:                        // Es una capa base MapTiler, guardarla
+entrega_final\index3.js:                        return; // Solo guardar la primera capa tile encontrada
+entrega_final\index3.js:                // Agregar capa OSM temporal para mejor captura
+entrega_final\index3.js:                // Esperar a que la nueva capa base se cargue
+entrega_final\index3.js:                // Si se solicita activar todas las capas, hacerlo antes de capturar
+entrega_final\index3.js:                    updateProgress(65, 'Activando todas las capas para captura...');
+entrega_final\index3.js:                    // Activar todas las capas clipped de todos los KMLs analizados
+entrega_final\index3.js:                    // Esperar a que las capas se activen completamente
+entrega_final\index3.js:                // Capturar screenshot del mapa con timeout
+entrega_final\index3.js:                        // Agregar leyenda de capas activas
+entrega_final\index3.js:                        pdf.text('Capas activas en el mapa:', 20, 190);
+entrega_final\index3.js:                            // Mostrar todas las capas disponibles
+entrega_final\index3.js:                            // Mostrar solo capas activas (comportamiento original)
+entrega_final\index3.js:                        console.warn('Error capturando mapa:', error);
+entrega_final\index3.js:                // Restaurar la capa base original después de la captura
+entrega_final\index3.js:                        // Reinicializar control de capas
+entrega_final\index3.js:                                    'SENER Azul': map._layers[Object.keys(map._layers)[0]], // Obtener capa base actual
+entrega_final\index3.js:                const header = ['Área', 'Archivo KML', 'Superficie (km²)', 'Población', 'Elementos', 'Densidad (hab/km²)', 'Capas con datos'];
+entrega_final\index3.js:                // Hoja de comparación por capas
+entrega_final\index3.js:                const layerComparison = [['COMPARACIÓN POR CAPAS'], [''], ['Capa']];
+entrega_final\index3.js:                // Obtener todas las capas únicas
+entrega_final\index3.js:                // Crear filas de comparación por capa
+entrega_final\index3.js:                XLSX.utils.book_append_sheet(workbook, comparisonSheet, 'Comparacion_Capas');
+entrega_final\index3.js:                // Hojas detalladas por área (resumen + detalle por capa)
+entrega_final\index3.js:                        ['RESUMEN POR CAPAS'],
+entrega_final\index3.js:                        ['Capa', 'Elementos', 'Porcentaje']
+entrega_final\index3.js:                    // Hojas detalladas por capa para esta área
+entrega_final\index3.js: * Genera gráfico global de distribución de elementos por capas
+entrega_final\index3.js: * Navega a una capa global (muestra todos los elementos de esa capa en todas las áreas)
+entrega_final\index3.js:    // Activar capa si no está visible
+entrega_final\index3.js:        showAlert(`Capa "${getLayerDisplayName(layerName)}" activada automáticamente`, 'info', 2000);
+entrega_final\index3.js:                    results.errors.push(`${file.name}: Error desconocido al crear la capa`);
+entrega_final\index3.js:        // Crear capa visual usando solo el polígono
+entrega_final\index3.js:        // Remover capas clipped
+entrega_final\index3.js:                kmlResultsContainer.innerHTML = '<p class="text-muted mb-0">Selecciona un área para ver sus resultados por capas.</p>';
+entrega_final\index3.js:        // Remover todas las capas del mapa
+entrega_final\index3.js:        // Remover control de capas para resetear completamente
+entrega_final\index3.js:            kmlResultsContainer.innerHTML = '<p class="text-muted mb-0">Selecciona un área para ver sus resultados por capas.</p>';
+entrega_final\index3.js:        const totalSteps = 14; // Número de capas posibles
+entrega_final\index3.js:        // Capas seleccionadas
+entrega_final\index3.js:        // Función helper para procesar una capa
+entrega_final\index3.js:                                <small>Capa: ${displayName}</small>
+entrega_final\index3.js:                    // Registrar UNA sola vez en el control de capas
+entrega_final\index3.js:                // Almacenar referencia de la capa
+entrega_final\index3.js:        // Procesar todas las capas disponibles
+entrega_final\index3.js:               • ${Object.keys(results).length} capas con intersecciones<br/>
+entrega_final\index3.js:                                            <label class="form-label">Capas a incluir</label>
+entrega_final\index3.js: * Obtiene el estilo para una capa específica
+entrega_final\index3.js: * Crea contenido de popup para una feature (versión multi-capa)
+entrega_final\index3.js:                    <small>Capa: ${layerName}</small>
+entrega_final\index3.js:        // Generar hojas para cada capa con datos detallados agregados de todas las áreas
+entrega_final\index3.js:        // Recopilar todas las features por capa
+entrega_final\index3.js:        // Generar hojas detalladas por capa
+entrega_final\index3.js:                // Mostrar capas con datos
+entrega_final\index3.js:                pdf.text('Capas con intersecciones:', 20, yPos);
+entrega_final\index3.js:            ['Capas con resultados', m.layersFound || (kmlEntry.results ? Object.keys(kmlEntry.results).length : 0)]
+entrega_final\index3.js:        // Generar hojas para cada capa con datos detallados
+index0.js:// Datos de capas (solo indígenas)
+index0.js:// Capas recortadas
+index0.js:// Referencias de features por capa para navegación desde el listado
+index0.js:            console.warn('Capa falló:', name, e2);
+index0.js:    updateProgress(5, 'Cargando capas indígenas…');
+index0.js:            // Interacción para lenguas: enciende la capa si está apagada, centra bounds de todas y resalta una
+index0.js:                // Resto de capas (genérico)
+index0.js:        // Re-crear control de capas incluyendo basemaps actuales del mapa
+index0.js:            // Recuperar las capas base desde el propio mapa (las primeras tile layers activas)
+index0.js:                try { if (T && clipArea && T.booleanIntersects(loc.geometry, clipArea.geometry)) { loc.properties = loc.properties || {}; loc.properties.origen = 'Capa de Poligonos'; clippedLocalities.push(loc); } } catch (_) { }
+index0.js:                        pt.properties = pt.properties || {}; pt.properties.origen = 'Capa de Coordenadas'; clippedPoints.push(pt);
+index0.js:        // Combinar Localidades en una sola capa para el mapa (polígonos + puntos + etiquetas)
+index0.js:            rows.forEach(r => { if (r[1] > 0) resumen.push({ Capa: r[0], Total: r[1] }); });
+index1.js:let kmlLayer = null; // Capa del polígono KML original cargado por el usuario
+index1.js:let bufferLayer = null; // Capa del buffer generado para área núcleo
+index1.js:let clippedLocalitiesLayer = null; // Capa de localidades resultantes del recorte
+index1.js:let clippedPointsLayer = null; // Capa de localidades puntos resultantes del recorte
+index1.js:let labelLayer = null; // Capa de etiquetas CVEGEO sobre el mapa
+index1.js:let layersData = {};                // Datos de todas las capas para el reporte
+index1.js:            // Si el clic no fue en una capa, limpiar el resaltado
+index1.js:         * Limpia todas las capas del mapa y resetea el estado de la aplicación
+index1.js:            // Remover todas las capas del mapa
+index1.js:            // Limpiar la capa resaltada
+index1.js:                // Restablecer el estilo de la capa previamente resaltada
+index1.js:         * @param {object} ref - Referencia que contiene bounds o latlng de la feature y la capa.
+index1.js:            // Si la capa seleccionada ya está resaltada, límpiela y regrese
+index1.js:            // Resaltar la nueva capa
+index1.js:                // Asegurarse de que la capa resaltada esté al frente
+index1.js:         * - Leaflet.js: Para visualización de capas en el mapa
+index1.js:                // Limpiar capas previas para nueva operación
+index1.js:                            loc.properties.origen = 'Capa de Poligonos';
+index1.js:                            point.properties.origen = 'Capa de Coordenadas';
+index1.js:                // VISUALIZACIÓN DE RESULTADOS Y GENERACIÓN DE CAPAS
+index1.js:         * Genera gráfico de barras con la distribución de elementos por capa
+index1.js:        // Limpiar todas las capas y resetear aplicación con confirmación modal
+index1.js:                        'Esta acción eliminará todas las capas y datos cargados.',
+index1.js:                message: 'Se han eliminado todas las capas. Puedes cargar un nuevo archivo KML.',
+index2.js:let kmlLayer = null; // Capa que muestra el polígono KML subido
+index2.js:let bufferLayer = null; // Capa del buffer de 500m para área núcleo
+index2.js:// Variables para almacenar los datos originales de cada capa geoespacial
+index2.js:// Variables para las capas filtradas que se muestran en el mapa
+index2.js:// Control de capas de Leaflet y utilidades de navegación
+index2.js:let layersData = {};                // Datos de todas las capas para el reporte
+index2.js:        // Guardar referencia al control de capas para sincronización
+index2.js:        // URLs de las capas geoespaciales
+index2.js:         * Carga los datos de todas las capas desde el servidor de forma asíncrona
+index2.js:         * Carga una capa individual con manejo de errores robusto
+index2.js:                updateProgress(5, 'Iniciando carga de capas geoespaciales...');
+index2.js:                // Cargar capas secuencialmente para evitar problemas de concurrencia
+index2.js:                updateProgress(100, 'Todas las capas cargadas exitosamente');
+index2.js:                console.log("Todas las capas cargadas correctamente.");
+index2.js:                showAlert('Todas las capas geoespaciales han sido cargadas exitosamente', 'success');
+index2.js:                console.error("Error cargando capas:", err);
+index2.js:                let errorMessage = 'Error al cargar capas desde el servidor.';
+index2.js:                    errorMessage = 'Timeout al cargar capas. El servidor tardó demasiado en responder.';
+index2.js:                    errorMessage = 'Error del servidor al cargar capas. Verifica que las URLs sean correctas.';
+index2.js:            // Inicializar otras capas como vacías
+index2.js:         * Obtiene el nombre de visualización amigable para una capa
+index2.js:                // Para otras capas, buscar la feature específica
+index2.js:            // Activar automáticamente la capa correspondiente si no está visible
+index2.js:                showAlert(`Capa "${getLayerDisplayName(layerName)}" activada automáticamente`, 'info', 2000);
+index2.js:                // Crear capa de highlight con estilo llamativo
+index2.js:         * Crea una sección colapsible para mostrar elementos de una capa
+index2.js:                    // Para otras capas, mostrar todos los elementos
+index2.js:         * Actualiza la visualización de todas las capas encontradas
+index2.js:            // Definir colores para cada capa
+index2.js:            // Definir títulos para cada capa
+index2.js:            // Crear secciones para cada capa
+index2.js:                    // Determinar si es la capa de lenguas para tratamiento especial
+index2.js:                layersContainer.innerHTML = '<p class="mb-0 text-muted">No se encontraron elementos en ninguna capa.</p>';
+index2.js:         * Genera gráfico de barras con la distribución de elementos por capa
+index2.js:         * Limpia todas las capas del mapa y resetea el estado de la aplicación
+index2.js:            // Remover todas las capas del mapa
+index2.js:            layersContainer.innerHTML = '<p class="mb-0 text-muted">Sube un KML y realiza el recorte para ver las capas.</p>';
+index2.js:            // Recrear control de capas
+index2.js:                    // Crear capa con estilo según si hay superposiciones
+index2.js:         * Función auxiliar para recortar una capa específica
+index2.js:         * FUNCIÓN PRINCIPAL: Realiza el recorte de todas las capas según el área seleccionada
+index2.js:                        title: 'Recorte de Capas',
+index2.js:                // Verificar que al menos algunas capas estén disponibles
+index2.js:                        message: 'No hay capas geoespaciales disponibles para realizar el recorte. Esto puede deberse a problemas de conexión durante la carga inicial.',
+index2.js:                console.log(`Capas disponibles para recorte: ${availableLayers.map(l => l.name).join(', ')}`);
+index2.js:                showAlert(`Procesando ${availableLayers.length} capas disponibles`, 'info', 2000);
+index2.js:                // Remover capas anteriores
+index2.js:                // Recrear control de capas
+index2.js:                // Procesar solo las capas que estén disponibles
+index2.js:                // Inicializar todas las capas posibles con arrays vacíos
+index2.js:                    // Crear capa vacía para mostrar en el control de capas
+index2.js:                            point.properties.origen = 'Capa de Coordenadas';
+index2.js:                                const isBufferedPoint = feature.properties?.origen === 'Capa de Coordenadas';
+index2.js:                                const isBufferedPoint = feature.properties?.origen === 'Capa de Coordenadas';
+index2.js:                                    const isBufferedPoint = props.origen === 'Capa de Coordenadas';
+index2.js:                updateProgress(100, 'Todas las capas procesadas exitosamente');
+index2.js:                    showAlert('Recorte completado exitosamente. Se han procesado todas las capas.', 'success');
+index2.js:                    ['Resumen por capas:']
+index2.js:                // Agregar resumen de cada capa
+index2.js:                // Generar hojas para cada capa con datos detallados
+index2.js:         * Agrega páginas de análisis detallado por capa al PDF
+index2.js:         * @param {boolean} activateAllLayers - Si true, activa todas las capas antes de generar el reporte
+index2.js:                // Asegurar que los gráficos estén generados antes de capturar
+index2.js:                // Agregar página para cada capa
+index2.js:                // Incluir gráfico de distribución de capas si está disponible
+index2.js:                    // Dimensiones para mantener proporción (capturado a scale 2, reducimos a tamaño PDF)
+index2.js:                    pdf.text('Distribución de Elementos por Capa:', 20, 150);
+index2.js:                    // Resumen por capas como texto
+index2.js:                    pdf.text('Distribución por capas:', 20, 70);
+index2.js:                updateProgress(25, 'Capturando gráficos...');
+index2.js:                // Capturar gráficos inmediatamente después de generarlos
+index2.js:                            console.log(`Capturando gráfico ${containerId}...`);
+index2.js:                            console.log(`Gráfico ${containerId} capturado exitosamente`);
+index2.js:                            console.warn(`Error capturando gráfico ${containerId}:`, error);
+index2.js:                        console.warn(`Contenedor ${containerId} no listo para captura:`, {
+index2.js:                updateProgress(50, 'Generando páginas por capa...');
+index2.js:                                // Obtener texto de display según la capa
+index2.js:                        // Página con "Sin dato" para capas sin información
+index2.js:                // Agregar páginas de análisis detallado para capas clave (si se requieren adicionales)
+index2.js:                updateProgress(60, 'Capturando vista del mapa...');
+index2.js:                // Preparar mapa para captura: SIEMPRE centrar en área KML original
+index2.js:                // Preparar mapa para captura de PDF (MapTiler tiene problemas con html2canvas)
+index2.js:                // Guardar la capa base actual y reemplazar temporalmente con OSM para mejor captura
+index2.js:                        // Es una capa base MapTiler, guardarla
+index2.js:                        return; // Solo guardar la primera capa tile encontrada
+index2.js:                // Agregar capa OSM temporal para mejor captura
+index2.js:                // Esperar a que la nueva capa base se cargue
+index2.js:                // Si se solicita activar todas las capas, hacerlo antes de capturar
+index2.js:                    updateProgress(65, 'Activando todas las capas para captura...');
+index2.js:                    // Activar todas las capas disponibles
+index2.js:                    // Esperar a que las capas se activen completamente
+index2.js:                // Capturar screenshot del mapa con timeout
+index2.js:                        // Agregar leyenda de capas activas
+index2.js:                        pdf.text('Capas activas en el mapa:', 20, 190);
+index2.js:                            // Mostrar todas las capas disponibles
+index2.js:                            // Mostrar solo capas activas (comportamiento original)
+index2.js:                        console.warn('Error capturando mapa:', error);
+index2.js:                // Restaurar la capa base original después de la captura
+index2.js:                // Mostrar modal para elegir si descargar con todas las capas o solo las activas
+index2.js:                                <strong>Con todas las capas activas</strong><br>
+index2.js:                                <small class="text-muted">Se activarán automáticamente todas las capas antes de generar el reporte</small>
+index2.js:                                <strong>Con capas actualmente visibles</strong><br>
+index2.js:                                <small class="text-muted">Solo se mostrarán las capas que están activas en el mapa</small>
+index3.js: * GEOVISUALIZADOR DE ÁREAS DE INTERÉS - VERSIÓN MULTICAPA
+index3.js:// Función para obtener el nombre de visualización amigable para una capa
+index3.js:// Variables para almacenar los datos originales de cada capa geoespacial
+index3.js:// Variables para las capas filtradas que se muestran en el mapa
+index3.js:// Control de capas de Leaflet y utilidades de navegación
+index3.js:// Grupos globales por capa temática para evitar duplicados en el control
+index3.js:let layersData = {};                // Datos de todas las capas para el reporte
+index3.js:            // Crear un único control de capas global y reutilizarlo
+index3.js:            // Guardar referencia al control de capas para sincronización
+index3.js:        // URLs de las capas geoespaciales
+index3.js:                kmlResultsContainer.innerHTML = '<p class="text-muted mb-0">Selecciona un área analizada para ver sus resultados por capas.</p>';
+index3.js:            // Construir lista por capas como en index2, usando createLayerSection ya existente
+index3.js:                        <span class="badge bg-secondary">Capas: ${layersFound}</span>
+index3.js:                kmlResultsContainer.innerHTML = '<p class="text-muted mb-0">No se encontraron elementos en ninguna capa para esta área.</p>';
+index3.js:         * Carga los datos de todas las capas desde el servidor de forma asíncrona
+index3.js:         * Carga una capa individual con manejo de errores robusto
+index3.js:                updateProgress(5, 'Iniciando carga de capas geoespaciales...');
+index3.js:                // Cargar capas secuencialmente para evitar problemas de concurrencia
+index3.js:                updateProgress(100, 'Todas las capas cargadas exitosamente');
+index3.js:                console.log("Todas las capas cargadas correctamente.");
+index3.js:                showAlert('Todas las capas geoespaciales han sido cargadas exitosamente', 'success');
+index3.js:                console.error("Error cargando capas:", err);
+index3.js:                let errorMessage = 'Error al cargar capas desde el servidor.';
+index3.js:                    errorMessage = 'Timeout al cargar capas. El servidor tardó demasiado en responder.';
+index3.js:                    errorMessage = 'Error del servidor al cargar capas. Verifica que las URLs sean correctas.';
+index3.js:            // Inicializar otras capas como vacías
+index3.js:         * Navega a todas las features de una capa específica en el mapa con highlight visual
+index3.js:            // Activar automáticamente la capa correspondiente si no está visible
+index3.js:                showAlert(`Capa "${getLayerDisplayName(layerName)}" activada automáticamente`, 'info', 2000);
+index3.js:                // Crear capa de highlight con estilo llamativo
+index3.js:                            popupContent = `<h6>${props.NOMBRE || props.nombre || props.Name || props.name || 'Elemento'}</h6><small>Capa: ${getLayerDisplayName(layerName)}</small>`;
+index3.js:                // Para otras capas, buscar la feature específica
+index3.js:            // Activar automáticamente la capa correspondiente si no está visible
+index3.js:                showAlert(`Capa "${getLayerDisplayName(layerName)}" activada automáticamente`, 'info', 2000);
+index3.js:                // Crear capa de highlight con estilo llamativo
+index3.js:         * Crea una sección colapsible para mostrar elementos de una capa
+index3.js:                    // Para otras capas, mostrar todos los elementos
+index3.js:         * Actualiza la visualización de todas las capas encontradas
+index3.js:            // Definir colores para cada capa
+index3.js:            // Crear secciones para cada capa
+index3.js:                    // Determinar si es la capa de lenguas para tratamiento especial
+index3.js:                layersContainer.innerHTML = '<p class="mb-0 text-muted">No se encontraron elementos en ninguna capa.</p>';
+index3.js:         * Genera gráfico de barras con la distribución de elementos por capa
+index3.js:         * Limpia todas las capas del mapa y resetea el estado de la aplicación
+index3.js:            // Remover todas las capas del mapa
+index3.js:            layersContainer.innerHTML = '<p class="mb-0 text-muted">Sube un KML y realiza el recorte para ver las capas.</p>';
+index3.js:         * Función auxiliar para recortar una capa específica
+index3.js:         * FUNCIÓN PRINCIPAL: Realiza el recorte de todas las capas según el área seleccionada
+index3.js:                        title: 'Recorte de Capas',
+index3.js:                // Verificar que al menos algunas capas estén disponibles
+index3.js:                        message: 'No hay capas geoespaciales disponibles para realizar el recorte. Esto puede deberse a problemas de conexión durante la carga inicial.',
+index3.js:                console.log(`Capas disponibles para recorte: ${availableLayers.map(l => l.name).join(', ')}`);
+index3.js:                showAlert(`Procesando ${availableLayers.length} capas disponibles`, 'info', 2000);
+index3.js:                // Remover capas anteriores
+index3.js:                // Recrear control de capas
+index3.js:                // Procesar solo las capas que estén disponibles
+index3.js:                // Inicializar todas las capas posibles con arrays vacíos
+index3.js:                    // Crear capa vacía para mostrar en el control de capas
+index3.js:                            point.properties.origen = 'Capa de Coordenadas';
+index3.js:                // Crear capa de puntos adicionales si hay resultados
+index3.js:                updateProgress(100, 'Todas las capas procesadas exitosamente');
+index3.js:                    showAlert('Recorte completado exitosamente. Se han procesado todas las capas.', 'success');
+index3.js:                    ['Resumen por capas:']
+index3.js:                // Agregar resumen de cada capa
+index3.js:                // Generar hojas para cada capa con datos detallados
+index3.js:         * - Hoja "Resumen": una fila por área con métricas y conteos por capa (Lenguas = únicas)
+index3.js:            // 3) Detalle por capa (todas las áreas) — una hoja por capa, filas con columna 'Área'
+index3.js:         * Agrega páginas de análisis detallado por capa al PDF
+index3.js:         * @param {boolean} activateAllLayers - Si true, activa todas las capas antes de generar el reporte
+index3.js:                // Asegurar que los gráficos estén generados antes de capturar
+index3.js:                // Agregar página para cada capa
+index3.js:                // Incluir gráfico de distribución de capas si está disponible
+index3.js:                    // Dimensiones para mantener proporción (capturado a scale 2, reducimos a tamaño PDF)
+index3.js:                    pdf.text('Distribución de Elementos por Capa:', 20, 150);
+index3.js:                    // Resumen por capas como texto
+index3.js:                    pdf.text('Distribución por capas:', 20, 70);
+index3.js:                updateProgress(25, 'Capturando gráficos...');
+index3.js:                // Capturar gráficos inmediatamente después de generarlos
+index3.js:                            console.log(`Capturando gráfico ${containerId}...`);
+index3.js:                            console.log(`Gráfico ${containerId} capturado exitosamente`);
+index3.js:                            console.warn(`Error capturando gráfico ${containerId}:`, error);
+index3.js:                        console.warn(`Contenedor ${containerId} no listo para captura:`, {
+index3.js:                updateProgress(50, 'Generando páginas por capa...');
+index3.js:                                // Obtener texto de display según la capa
+index3.js:                        // Página con "Sin dato" para capas sin información
+index3.js:                // Agregar páginas de análisis detallado para capas clave (si se requieren adicionales)
+index3.js:                updateProgress(60, 'Capturando vista del mapa...');
+index3.js:                // Preparar mapa para captura: SIEMPRE centrar en área KML original
+index3.js:                // Preparar mapa para captura de PDF (MapTiler tiene problemas con html2canvas)
+index3.js:                // Guardar la capa base actual y reemplazar temporalmente con OSM para mejor captura
+index3.js:                        // Es una capa base MapTiler, guardarla
+index3.js:                        return; // Solo guardar la primera capa tile encontrada
+index3.js:                // Agregar capa OSM temporal para mejor captura
+index3.js:                // Esperar a que la nueva capa base se cargue
+index3.js:                // Si se solicita activar todas las capas, hacerlo antes de capturar
+index3.js:                    updateProgress(65, 'Activando todas las capas para captura...');
+index3.js:                    // Activar todas las capas clipped de todos los KMLs analizados
+index3.js:                    // Esperar a que las capas se activen completamente
+index3.js:                // Capturar screenshot del mapa con timeout
+index3.js:                        // Agregar leyenda de capas activas
+index3.js:                        pdf.text('Capas activas en el mapa:', 20, 190);
+index3.js:                            // Mostrar todas las capas disponibles
+index3.js:                            // Mostrar solo capas activas (comportamiento original)
+index3.js:                        console.warn('Error capturando mapa:', error);
+index3.js:                // Restaurar la capa base original después de la captura
+index3.js:                        // Reinicializar control de capas
+index3.js:                                    'SENER Azul': map._layers[Object.keys(map._layers)[0]], // Obtener capa base actual
+index3.js:                const header = ['Área', 'Archivo KML', 'Superficie (km²)', 'Población', 'Elementos', 'Densidad (hab/km²)', 'Capas con datos'];
+index3.js:                // Hoja de comparación por capas
+index3.js:                const layerComparison = [['COMPARACIÓN POR CAPAS'], [''], ['Capa']];
+index3.js:                // Obtener todas las capas únicas
+index3.js:                // Crear filas de comparación por capa
+index3.js:                XLSX.utils.book_append_sheet(workbook, comparisonSheet, 'Comparacion_Capas');
+index3.js:                // Hojas detalladas por área (resumen + detalle por capa)
+index3.js:                        ['RESUMEN POR CAPAS'],
+index3.js:                        ['Capa', 'Elementos', 'Porcentaje']
+index3.js:                    // Hojas detalladas por capa para esta área
+index3.js: * Genera gráfico global de distribución de elementos por capas
+index3.js: * Navega a una capa global (muestra todos los elementos de esa capa en todas las áreas)
+index3.js:    // Activar capa si no está visible
+index3.js:        showAlert(`Capa "${getLayerDisplayName(layerName)}" activada automáticamente`, 'info', 2000);
+index3.js:                    results.errors.push(`${file.name}: Error desconocido al crear la capa`);
+index3.js:        // Crear capa visual usando solo el polígono
+index3.js:        // Remover capas clipped
+index3.js:                kmlResultsContainer.innerHTML = '<p class="text-muted mb-0">Selecciona un área para ver sus resultados por capas.</p>';
+index3.js:        // Remover todas las capas del mapa
+index3.js:        // Remover control de capas para resetear completamente
+index3.js:            kmlResultsContainer.innerHTML = '<p class="text-muted mb-0">Selecciona un área para ver sus resultados por capas.</p>';
+index3.js:        const totalSteps = 14; // Número de capas posibles
+index3.js:        // Capas seleccionadas
+index3.js:        // Función helper para procesar una capa
+index3.js:                                <small>Capa: ${displayName}</small>
+index3.js:                    // Registrar UNA sola vez en el control de capas
+index3.js:                // Almacenar referencia de la capa
+index3.js:        // Procesar todas las capas disponibles
+index3.js:               • ${Object.keys(results).length} capas con intersecciones<br/>
+index3.js:                                            <label class="form-label">Capas a incluir</label>
+index3.js: * Obtiene el estilo para una capa específica
+index3.js: * Crea contenido de popup para una feature (versión multi-capa)
+index3.js:                    <small>Capa: ${layerName}</small>
+index3.js:        // Generar hojas para cada capa con datos detallados agregados de todas las áreas
+index3.js:        // Recopilar todas las features por capa
+index3.js:        // Generar hojas detalladas por capa
+index3.js:                // Mostrar capas con datos
+index3.js:                pdf.text('Capas con intersecciones:', 20, yPos);
+index3.js:            ['Capas con resultados', m.layersFound || (kmlEntry.results ? Object.keys(kmlEntry.results).length : 0)]
+index3.js:        // Generar hojas para cada capa con datos detallados
