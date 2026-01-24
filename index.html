@@ -160,63 +160,41 @@
 
 <body class="bg-background-light text-slate-900 transition-colors duration-300">
     <div class="h-12 w-full bg-primary"></div>
-    <header class="bg-primary text-white pt-20 pb-48 px-6 text-center relative overflow-hidden shadow-2xl">
-
-        <!-- Background Pattern: Animated Topography -->
-        <div class="absolute inset-0 opacity-10 pointer-events-none overflow-hidden">
-            <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" class="animate-pulse-slow">
-                <defs>
-                    <pattern id="topo-pattern" x="0" y="0" width="100" height="100" patternUnits="userSpaceOnUse">
-                        <path d="M0 100 C 20 0 50 0 100 100 Z" fill="none" stroke="white" stroke-width="0.5"
-                            opacity="0.5" />
-                        <path d="M0 50 C 40 60 60 40 100 50" fill="none" stroke="white" stroke-width="0.5"
-                            opacity="0.3" />
-                    </pattern>
-                </defs>
-                <rect width="100%" height="100%" fill="url(#topo-pattern)" />
-            </svg>
+    <header class="bg-primary relative overflow-hidden shadow-2xl pb-48 pt-20">
+        <!-- Background: Modern Gradient Pulse -->
+        <div class="absolute inset-0 bg-gradient-to-br from-primary via-[#4a0010] to-[#2b0005]"></div>
+        <div
+            class="absolute inset-0 opacity-30 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] mix-blend-overlay">
         </div>
 
-        <!-- Gradient Overlay for Depth -->
-        <div class="absolute inset-0 bg-gradient-to-b from-white/5 via-transparent to-black/40 pointer-events-none">
+        <!-- Animated Glow Orbs -->
+        <div
+            class="absolute top-[-20%] left-[-10%] w-[500px] h-[500px] bg-secondary/30 rounded-full blur-3xl animate-pulse-slow mix-blend-screen">
         </div>
+        <div class="absolute bottom-0 right-[-10%] w-[600px] h-[600px] bg-purple-900/40 rounded-full blur-3xl animate-pulse-slow mix-blend-screen"
+            style="animation-duration: 7s;"></div>
 
-        <!-- Decorative Bottom Waves (Smoother Transition) -->
-        <div class="absolute bottom-0 left-0 w-full overflow-hidden leading-[0]">
-            <svg class="relative block w-[calc(100%+1.3px)] h-[150px]" data-name="Layer 1"
-                xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 120" preserveAspectRatio="none">
-                <path
-                    d="M0,0V46.29c47.79,22.2,103.59,32.17,158,28,70.36-5.37,136.33-33.31,206.8-37.5C438.64,32.43,512.34,53.67,583,72.05c69.27,18.33,167.52,36.75,236.48,26.87,54.82-7.85,99.28-31.12,149.69-39.69,76.79-13,150.28,11,230.83,37V0Z"
-                    fill="#FFFFFF" opacity="0.05"></path>
-                <path
-                    d="M0,0V15.81C13,36.92,54.55,50.1,81.5,52.72c68.58,6.66,131.75-19.5,202.86-22.16,71.25-2.66,139.87,21.61,208.7,37.38,67.6,15.71,157.17,30.4,226.37,21.32,53.25-7.19,95.7-27.79,145-35.3C938.82,46.29,1011.66,68.6,1089,91.22V0Z"
-                    fill="#FFFFFF" opacity="0.1"></path>
-                <path
-                    d="M0,0V5.63C149.93,59,314.09,71.32,475.83,42.57c43-7.64,84.23-20.12,127.61-26.46,59-8,116.66-3.72,174.5,5.63S936.56,42.57,1000,42.57c48.9,0,96.3-13.75,143.23-36.94V0Z"
-                    fill="#FFFFFF" opacity="0.15"></path>
-                <path
-                    d="M321.39,56.44c58-10.79,114.16-30.13,172-41.86,82.39-16.72,168.19-17.73,250.45-.39C823.78,31,906.67,72,985.66,92.83c70.05,18.48,146.53,26.09,214.34,3V0H0V27.35A600.21,600.21,0,0,0,321.39,56.44Z"
-                    class="fill-slate-50 dark:fill-slate-900 opacity-30"></path>
-            </svg>
-        </div>
-
-        <div class="relative z-10 flex flex-col items-center max-w-5xl mx-auto">
+        <div class="relative z-10 container mx-auto px-6 text-center">
+            <!-- Logos Badge -->
             <div
-                class="inline-flex items-center gap-6 mb-10 bg-white/5 p-4 rounded-full backdrop-blur-sm border border-white/10 shadow-lg hover:bg-white/10 transition-colors duration-300">
-                <img src="img/logo_gob.png" alt="Gobierno de México" class="h-8 md:h-10 brightness-0 invert opacity-90">
-                <div class="w-px h-6 bg-white/20 hidden md:block"></div>
-                <img src="img/logo_sener.png" alt="SENER / CNE" class="h-8 md:h-10 brightness-0 invert opacity-90">
+                class="inline-flex items-center gap-6 bg-white/5 backdrop-blur-md border border-white/10 rounded-full px-8 py-3 mb-10 shadow-lg hover:bg-white/10 transition-all duration-300 transform hover:scale-105">
+                <img src="img/logo_gob.png" alt="Gobierno de México" class="h-8 brightness-0 invert opacity-90">
+                <div class="w-px h-6 bg-white/20"></div>
+                <img src="img/logo_sener.png" alt="SENER" class="h-8 brightness-0 invert opacity-90">
             </div>
 
-            <h1
-                class="text-5xl md:text-7xl font-black tracking-tight mb-8 text-balance drop-shadow-2xl bg-clip-text text-transparent bg-gradient-to-b from-white via-white to-white/80">
-                Geovisualizador de <br /><span class="text-white">Áreas de Interés</span>
+            <!-- Main Title with Modern Typography -->
+            <h1 class="text-5xl md:text-7xl font-black text-white tracking-tight mb-6 drop-shadow-xl">
+                Geovisualizador
+                <span
+                    class="block text-2xl md:text-3xl font-light text-secondary-50 tracking-[0.2em] mt-2 uppercase text-white/80">Áreas
+                    de Interés</span>
             </h1>
 
-            <p
-                class="text-xl md:text-2xl text-white/90 max-w-3xl mx-auto leading-relaxed text-balance font-light drop-shadow-md">
-                Plataforma estratégica para la gestión territorial, análisis de impacto social y visualización
-                inteligente de datos.
+            <!-- Subtitle/Description -->
+            <p class="max-w-2xl mx-auto text-lg text-white/70 font-light leading-relaxed">
+                Plataforma de análisis territorial para la evaluación de impacto social,
+                gestión de información y visualización de datos censales.
             </p>
         </div>
     </header>
