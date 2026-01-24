@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>V3 - PRUEBA DINÁMICA (Localidades)</title>
+
+    <!-- Error Handler & Debug -->
+    <script>
+        window.onerror = function (msg, url, line) {
+            alert('Error JS: ' + msg + '\nLínea: ' + line);
+            document.getElementById('preloader')?.classList.remove('active');
+        };
+        // Fallback: Si en 5 segundos no carga, quitar preloader
+        setTimeout(() => {
+            document.getElementById('preloader')?.classList.remove('active');
+        }, 5000);
+    </script>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            prefix: 'tw-',
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#800020', // Guinda Oficial
+                        secondary: '#B38E5D', // Dorado Oficial
+                        dark: '#1A202C',
+                    },
+                    fontFamily: {
+                        display: ['Montserrat', 'sans-serif'],
+                        body: ['Inter', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Google Fonts -->
+    <link
+        href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&family=Inter:wght@300;400;500;600&display=swap"
+        rel="stylesheet">
+    <!-- Material Symbols -->
+    <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+
+    <!-- Leaflet & Plugins -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+    <script src="https://unpkg.com/@mapbox/togeojson@0.16.0/togeojson.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <!-- Bootstrap JS para Modal (Opcional) -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc;
+            overflow: hidden;
+        }
+
+        .font-display {
+            font-family: 'Montserrat', sans-serif;
+        }
+
+        /* Map Container Full Height */
+        #map {
+            height: 100vh;
+            width: 100vw;
+            z-index: 1;
+        }
+
+        /* Premium Markers */
+        .premium-marker {
+            filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.3));
+            transition: all 0.2s ease;
+        }
+
+        .premium-marker:hover {
+            filter: drop-shadow(0 6px 8px rgba(128, 0, 32, 0.5));
+            stroke: white;
+            stroke-width: 3px;
+        }
+
+        /* Custom Scrollbar */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+            height: 4px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.05);
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        /* Animations */
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .animate-fade-in {
+            animation: fadeIn 0.5s ease-out forwards;
+        }
+
+        @keyframes pulse-ring {
+            0% {
+                transform: scale(0.8);
+                opacity: 0.5;
+                box-shadow: 0 0 0 0 rgba(128, 0, 32, 0.7);
+            }
+
+            70% {
+                transform: scale(1);
+                opacity: 1;
+                box-shadow: 0 0 0 10px rgba(128, 0, 32, 0);
+            }
+
+            100% {
+                transform: scale(0.8);
+                opacity: 0.5;
+                box-shadow: 0 0 0 0 rgba(128, 0, 32, 0);
+            }
+        }
+
+        .pulse-animation {
+            animation: pulse-ring 2s infinite;
+        }
+
+        /* Glassmorphism */
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+        }
+
+        .glass-dark {
+            background: rgba(26, 32, 44, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* Preloader */
+        #preloader {
+            transition: opacity 0.4s ease, visibility 0.4s;
+        }
+
+        #preloader.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        #preloader:not(.active) {
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+        }
+
+        /* Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .modal-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .modal-container {
+            background: white;
+            width: 95%;
+            max-width: 1200px;
+            height: 90vh;
+            border-radius: 1rem;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            display: flex;
+            flex-direction: column;
+            transform: scale(0.95);
+            transition: all 0.3s ease;
+            overflow: hidden;
+        }
+
+        .modal-overlay.active .modal-container {
+            transform: scale(1);
+        }
+
+        /* Custom Popup Guinda */
+        .custom-popup-guinda .leaflet-popup-content-wrapper {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(4px);
+            border: 1px solid #800020;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(128, 0, 32, 0.2);
+        }
+
+        .custom-popup-guinda .leaflet-popup-tip {
+            background: #800020;
+        }
+    </style>
+</head>
+
+<body class="tw-text-gray-800">
+
+    <!-- PRELOADER -->
+    <div id="preloader"
+        class="tw-fixed tw-inset-0 tw-z-[10000] tw-bg-white tw-flex tw-flex-col tw-items-center tw-justify-center">
+        <div class="tw-w-24 tw-h-24 tw-mb-6 tw-relative">
+            <div class="tw-absolute tw-inset-0 tw-border-4 tw-border-gray-100 tw-rounded-full"></div>
+            <div
+                class="tw-absolute tw-inset-0 tw-border-4 tw-border-primary tw-rounded-full tw-border-t-transparent tw-animate-spin">
+            </div>
+            <img src="img/logo_sener.png" class="tw-absolute tw-inset-0 tw-m-auto tw-w-12 tw-opacity-80" alt="Logo">
+        </div>
+        <h3 class="tw-text-lg tw-font-bold tw-text-gray-800 tw-mb-2 tw-tracking-wide">PRUEBA DE CARGA DINÁMICA</h3>
+        <p class="tw-text-xs tw-text-gray-400 tw-uppercase tw-tracking-widest" id="preloaderStatus">Inicializando...
+        </p>
+        <div class="tw-w-64 tw-h-1 tw-bg-gray-100 tw-rounded-full tw-mt-6 tw-overflow-hidden">
+            <div id="preloaderBar" class="tw-h-full tw-bg-primary tw-w-0 tw-transition-all tw-duration-300"></div>
+        </div>
+    </div>
+
+    <!-- MAP CONTAINER -->
+    <div id="map"></div>
+
+    <!-- SIDEBAR DE CONTROL -->
+    <div class="tw-fixed tw-top-0 tw-left-0 tw-h-full tw-w-[380px] tw-z-[2000] tw-transform -tw-translate-x-full tw-transition-transform tw-duration-500 glass-panel tw-flex tw-flex-col"
+        id="controlPanel">
+        <!-- Header -->
+        <div class="tw-p-6 tw-bg-gradient-to-r tw-from-primary tw-to-[#B38E5D] tw-relative tw-overflow-hidden">
+            <div class="tw-absolute tw-top-0 tw-right-0 tw-p-4 tw-opacity-10">
+                <span class="material-symbols-outlined tw-text-6xl tw-text-white">science</span>
+            </div>
+            <div class="tw-relative tw-z-10 tw-flex tw-justify-between tw-items-start">
+                <div class="tw-space-y-1">
+                    <h1 class="font-display tw-text-2xl tw-text-white tw-font-bold tw-leading-tight">Modo Prueba
+                    </h1>
+                    <span
+                        class="tw-inline-block tw-px-3 tw-py-1 tw-bg-white/10 tw-text-white/90 tw-text-[10px] tw-font-black tw-tracking-widest tw-uppercase tw-rounded-lg">Carga
+                        Dinámica</span>
+                </div>
+                <button id="closeControlBtn" class="tw-text-white/80 hover:tw-text-white tw-transition-colors">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Scrollable Content -->
+        <div class="tw-flex-1 tw-overflow-y-auto custom-scrollbar tw-p-6 tw-space-y-8">
+
+            <!-- 1. Gestión Multi-KML -->
+            <div class="tw-space-y-3">
+                <div class="tw-flex tw-items-center tw-justify-between tw-text-primary tw-mb-2">
+                    <div class="tw-flex tw-items-center tw-gap-2">
+                        <span class="material-symbols-outlined tw-text-lg">folder_open</span>
+                        <h3 class="tw-text-xs tw-font-black tw-uppercase tw-tracking-widest">1. Geometrías (Multi-KML)
+                        </h3>
+                    </div>
+                    <span id="kmlCountBadge"
+                        class="tw-bg-gray-100 tw-text-gray-600 tw-text-[10px] tw-font-bold tw-px-2 tw-py-0.5 tw-rounded-full">0/10</span>
+                </div>
+
+                <div class="tw-relative tw-group">
+                    <input type="file" id="kmlFile" accept=".kml,.kmz"
+                        class="tw-absolute tw-inset-0 tw-w-full tw-h-full tw-opacity-0 tw-cursor-pointer z-10" multiple>
+                    <div
+                        class="tw-border-2 tw-border-dashed tw-border-gray-300 group-hover:tw-border-primary tw-rounded-xl tw-p-4 tw-text-center tw-transition-all tw-bg-white/50 group-hover:tw-bg-primary/5">
+                        <div
+                            class="tw-flex tw-items-center tw-justify-center tw-gap-2 tw-text-gray-400 group-hover:tw-text-primary">
+                            <span class="material-symbols-outlined">add_circle</span>
+                            <span class="tw-text-xs tw-font-bold tw-uppercase">Agregar KML/KMZ</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Lista de KMLs Cargados -->
+                <div id="kmlListContainer"
+                    class="tw-space-y-2 tw-max-h-[200px] tw-overflow-y-auto custom-scrollbar tw-hidden">
+                    <!-- Items generados dinámicamente -->
+                </div>
+            </div>
+
+            <!-- 2. Configuración de Buffer -->
+            <div class="tw-space-y-3">
+                <div class="tw-flex tw-items-center tw-gap-2 tw-text-primary tw-mb-2">
+                    <span class="material-symbols-outlined tw-text-lg">straighten</span>
+                    <h3 class="tw-text-xs tw-font-black tw-uppercase tw-tracking-widest">2. Configuración de Recorte
+                    </h3>
+                </div>
+
+                <div class="tw-bg-white tw-rounded-xl tw-p-1 tw-border tw-border-gray-200 tw-shadow-sm">
+                    <select id="clipTypeSelect"
+                        class="tw-w-full tw-bg-transparent tw-border-0 tw-text-xs tw-font-bold tw-text-gray-700 tw-px-3 tw-py-3 focus:tw-ring-0 tw-cursor-pointer">
+                        <option value="exact">Área exacta (Sin buffer)</option>
+                        <option value="direct" selected>Área de influencia directa (+2 km)</option>
+                        <option value="indirect">Área de influencia indirecta (+5 km)</option>
+                        <option value="custom">Personalizado (Definir kms)</option>
+                    </select>
+                </div>
+
+                <!-- Input para Buffer Personalizado -->
+                <div id="customBufferContainer" class="tw-hidden tw-animate-fade-in">
+                    <div
+                        class="tw-flex tw-items-center tw-gap-2 tw-bg-white tw-border tw-border-gray-200 tw-rounded-xl tw-p-2">
+                        <span class="material-symbols-outlined tw-text-gray-400 tw-text-sm tw-ml-2">edit_road</span>
+                        <input type="number" id="customBufferInput" min="0" max="100" step="0.1" value="1"
+                            class="tw-w-full tw-border-0 tw-text-xs tw-font-bold tw-text-gray-700 focus:tw-ring-0"
+                            placeholder="Kms">
+                        <span class="tw-text-[10px] tw-font-black tw-text-gray-400 tw-mr-2">KM</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3. Selección de Capas -->
+            <div class="tw-space-y-3">
+                <div class="tw-flex tw-items-center tw-justify-between tw-text-primary tw-mb-2">
+                    <div class="tw-flex tw-items-center tw-gap-2">
+                        <span class="material-symbols-outlined tw-text-lg">checklist</span>
+                        <h3 class="tw-text-xs tw-font-black tw-uppercase tw-tracking-widest">3. Capas a Analizar</h3>
+                    </div>
+                </div>
+
+                <div class="tw-grid tw-grid-cols-1 tw-gap-2" id="layerOptions">
+                    <!-- Solo Localidades para la prueba -->
+                    <div class="tw-text-[10px] tw-font-black tw-text-gray-400 tw-uppercase tw-mt-2">Geografía Base
+                        (Dinámica)</div>
+                    <label
+                        class="tw-flex tw-items-center tw-p-3 tw-bg-white tw-border tw-border-green-500 tw-ring-1 tw-ring-green-500 tw-rounded-xl hover:tw-shadow-sm tw-cursor-pointer">
+                        <input type="checkbox" checked value="localidades"
+                            class="tw-rounded-full tw-text-primary focus:tw-ring-primary tw-mr-3">
+                        <span class="tw-text-xs tw-font-bold tw-text-gray-700">Localidades (Polígonos) [DINÁMICA]</span>
+                    </label>
+                    <label
+                        class="tw-flex tw-items-center tw-p-3 tw-bg-white tw-border tw-border-gray-100 tw-rounded-xl hover:tw-shadow-sm tw-cursor-pointer">
+                        <input type="checkbox" checked value="puntos"
+                            class="tw-rounded-full tw-text-primary focus:tw-ring-primary tw-mr-3">
+                        <span class="tw-text-xs tw-font-bold tw-text-gray-700">Localidades (Puntos) [ESTÁTICA]</span>
+                    </label>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Footer Actions -->
+        <div class="tw-p-6 tw-bg-white tw-border-t tw-border-gray-100">
+            <div class="tw-flex tw-gap-3">
+                <button id="clearMap"
+                    class="tw-p-4 tw-rounded-xl tw-border tw-border-gray-200 tw-text-gray-400 hover:tw-bg-red-50 hover:tw-text-red-500 hover:tw-border-red-100 tw-transition-colors">
+                    <span class="material-symbols-outlined">delete</span>
+                </button>
+                <button id="uploadKmlBtn" disabled
+                    class="tw-flex-1 tw-bg-primary tw-text-white tw-font-bold tw-text-xs tw-uppercase tw-tracking-widest tw-rounded-xl tw-shadow-lg tw-shadow-primary/30 hover:tw-shadow-primary/50 hover:tw-bg-[#4B0082] tw-transition-all tw-flex tw-items-center tw-justify-center tw-gap-2 disabled:tw-opacity-50 disabled:tw-cursor-not-allowed">
+                    <span class="material-symbols-outlined tw-text-lg">play_arrow</span>
+                    Ejecutar Análisis
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- BOTÓN FLOTANTE PARA ABRIR CONTROL -->
+    <button id="openControl"
+        class="tw-fixed tw-top-6 tw-left-6 tw-z-[500] tw-w-12 tw-h-12 tw-bg-white tw-text-primary tw-rounded-xl tw-shadow-xl tw-flex tw-items-center tw-justify-center hover:tw-scale-110 tw-transition-transform">
+        <span class="material-symbols-outlined">menu</span>
+    </button>
+
+    <!-- PANEL DE RESULTADOS (INFERIOR) -->
+    <div id="floatingResultsBtn" class="tw-fixed tw-bottom-6 tw-right-6 tw-z-[900] tw-hidden tw-animate-bounce">
+        <button onclick="openResultsModal()"
+            class="tw-bg-white tw-text-primary tw-px-6 tw-py-4 tw-rounded-full tw-shadow-2xl tw-font-black tw-text-xs tw-uppercase tw-tracking-widest tw-flex tw-items-center tw-gap-3 hover:tw-scale-105 tw-transition-transform border tw-border-gray-100">
+            <span class="tw-relative">
+                <span class="material-symbols-outlined">analytics</span>
+                <span
+                    class="tw-absolute -tw-top-1 -tw-right-1 tw-w-3 tw-h-3 tw-bg-green-500 tw-rounded-full tw-border-2 tw-border-white"></span>
+            </span>
+            Resultados Prueba
+            <span id="resultsBadgeCount"
+                class="tw-bg-primary tw-text-white tw-px-2 tw-py-0.5 tw-rounded-md tw-text-[10px]">0</span>
+        </button>
+    </div>
+
+    <!-- MODAL DE RESULTADOS (ESTILO GUINDA) -->
+    <div id="resultsModal" class="modal-overlay">
+        <div class="modal-container">
+            <!-- Modal Header -->
+            <div
+                class="tw-h-16 tw-bg-gradient-to-r tw-from-primary tw-to-[#4B0082] tw-flex tw-items-center tw-justify-between tw-px-6 tw-flex-shrink-0">
+                <div class="tw-flex tw-items-center tw-gap-4">
+                    <div class="tw-w-10 tw-h-10 tw-bg-white/10 tw-rounded-lg tw-flex tw-items-center tw-justify-center">
+                        <span class="material-symbols-outlined tw-text-white">science</span>
+                    </div>
+                    <div>
+                        <h2 class="tw-text-white tw-font-bold tw-text-sm tw-uppercase tw-tracking-wider">Resultados
+                            Prueba Dinámica</h2>
+                        <p class="tw-text-white/60 tw-text-[10px] tw-font-medium" id="totalElementsCount">Selecciona un
+                            KML para ver detalles</p>
+                    </div>
+                </div>
+                <div class="tw-flex tw-items-center tw-gap-3">
+                    <select id="kmlResultSelector"
+                        class="tw-bg-white/10 hover:tw-bg-white/20 tw-text-white tw-border-0 tw-rounded-lg tw-text-[10px] tw-font-bold tw-uppercase tw-px-3 tw-py-2 tw-cursor-pointer focus:tw-ring-0">
+                        <option value="all">Resumen Combinado</option>
+                    </select>
+
+                    <button onclick="closeResultsModal()"
+                        class="tw-w-8 tw-h-8 tw-rounded-full tw-bg-white/10 hover:tw-bg-white/20 tw-flex tw-items-center tw-justify-center tw-text-white tw-transition-colors">
+                        <span class="material-symbols-outlined tw-text-sm">close</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Modal Body -->
+            <div class="tw-flex tw-flex-1 tw-overflow-hidden">
+                <!-- Sidebar Filtros -->
+                <div
+                    class="tw-w-64 tw-bg-gray-50 tw-border-r tw-border-gray-100 tw-flex tw-flex-col tw-overflow-hidden">
+                    <div class="tw-p-4 tw-border-b tw-border-gray-100">
+                        <h3 class="tw-text-xs tw-font-black tw-text-gray-400 tw-uppercase tw-tracking-widest">Capas con
+                            Datos</h3>
+                    </div>
+                    <div class="tw-flex-1 tw-overflow-y-auto custom-scrollbar tw-p-3 tw-space-y-2" id="layerFilters">
+                        <!-- Filtros generados dinámicamente -->
+                    </div>
+                </div>
+
+                <!-- Contenido Tabla -->
+                <div class="tw-flex-1 tw-bg-white tw-flex tw-flex-col tw-overflow-hidden">
+                    <div class="tw-flex-1 tw-overflow-y-auto custom-scrollbar tw-p-6" id="layerResultsContainer">
+                        <!-- Tabla generada dinámicamente -->
+                        <div class="tw-h-full tw-flex tw-flex-col tw-items-center tw-justify-center tw-text-gray-300">
+                            <span class="material-symbols-outlined tw-text-6xl tw-mb-4">compare_arrows</span>
+                            <p class="tw-text-sm tw-font-medium">Selecciona un KML y una capa para ver los detalles</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- CONTROLES DE MAPA -->
+    <div class="tw-fixed tw-bottom-6 tw-left-6 tw-z-[400] tw-flex tw-flex-col tw-gap-2">
+        <div class="tw-bg-white tw-rounded-xl tw-shadow-lg tw-p-1 tw-border tw-border-gray-100">
+            <button onclick="map.setZoom(map.getZoom()+1)"
+                class="tw-w-10 tw-h-10 tw-flex tw-items-center tw-justify-center tw-text-gray-600 hover:tw-bg-gray-50 hover:tw-text-primary tw-rounded-lg tw-transition-colors">
+                <span class="material-symbols-outlined">add</span>
+            </button>
+            <button onclick="map.setZoom(map.getZoom()-1)"
+                class="tw-w-10 tw-h-10 tw-flex tw-items-center tw-justify-center tw-text-gray-600 hover:tw-bg-gray-50 hover:tw-text-primary tw-rounded-lg tw-transition-colors">
+                <span class="material-symbols-outlined">remove</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- LEYENDA FLOTANTE -->
+    <div id="mapLegend"
+        class="tw-fixed tw-bottom-6 tw-right-6 tw-bg-white/90 tw-backdrop-blur-sm tw-p-4 tw-rounded-xl tw-shadow-xl tw-border tw-border-gray-100 tw-z-[400] tw-hidden tw-max-w-xs tw-mb-20">
+        <h4 class="tw-text-[10px] tw-font-black tw-text-gray-400 tw-uppercase tw-mb-3 tw-tracking-widest">Simbología
+        </h4>
+        <div class="tw-space-y-2 tw-text-xs" id="legendItems"></div>
+    </div>
+
+    <!-- CONTROL LATERAL DE CAPAS (VISIBILIDAD RÁPIDA) -->
+    <div id="lateralLayerControl"
+        class="tw-fixed tw-right-4 tw-top-1/2 tw-transform -tw-translate-y-1/2 tw-bg-white/90 tw-backdrop-blur-md tw-p-2 tw-rounded-full tw-shadow-xl tw-border tw-border-gray-100 tw-z-[400] tw-flex tw-flex-col tw-gap-3 tw-hidden">
+        <!-- Generado dinámicamente -->
+    </div>
+
+    <!-- TOAST CONTAINER -->
+    <div id="toastContainer"></div>
+
+    <!-- SCRIPTS -->
+    <script>
+        // Control del Panel Lateral
+        const controlPanel = document.getElementById('controlPanel');
+        const openBtn = document.getElementById('openControl');
+        const closeBtn = document.getElementById('closeControlBtn');
+        const openControl = () => { controlPanel.classList.remove('-tw-translate-x-full'); openBtn.classList.add('tw-scale-0'); };
+        const closeControl = () => { controlPanel.classList.add('-tw-translate-x-full'); openBtn.classList.remove('tw-scale-0'); };
+        openBtn.addEventListener('click', openControl);
+        closeBtn.addEventListener('click', closeControl);
+        setTimeout(openControl, 500);
+    </script>
+    <script src="test_dynamic.js"></script>
+</body>
+
+</html>

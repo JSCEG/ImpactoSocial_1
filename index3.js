@@ -18,8 +18,6 @@ const kmlColors = [
 
 // URLs de datos (15 capas)
 const urls = {
-    localidades: 'https://cdn.sassoapps.com/Gabvy/localidades_4326.geojson',
-    localities_points: 'https://cdn.sassoapps.com/Gabvy/localidades_puntos.geojson',
     atlas: 'https://cdn.sassoapps.com/Gabvy/atlaspueblosindigenas.geojson',
     municipios: 'https://cdn.sassoapps.com/Gabvy/municipios_4326.geojson',
     regiones: 'https://cdn.sassoapps.com/Gabvy/regionesindigenas.geojson',
@@ -31,21 +29,115 @@ const urls = {
     ramsar: 'https://cdn.sassoapps.com/Gabvy/ramsar.geojson',
     sitio_arqueologico: 'https://cdn.sassoapps.com/Gabvy/sitio_arqueologico.geojson',
     z_historicos: 'https://cdn.sassoapps.com/Gabvy/z_historicos.geojson',
-    loc_indigenas_datos: 'https://cdn.sassoapps.com/Gabvy/loc_indigenas_datos.geojson',
-    rutaWixarika: 'https://cdn.sassoapps.com/Gabvy/rutaWixarika.geojson'
+    rutaWixarika: 'https://cdn.sassoapps.com/Gabvy/rutaWixarika.geojson',
+    localidades_base: 'https://cdn.sassoapps.com/Gabvy/capas/' // Base para carga dinámica
 };
+
+// --- STATE BOUNDING BOXES (INDEX SPATIAL) ---
+const STATE_BBOXES = {
+    'aguascalientes': [-102.87, 21.62, -101.85, 22.46],
+    'bajacalifornia': [-117.13, 27.99, -112.76, 32.72],
+    'bajacaliforniasur': [-115.09, 22.87, -109.41, 28.00],
+    'campeche': [-92.47, 17.81, -89.12, 20.84],
+    'coahuila': [-103.96, 24.54, -99.84, 29.88],
+    'colima': [-104.83, 18.68, -103.48, 19.52],
+    'chiapas': [-94.14, 14.53, -90.37, 17.98],
+    'chihuahua': [-109.07, 25.56, -103.31, 31.79],
+    'cdmx': [-99.36, 19.05, -98.94, 19.59],
+    'durango': [-107.21, 22.35, -102.47, 26.83],
+    'guanajuato': [-102.10, 19.91, -99.68, 21.82],
+    'guerrero': [-102.20, 16.31, -98.01, 18.88],
+    'hidalgo': [-99.87, 19.60, -97.98, 21.40],
+    'jalisco': [-105.70, 18.93, -101.51, 22.75],
+    'mexico': [-100.61, 18.36, -98.59, 20.28], // EdoMex
+    'michoacan': [-103.74, 17.91, -100.06, 20.39],
+    'morelos': [-99.50, 18.33, -98.65, 19.14],
+    'nayarit': [-105.76, 20.60, -103.72, 23.08],
+    'nuevoleon': [-100.99, 23.16, -98.42, 27.80],
+    'oaxaca': [-98.54, 15.66, -93.87, 18.65],
+    'puebla': [-99.07, 17.81, -96.73, 20.83],
+    'queretaro': [-100.61, 20.02, -99.03, 21.67],
+    'quintanaroo': [-89.37, 17.89, -86.72, 21.63],
+    'sanluispotosi': [-102.30, 21.16, -98.33, 24.48],
+    'sinaloa': [-109.47, 22.50, -105.38, 27.03],
+    'sonora': [-115.06, 26.29, -108.42, 32.50],
+    'tabasco': [-94.13, 17.25, -91.00, 18.65],
+    'tamaulipas': [-100.15, 22.21, -97.14, 27.67],
+    'tlaxcala': [-98.66, 19.11, -97.63, 19.74],
+    'veracruz': [-98.70, 17.13, -93.60, 22.47],
+    'yucatan': [-90.41, 19.55, -87.53, 21.62],
+    'zacatecas': [-104.36, 21.04, -100.72, 25.15]
+};
+
+async function getDynamicLocalities(kmlBounds) {
+    if (!kmlBounds) return { type: 'FeatureCollection', features: [] };
+
+    const kmlMinX = kmlBounds.getWest();
+    const kmlMinY = kmlBounds.getSouth();
+    const kmlMaxX = kmlBounds.getEast();
+    const kmlMaxY = kmlBounds.getNorth();
+
+    console.log(`[Dynamic] KML Bounds: [${kmlMinX}, ${kmlMinY}, ${kmlMaxX}, ${kmlMaxY}]`);
+
+    const intersectedStates = [];
+    for (const [state, bbox] of Object.entries(STATE_BBOXES)) {
+        if (kmlMaxX < bbox[0] || kmlMinX > bbox[2] || kmlMaxY < bbox[1] || kmlMinY > bbox[3]) {
+            continue;
+        }
+        intersectedStates.push(state);
+    }
+
+    if (intersectedStates.length === 0) {
+        console.warn('[Dynamic] No states intersected!');
+        return { type: 'FeatureCollection', features: [] };
+    }
+
+    console.log(`[Dynamic] Intersected States: ${intersectedStates.join(', ')}`);
+    // showAlert(`Cargando estados: ${intersectedStates.join(', ')}`, 'info');
+
+    const promises = intersectedStates.map(async state => {
+        const cacheKey = `loc_${state}`;
+        if (dataCache.has(cacheKey)) {
+            console.log(`[Dynamic] Using cached: ${state}`);
+            return dataCache.get(cacheKey);
+        }
+
+        const url = `${urls.localidades_base}loc_total${state}_4326.geojson`;
+        try {
+            console.log(`[Dynamic] Fetching: ${url}`);
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json();
+            dataCache.set(cacheKey, data);
+            return data;
+        } catch (e) {
+            console.error(`[Dynamic] Error loading ${state}:`, e);
+            showAlert(`Error cargando ${state}`, 'danger');
+            return null;
+        }
+    });
+
+    const results = await Promise.all(promises);
+    const allFeatures = [];
+    results.forEach(gj => {
+        if (gj && gj.features) {
+            allFeatures.push(...gj.features);
+        }
+    });
+
+    console.log(`[Dynamic] Total features merged: ${allFeatures.length}`);
+    return { type: 'FeatureCollection', features: allFeatures };
+}
 
 const dataCache = new Map();
 
 // Configuración de visualización para las 15 capas
 const LAYER_CONFIG = {
     localidades: { name: 'Localidades (Pol)', color: '#3b82f6', icon: 'layers' },
-    puntos: { name: 'Localidades (Pnt)', color: '#10b981', icon: 'location_on' },
     municipios: { name: 'Municipios', color: '#64748b', icon: 'map' },
     atlas: { name: 'Atlas Indígena', color: '#ff00ff', icon: 'temple_buddhist' },
     regiones: { name: 'Regiones Indígenas', color: '#ffa500', icon: 'public' },
     lenguas: { name: 'Lenguas Indígenas', color: '#00ffff', icon: 'translate' },
-    loc_ind: { name: 'Datos Indígenas', color: '#8000ff', icon: 'groups' },
     ruta: { name: 'Ruta Wixarika', color: '#ff8000', icon: 'alt_route' },
     ran: { name: 'Núcleos Agrarios', color: '#8B4513', icon: 'agriculture' },
     anp_estatal: { name: 'ANP Estatal', color: '#22c55e', icon: 'nature' },
@@ -374,12 +466,10 @@ async function performClipping() {
         const isChecked = (id) => document.querySelector(`input[value="${id}"]`)?.checked;
         const tasks = [
             { id: 'localidades', type: 'poly', key: 'localidades', urlKey: 'localidades' },
-            { id: 'puntos', type: 'point', key: 'puntos', urlKey: 'localities_points' },
             { id: 'municipios', type: 'poly', key: 'municipios', urlKey: 'municipios' },
             { id: 'atlas', type: 'point', key: 'atlas', urlKey: 'atlas' },
             { id: 'regiones', type: 'poly', key: 'regiones', urlKey: 'regiones' },
             { id: 'lenguas', type: 'point', key: 'lenguas', urlKey: 'lenguas' },
-            { id: 'loc_ind', type: 'point', key: 'loc_ind', urlKey: 'loc_indigenas_datos' },
             { id: 'ruta', type: 'poly', key: 'ruta', urlKey: 'rutaWixarika' },
             { id: 'ran', type: 'poly', key: 'ran', urlKey: 'ran' },
             { id: 'anp_estatal', type: 'poly', key: 'anp_estatal', urlKey: 'anp_estatal' },
@@ -411,7 +501,22 @@ async function performClipping() {
             updatePreloader(`PROCESANDO: ${config.name.toUpperCase()}`, Math.round(((i) / selectedTasks.length) * 100));
 
             // Descarga (con cache)
-            const layerData = await getLayerData(task.urlKey);
+            let layerData;
+            if (task.id === 'localidades' && kmlLayers.size > 0) {
+                // Para V3, calculamos el bound total de TODOS los KMLs
+                let globalBounds = null;
+                kmlLayers.forEach(d => {
+                    if (d.layer) {
+                        const b = d.layer.getBounds();
+                        if (!globalBounds) globalBounds = b;
+                        else globalBounds.extend(b);
+                    }
+                });
+                layerData = await getDynamicLocalities(globalBounds);
+            } else {
+                layerData = await getLayerData(task.urlKey);
+            }
+
             if (!layerData || !layerData.features.length) continue;
 
             // Aplicar a cada KML
